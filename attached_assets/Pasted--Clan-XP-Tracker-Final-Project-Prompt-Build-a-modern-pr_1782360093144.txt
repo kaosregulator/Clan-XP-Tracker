@@ -1,0 +1,334 @@
+# Clan XP Tracker — Final Project Prompt
+
+Build a modern, production-ready Discord bot with a companion website for tracking daily clan XP.
+
+The Discord bot is the primary way users interact with the system. The website is only used for setup, dashboards, settings, history, and statistics.
+
+---
+
+# Authentication
+
+Use Discord OAuth2 only.
+
+Do NOT create a registration system.
+
+Do NOT ask users to create usernames, passwords, or accounts.
+
+Discord authentication is only used to verify the user's identity and determine which Discord servers they can manage.
+
+After logging in, display only the Discord servers where the user has Administrator or Manage Server permissions.
+
+---
+
+# Clan System
+
+Every Discord server is one independent Clan.
+
+When the bot is invited for the first time, an administrator completes a setup wizard.
+
+Setup includes:
+
+* Clan Name
+* Clan Logo (optional)
+* Log Channel
+* Roles allowed to submit XP
+* Optional specific users allowed to submit XP
+* Proof Required (On/Off)
+
+Every Discord server has its own completely separate database.
+
+Never share data between Discord servers.
+
+A Discord user can belong to multiple clans, but their XP, history, warnings, and submissions are completely separate in each clan.
+
+---
+
+# Discord Commands
+
+Users
+
+/xp daily
+
+/xp total
+
+/xp history
+
+/xp leaderboard
+
+/xp profile
+
+/xp help
+
+Admins
+
+/xp setup
+
+/xp edit
+
+/xp remove
+
+/xp warn
+
+/xp warnings
+
+/xp unwarn
+
+/xp audit
+
+/xp settings
+
+/xp export
+
+---
+
+# Daily XP Submission
+
+Users submit their daily XP using:
+
+/xp daily
+
+Open a Discord Modal.
+
+Fields:
+
+* XP Earned Today
+* Alt Accounts Completed (optional)
+* Notes (optional)
+
+Users may submit once every 24 hours.
+
+If Proof Required is enabled:
+
+After submitting, the bot asks the user to upload screenshots directly in Discord.
+
+Requirements:
+
+* Accept image attachments.
+* Support multiple images.
+* Never ask for image URLs.
+* Never require users to paste links.
+* Automatically associate uploaded images with that XP submission.
+
+---
+
+# XP System
+
+Track:
+
+* Daily XP
+* Weekly XP
+* Monthly XP
+* All-Time XP
+
+Track Alt Accounts separately.
+
+Allow administrators to edit or remove XP entries when necessary.
+
+---
+
+# Leaderboards
+
+Every clan has its own independent leaderboards.
+
+Never combine multiple Discord servers.
+
+Leaderboards:
+
+* Daily
+* Weekly
+* Monthly
+* All-Time
+
+Only members from that Discord server appear.
+
+No global server leaderboard.
+
+---
+
+# User Profiles
+
+Each member has:
+
+* Discord Avatar
+* Username
+* Current XP
+* Daily XP
+* Weekly XP
+* Monthly XP
+* All-Time XP
+* Submission History
+* Alt Account History
+* Warning History
+
+---
+
+# Warnings
+
+Simple warning system.
+
+Admins can issue warnings for reasons such as:
+
+* Didn't submit XP
+* Missing proof
+* False submission
+* Other
+
+Commands:
+
+/xp warn @user
+
+/xp warnings @user
+
+/xp unwarn @user
+
+Warnings are stored in the user's audit history.
+
+---
+
+# Admin Audit
+
+Admins can audit any member.
+
+Audit includes:
+
+* XP History
+* Daily Submission History
+* Uploaded Images
+* Alt Account History
+* Warning History
+* Moderator Actions
+* Edit History
+
+Everything should be timestamped.
+
+---
+
+# Logging
+
+During setup, administrators choose one Log Channel.
+
+Automatically send rich Discord embeds for:
+
+* XP Submitted
+* XP Edited
+* XP Removed
+* Warning Issued
+* Warning Removed
+* Setup Changes
+* Permission Changes
+* Settings Changes
+
+Each log should include:
+
+* User
+* Moderator (when applicable)
+* XP Amount
+* Alt Count
+* Notes
+* Date & Time
+* Attached Images
+
+The log channel acts as a permanent audit trail.
+
+---
+
+# Website
+
+Landing Page
+
+* Home
+* Features
+* Invite Bot
+* Login with Discord
+* Documentation
+
+Dashboard
+
+* Clan Overview
+* XP Leaderboards
+* Member Profiles
+* Daily Logs
+* Statistics
+* Charts
+* Audit Logs
+* Warnings
+* Settings
+
+---
+
+# Emoji Support
+
+Support:
+
+* Unicode Emojis
+* Discord Custom Emojis
+* Animated Emojis
+
+Display emojis correctly on both Discord and the website.
+
+---
+
+# Ephemeral Responses
+
+Use ephemeral responses for:
+
+* Personal XP
+* Personal History
+* /xp daily confirmations
+* Setup Wizard
+* Settings
+* Audit Results
+* Warning History
+* Permission Errors
+* Admin confirmations
+
+Do NOT use ephemeral responses for:
+
+* Leaderboards
+* Help command
+* Log channel messages
+* Public announcements
+
+---
+
+# Design
+
+* Modern UI
+* Dark Theme
+* Mobile Friendly
+* Responsive
+* Fast
+* Clean
+* Professional appearance similar to MEE6 and Statbot
+
+---
+
+# Technical Requirements
+
+* Discord.js v14
+* Node.js
+* Express
+* PostgreSQL
+* Discord OAuth2
+* Per-server architecture
+* Automatic slash command registration
+* Secure permission system
+* Modular codebase
+* Production-ready
+* Railway compatible
+* Oracle Cloud compatible
+* Render compatible
+
+---
+
+# Development Rules
+
+* Discord is the primary interface.
+* The website is for management only.
+* Never create a separate account system.
+* Never ask users for image URLs.
+* Always use Discord attachments for proof.
+* Keep every Discord server completely isolated.
+* Use Discord embeds, buttons, select menus, and modals wherever possible.
+* Build clean, scalable, well-documented code with proper error handling.
+* Follow Discord API best practices.

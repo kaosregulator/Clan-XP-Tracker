@@ -3,20 +3,38 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Clan XP Tracker API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: guilds
+    description: Discord guild operations
+  - name: clans
+    description: Clan management
+  - name: members
+    description: Member operations
+  - name: leaderboard
+    description: Leaderboard operations
+  - name: submissions
+    description: XP submission operations
+  - name: warnings
+    description: Warning operations
+  - name: audit
+    description: Audit log operations
+  - name: stats
+    description: Statistics and analytics
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +42,432 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          description: Not authenticated
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logged out
+
+  /guilds:
+    get:
+      operationId: getGuilds
+      tags: [guilds]
+      summary: Get user's Discord guilds where they have admin permissions
+      responses:
+        "200":
+          description: List of guilds
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Guild"
+
+  /clans/{guildId}:
+    get:
+      operationId: getClan
+      tags: [clans]
+      summary: Get clan info for a guild
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Clan info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Clan"
+        "404":
+          description: Clan not found (not set up)
+
+  /clans/{guildId}/setup:
+    post:
+      operationId: setupClan
+      tags: [clans]
+      summary: Initial clan setup wizard
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClanSetupInput"
+      responses:
+        "201":
+          description: Clan created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Clan"
+
+  /clans/{guildId}/settings:
+    patch:
+      operationId: updateClanSettings
+      tags: [clans]
+      summary: Update clan settings
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClanSettingsUpdate"
+      responses:
+        "200":
+          description: Updated clan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Clan"
+
+  /clans/{guildId}/members:
+    get:
+      operationId: getMembers
+      tags: [members]
+      summary: List all members in a clan with their XP
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Members list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MembersPage"
+
+  /clans/{guildId}/members/{userId}:
+    get:
+      operationId: getMember
+      tags: [members]
+      summary: Get a specific member's profile
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Member profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberProfile"
+        "404":
+          description: Member not found
+
+  /clans/{guildId}/leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [leaderboard]
+      summary: Get clan leaderboard
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [daily, weekly, monthly, alltime]
+            default: weekly
+        - name: limit
+          in: query
+          schema: { type: integer, default: 25 }
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LeaderboardEntry"
+
+  /clans/{guildId}/submissions:
+    get:
+      operationId: getSubmissions
+      tags: [submissions]
+      summary: List XP submissions for a clan
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Submissions list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionsPage"
+
+  /clans/{guildId}/submissions/{submissionId}:
+    get:
+      operationId: getSubmission
+      tags: [submissions]
+      summary: Get a single submission
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: submissionId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Submission detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+        "404":
+          description: Not found
+
+    patch:
+      operationId: updateSubmission
+      tags: [submissions]
+      summary: Edit a submission (admin)
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: submissionId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmissionUpdate"
+      responses:
+        "200":
+          description: Updated submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+
+    delete:
+      operationId: deleteSubmission
+      tags: [submissions]
+      summary: Delete a submission (admin)
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: submissionId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
+  /clans/{guildId}/warnings:
+    get:
+      operationId: getWarnings
+      tags: [warnings]
+      summary: List warnings in a clan
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Warnings list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Warning"
+
+    post:
+      operationId: issueWarning
+      tags: [warnings]
+      summary: Issue a warning to a member
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarningInput"
+      responses:
+        "201":
+          description: Warning issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Warning"
+
+  /clans/{guildId}/warnings/{warningId}:
+    delete:
+      operationId: removeWarning
+      tags: [warnings]
+      summary: Remove a warning
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: warningId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Warning removed
+
+  /clans/{guildId}/audit:
+    get:
+      operationId: getAuditLogs
+      tags: [audit]
+      summary: Get audit logs for a clan
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: userId
+          in: query
+          schema: { type: string }
+        - name: action
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 30 }
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditLog"
+
+  /clans/{guildId}/stats:
+    get:
+      operationId: getClanStats
+      tags: [stats]
+      summary: Get clan statistics and chart data
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Clan stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClanStats"
+
+  /clans/{guildId}/activity:
+    get:
+      operationId: getRecentActivity
+      tags: [stats]
+      summary: Get recent XP activity feed
+      parameters:
+        - name: guildId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: Recent activity entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEntry"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +475,395 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    CurrentUser:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        discriminator:
+          type: string
+        avatar:
+          type: ["string", "null"]
+        avatarUrl:
+          type: string
+      required: [id, username, discriminator, avatarUrl]
+
+    Guild:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        icon:
+          type: ["string", "null"]
+        iconUrl:
+          type: ["string", "null"]
+        isSetUp:
+          type: boolean
+        memberCount:
+          type: ["integer", "null"]
+      required: [id, name, isSetUp]
+
+    Clan:
+      type: object
+      properties:
+        id:
+          type: integer
+        guildId:
+          type: string
+        guildName:
+          type: string
+        clanName:
+          type: string
+        clanLogoUrl:
+          type: ["string", "null"]
+        logChannelId:
+          type: ["string", "null"]
+        proofRequired:
+          type: boolean
+        allowedRoleIds:
+          type: array
+          items: { type: string }
+        allowedUserIds:
+          type: array
+          items: { type: string }
+        totalMembers:
+          type: integer
+        totalXpAllTime:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required: [id, guildId, guildName, clanName, proofRequired, allowedRoleIds, allowedUserIds, totalMembers, totalXpAllTime, createdAt, updatedAt]
+
+    ClanSetupInput:
+      type: object
+      properties:
+        clanName:
+          type: string
+          minLength: 1
+        clanLogoUrl:
+          type: ["string", "null"]
+        logChannelId:
+          type: ["string", "null"]
+        proofRequired:
+          type: boolean
+        allowedRoleIds:
+          type: array
+          items: { type: string }
+        allowedUserIds:
+          type: array
+          items: { type: string }
+      required: [clanName, proofRequired, allowedRoleIds, allowedUserIds]
+
+    ClanSettingsUpdate:
+      type: object
+      properties:
+        clanName:
+          type: string
+          minLength: 1
+        clanLogoUrl:
+          type: ["string", "null"]
+        logChannelId:
+          type: ["string", "null"]
+        proofRequired:
+          type: boolean
+        allowedRoleIds:
+          type: array
+          items: { type: string }
+        allowedUserIds:
+          type: array
+          items: { type: string }
+
+    Member:
+      type: object
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        displayName:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        xpDaily:
+          type: integer
+        xpWeekly:
+          type: integer
+        xpMonthly:
+          type: integer
+        xpAllTime:
+          type: integer
+        altXpAllTime:
+          type: integer
+        submissionsCount:
+          type: integer
+        warningsCount:
+          type: integer
+        lastSubmittedAt:
+          type: ["string", "null"]
+        joinedAt:
+          type: string
+      required: [userId, username, displayName, xpDaily, xpWeekly, xpMonthly, xpAllTime, altXpAllTime, submissionsCount, warningsCount, joinedAt]
+
+    MembersPage:
+      type: object
+      properties:
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required: [members, total, page, limit]
+
+    MemberProfile:
+      type: object
+      properties:
+        member:
+          $ref: "#/components/schemas/Member"
+        recentSubmissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Submission"
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Warning"
+        xpHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/XpHistoryPoint"
+      required: [member, recentSubmissions, warnings, xpHistory]
+
+    XpHistoryPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        xp:
+          type: integer
+      required: [date, xp]
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank:
+          type: integer
+        userId:
+          type: string
+        username:
+          type: string
+        displayName:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        xp:
+          type: integer
+        altXp:
+          type: integer
+        submissions:
+          type: integer
+        change:
+          type: ["integer", "null"]
+          description: Rank change from previous period
+      required: [rank, userId, username, displayName, xp, altXp, submissions]
+
+    Submission:
+      type: object
+      properties:
+        id:
+          type: integer
+        guildId:
+          type: string
+        userId:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        xpEarned:
+          type: integer
+        altAccountsCompleted:
+          type: integer
+        notes:
+          type: ["string", "null"]
+        proofImageUrls:
+          type: array
+          items: { type: string }
+        editedBy:
+          type: ["string", "null"]
+        editedAt:
+          type: ["string", "null"]
+        deletedAt:
+          type: ["string", "null"]
+        submittedAt:
+          type: string
+      required: [id, guildId, userId, username, xpEarned, altAccountsCompleted, proofImageUrls, submittedAt]
+
+    SubmissionsPage:
+      type: object
+      properties:
+        submissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Submission"
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required: [submissions, total, page, limit]
+
+    SubmissionUpdate:
+      type: object
+      properties:
+        xpEarned:
+          type: integer
+          minimum: 0
+        altAccountsCompleted:
+          type: integer
+          minimum: 0
+        notes:
+          type: ["string", "null"]
+        reason:
+          type: string
+          description: Reason for editing (logged in audit)
+
+    Warning:
+      type: object
+      properties:
+        id:
+          type: integer
+        guildId:
+          type: string
+        userId:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        issuedBy:
+          type: string
+        issuedByUsername:
+          type: string
+        reason:
+          type: string
+        issuedAt:
+          type: string
+        removedAt:
+          type: ["string", "null"]
+        removedBy:
+          type: ["string", "null"]
+      required: [id, guildId, userId, username, issuedBy, issuedByUsername, reason, issuedAt]
+
+    WarningInput:
+      type: object
+      properties:
+        userId:
+          type: string
+        reason:
+          type: string
+          minLength: 1
+      required: [userId, reason]
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+        guildId:
+          type: string
+        action:
+          type: string
+        targetUserId:
+          type: ["string", "null"]
+        targetUsername:
+          type: ["string", "null"]
+        moderatorId:
+          type: ["string", "null"]
+        moderatorUsername:
+          type: ["string", "null"]
+        details:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+      required: [id, guildId, action, createdAt]
+
+    ClanStats:
+      type: object
+      properties:
+        totalMembers:
+          type: integer
+        activeToday:
+          type: integer
+        activeThisWeek:
+          type: integer
+        totalXpToday:
+          type: integer
+        totalXpWeek:
+          type: integer
+        totalXpMonth:
+          type: integer
+        totalXpAllTime:
+          type: integer
+        avgXpPerMember:
+          type: integer
+        totalSubmissions:
+          type: integer
+        totalWarnings:
+          type: integer
+        xpChart:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChartDataPoint"
+        topContributors:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeaderboardEntry"
+      required: [totalMembers, activeToday, activeThisWeek, totalXpToday, totalXpWeek, totalXpMonth, totalXpAllTime, avgXpPerMember, totalSubmissions, totalWarnings, xpChart, topContributors]
+
+    ChartDataPoint:
+      type: object
+      properties:
+        date:
+          type: string
+        xp:
+          type: integer
+        submissions:
+          type: integer
+      required: [date, xp, submissions]
+
+    ActivityEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [submission, edit, delete, warning, warning_removed, setup_change]
+        userId:
+          type: string
+        username:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        xpAmount:
+          type: ["integer", "null"]
+        description:
+          type: string
+        timestamp:
+          type: string
+      required: [id, type, userId, username, description, timestamp]

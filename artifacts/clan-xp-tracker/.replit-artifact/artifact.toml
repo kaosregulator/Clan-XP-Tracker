@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Clan XP Tracker"
+version = "1.0.0"
+id = "artifacts/clan-xp-tracker"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22874
+
+[services.development]
+run = "pnpm --filter @workspace/clan-xp-tracker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/clan-xp-tracker", "run", "build" ]
+publicDir = "artifacts/clan-xp-tracker/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22874"
+BASE_PATH = "/"
