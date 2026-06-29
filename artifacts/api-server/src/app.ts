@@ -35,4 +35,13 @@ app.use(sessionMiddleware);
 
 app.use("/api", router);
 
+// Serve static frontend build in production
+const staticDir = new URL("../../clan-xp-tracker/dist/public", import.meta.url).pathname;
+app.use(express.static(staticDir));
+
+// SPA fallback — any unmatched route serves index.html
+app.use((req, res) => {
+  res.sendFile(staticDir + "/index.html");
+});
+
 export default app;
