@@ -6,8 +6,12 @@ const router = Router();
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID ?? "";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET ?? "";
+const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI ?? "";
 
 function getRedirectUri(req: { headers: { host?: string; "x-forwarded-proto"?: string } }) {
+  if (DISCORD_REDIRECT_URI) {
+    return DISCORD_REDIRECT_URI;
+  }
   const host = req.headers["x-forwarded-proto"]
     ? `${req.headers["x-forwarded-proto"]}://${req.headers.host}`
     : `http://${req.headers.host}`;
