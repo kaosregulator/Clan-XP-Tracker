@@ -1,10 +1,18 @@
 import session from "express-session";
+import pgSession from "connect-pg-simple";
 
 if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET environment variable is required");
 }
 
+const PgSession = pgSession(session);
+
 export const sessionMiddleware = session({
+  store: new PgSession({
+    conString: process.env.DATABASE_URL,
+    tableName: "connect_sessions",
+    createTableIfMissing: true,
+  }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,

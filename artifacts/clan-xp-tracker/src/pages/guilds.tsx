@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getGetMeQueryOptions, getGetGuildsQueryOptions } from "@workspace/api-client-react";
+import { getGetMeQueryOptions, getGetGuildsQueryOptions, customFetch } from "@workspace/api-client-react";
 import { getGuildIconUrl } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { Trophy, ChevronRight, Plus, LogOut } from "lucide-react";
@@ -127,8 +127,13 @@ export default function GuildsPage() {
                   Invite the ClanXP bot to a new Discord server.
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => {
-                window.open("https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot+applications.commands&permissions=2147485696", "_blank");
+              <Button variant="outline" size="sm" onClick={async () => {
+                try {
+                  const res = await customFetch<{ inviteUrl: string }>('/api/auth/invite-url');
+                  if (res.inviteUrl) window.open(res.inviteUrl, "_blank");
+                } catch {
+                  window.open("https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2147485696", "_blank");
+                }
               }}>
                 Invite Bot
               </Button>
