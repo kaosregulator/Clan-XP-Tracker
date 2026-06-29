@@ -1,7 +1,14 @@
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 export function loginWithDiscord() {
-  window.location.href = `${BASE}/api/auth/discord`;
+  const url = `${BASE}/api/auth/discord`;
+  try {
+    // Break out of any iframe (Replit preview, etc)
+    window.top!.location.href = url;
+  } catch {
+    // Cross-origin iframe fallback
+    window.location.href = url;
+  }
 }
 
 export function getDiscordAvatarUrl(
