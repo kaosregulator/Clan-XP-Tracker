@@ -21,3 +21,8 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+DISCORD_REDIRECT_URI = "https://clan-xp-tracker--guestacount107.replit.app/api/auth/callback"
