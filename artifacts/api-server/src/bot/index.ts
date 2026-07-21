@@ -4,6 +4,7 @@ import { commands } from "./commands";
 import { routeInteraction } from "./router";
 import { handleSubmissionMessage } from "./features/submit";
 import { ensureFonts } from "./canvas/fonts";
+import { startScheduler } from "./scheduler";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -43,6 +44,7 @@ export function startBot() {
     } catch (err) {
       logger.error({ err }, "Failed to register slash commands");
     }
+    startScheduler(c);
   });
 
   client.on(Events.InteractionCreate, (interaction) => {

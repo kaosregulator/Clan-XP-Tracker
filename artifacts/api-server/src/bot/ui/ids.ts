@@ -67,6 +67,10 @@ export const SETUP_LOG_CHANNEL = id(NS.setup, "logChannel");
 export const SETUP_STAFF_ROLES = id(NS.setup, "staffRoles");
 export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
 export const SETUP_BACK = id(NS.setup, "back");
+export const SETUP_DASHBOARDS = id(NS.setup, "dashboards");
+export const SETUP_STAFF_DASH = id(NS.setup, "staffDash");
+export const SETUP_CLAN_DASH = id(NS.setup, "clanDash");
+export const SETUP_PATRIOT_DASH = id(NS.setup, "patriotDash");
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);

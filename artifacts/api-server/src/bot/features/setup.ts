@@ -40,6 +40,10 @@ import {
   SETUP_LOG_CHANNEL,
   SETUP_STAFF_ROLES,
   SETUP_WARN_ROLES,
+  SETUP_DASHBOARDS,
+  SETUP_STAFF_DASH,
+  SETUP_CLAN_DASH,
+  SETUP_PATRIOT_DASH,
   parseId,
 } from "../ui/ids";
 
@@ -109,7 +113,8 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(SETUP_CHANNELS, "Channels", ButtonStyle.Primary),
-      b(SETUP_ROLES, "Roles", ButtonStyle.Primary)
+      b(SETUP_ROLES, "Roles", ButtonStyle.Primary),
+      b(SETUP_DASHBOARDS, "Dashboards", ButtonStyle.Primary)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(SETUP_CREATE_CHANNELS, "Auto-create channels"),
@@ -152,6 +157,35 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
       menu(SETUP_SUB_CHANNEL, "Submission channel", clan.submissionChannelId),
       menu(SETUP_REVIEW_CHANNEL, "Review channel", clan.reviewChannelId),
       menu(SETUP_LOG_CHANNEL, "Log channel", clan.logChannelId),
+      backRow(),
+    ],
+  };
+}
+
+function dashboardsPayload(clan: Clan): BaseMessageOptions {
+  const menu = (cid: string, placeholder: string, current?: string | null) =>
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ChannelSelectMenuBuilder()
+        .setCustomId(cid)
+        .setPlaceholder(placeholder)
+        .setChannelTypes(ChannelType.GuildText)
+        .setMinValues(1)
+        .setMaxValues(1)
+        .setDefaultChannels(current ? [current] : [])
+    );
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("📊 Dashboards")
+        .setDescription(
+          "Auto-updating canvas boards (refreshed every few minutes).\n**Clan** — public progress & top streaks.\n**Staff** — private operations board.\n**Patriot** — alt-account board (optional)."
+        ),
+    ],
+    components: [
+      menu(SETUP_CLAN_DASH, "Clan (public) dashboard channel", clan.clanDashboardChannelId),
+      menu(SETUP_STAFF_DASH, "Staff dashboard channel", clan.staffDashboardChannelId),
+      menu(SETUP_PATRIOT_DASH, "Patriot dashboard channel", clan.patriotDashboardChannelId),
       backRow(),
     ],
   };
@@ -323,6 +357,8 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return interaction.update(channelsPayload(clan));
     case "roles":
       return interaction.update(rolesPayload(clan));
+    case "dashboards":
+      return interaction.update(dashboardsPayload(clan));
     case "back":
       return interaction.update(setupMainPayload(clan));
     case "createChannels":
@@ -393,11 +429,15 @@ export async function handleSetupSelect(
       subChannel: "submissionChannelId",
       reviewChannel: "reviewChannelId",
       logChannel: "logChannelId",
+      staffDash: "staffDashboardChannelId",
+      clanDash: "clanDashboardChannelId",
+      patriotDash: "patriotDashboardChannelId",
     };
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: channelId });
     const fresh = (await getClan(clan.guildId)) ?? clan;
-    await interaction.update(channelsPayload(fresh));
+    const isDash = action === "staffDash" || action === "clanDash" || action === "patriotDash";
+    await interaction.update(isDash ? dashboardsPayload(fresh) : channelsPayload(fresh));
     return;
   }
 

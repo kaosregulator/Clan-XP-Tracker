@@ -9,6 +9,11 @@ export async function getClan(guildId: string): Promise<Clan | null> {
   return clan ?? null;
 }
 
+/** All clans that have completed setup (used by the scheduler & dashboards). */
+export async function activeClans(): Promise<Clan[]> {
+  return db.select().from(clansTable).where(eq(clansTable.setupComplete, true));
+}
+
 /** Ensure a clan row exists for the guild, creating a default one if needed. */
 export async function ensureClan(guildId: string, guildName: string): Promise<Clan> {
   const existing = await getClan(guildId);

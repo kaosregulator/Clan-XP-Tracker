@@ -51,6 +51,19 @@ export function nextReset(clan: Pick<Clan, "timezone" | "resetTime">, from: Date
   return reset.toDate();
 }
 
+/** Current wall-clock time in the clan timezone as "HH:mm". */
+export function localHm(clan: Pick<Clan, "timezone">, at: Date = new Date()): string {
+  return dayjs(at).tz(safeZone(clan.timezone)).format("HH:mm");
+}
+
+/** Minutes remaining until the next reset. */
+export function minutesUntilReset(
+  clan: Pick<Clan, "timezone" | "resetTime">,
+  from: Date = new Date()
+): number {
+  return Math.round((nextReset(clan, from).getTime() - from.getTime()) / 60000);
+}
+
 /** The moment the current activity day began (the most recent reset). */
 export function currentDayStart(clan: Pick<Clan, "timezone" | "resetTime">, from: Date = new Date()): Date {
   return dayjs(nextReset(clan, from)).subtract(1, "day").toDate();
