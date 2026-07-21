@@ -11,6 +11,7 @@ import {
 } from "../services/submissions";
 import { listAccounts } from "../services/accounts";
 import { logAction } from "../services/logging";
+import { runExtraction, extractionEnabled } from "../services/extraction";
 import { postReviewCard } from "./review";
 import { submitAccountPicker } from "./accounts";
 
@@ -91,6 +92,19 @@ export async function handleSubmissionMessage(message: Message): Promise<void> {
     }
     if (!submission) {
       submission = await createPendingSubmission({ clan, identity, notes: note, proofImageUrls: urls });
+    }
+
+    // Optional screenshot data extraction (OCR / verification). No-op unless an
+    // extractor is registered; when it runs we re-read the submission so the
+    // review card can show the detected fields.
+    if (extractionEnabled() && submission) {
+      await runExtraction({
+        clan,
+        submission,
+        imageUrls: urls,
+        activityName: clan.activityName || "XP",
+      });
+      submission = (await getSubmission(submission.id)) ?? submission;
     }
 
     await postReviewCard(message.client, clan, submission);

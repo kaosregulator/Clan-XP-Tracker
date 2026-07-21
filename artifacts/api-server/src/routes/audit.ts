@@ -9,7 +9,7 @@ const router = Router();
 
 router.get("/clans/:guildId/audit", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const userId = req.query.userId as string | undefined;
     const action = req.query.action as string | undefined;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);

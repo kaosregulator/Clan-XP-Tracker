@@ -18,7 +18,7 @@ function serializeWarning(w: typeof warningsTable.$inferSelect) {
 
 router.get("/clans/:guildId/warnings", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const userId = req.query.userId as string | undefined;
 
     const conditions = [
@@ -49,7 +49,7 @@ const WarningInputSchema = z.object({
 
 router.post("/clans/:guildId/warnings", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const parsed = WarningInputSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input" });
@@ -96,7 +96,7 @@ router.post("/clans/:guildId/warnings", requireAuth, async (req, res) => {
 
 router.delete("/clans/:guildId/warnings/:warningId", requireAuth, async (req, res) => {
   try {
-    const { guildId, warningId } = req.params;
+    const { guildId, warningId } = req.params as Record<string, string>;
 
     const [warning] = await db
       .select()

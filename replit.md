@@ -47,6 +47,10 @@ Roblox-first in its defaults (activity "XP", game "Roblox", "Open Roblox" button
   - `services/` — reusable DB/domain services (config, time, members/streaks, submissions, warnings, reminders, logging, stats)
   - `features/` — hub/submit/review/setup/adminHub/misc flows
   - `ui/` — customId registry (`ids.ts`) + component builders (`components.ts`)
+  - `services/extraction.ts` — pluggable screenshot data-extraction seam (no-op by
+    default). Call `setExtractor()` with an OCR/Roblox-verification implementation and
+    every submission's screenshot is run through it; results land on
+    `xp_submissions.extracted` and show on the review card. Zero cost until enabled.
 - `artifacts/api-server/src/routes/` — API route handlers
 - `artifacts/clan-xp-tracker/src/` — React frontend
 - `artifacts/clan-xp-tracker/src/pages/` — All pages (landing, guilds, dashboard/*)
@@ -81,7 +85,7 @@ _None yet_
 - **Bot requires the Message Content privileged intent** (enabled in the Discord Developer Portal) so it can read screenshot attachments posted in the submission channel. It also uses Server Members intent.
 - Canvas text uses **bundled OFL fonts** (Outfit + JetBrains Mono) registered explicitly — never rely on system fonts (a bare container has none). Avoid emoji in canvas (no color-emoji font); use drawn shapes or Latin glyphs.
 - `build.mjs` externalizes `@napi-rs/canvas` (native module) and copies `src/bot/canvas/assets` → `dist/assets` so fonts resolve at runtime relative to the bundle.
-- The api-server `typecheck` script has **pre-existing** failures in the legacy web routes (Express-5 `req.params` typing); the deploy builds via esbuild (`build.mjs`), which does not typecheck. The bot code is type-clean.
+- The whole workspace typechecks clean (`pnpm run typecheck`) and `pnpm run build` passes end-to-end. Note the frontend/root build needs `PORT` and `BASE_PATH` env vars (the vite config asserts them). Legacy web routes read `req.params as Record<string, string>` because Express-5 types param values as `string | string[]`.
 
 ## Pointers
 
