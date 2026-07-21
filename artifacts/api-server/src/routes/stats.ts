@@ -9,7 +9,7 @@ const router = Router();
 
 router.get("/clans/:guildId/stats", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
 
     const now = new Date();
     const todayStart = new Date(now);
@@ -142,7 +142,7 @@ router.get("/clans/:guildId/stats", requireAuth, async (req, res) => {
 
 router.get("/clans/:guildId/activity", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
 
     const logs = await db

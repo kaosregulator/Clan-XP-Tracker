@@ -33,7 +33,7 @@ async function getClanWithStats(guildId: string) {
 
 router.get("/clans/:guildId", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const clan = await getClanWithStats(guildId);
     if (!clan) {
       res.status(404).json({ error: "Clan not found" });
@@ -63,7 +63,7 @@ const ClanSetupSchema = z.object({
 
 router.post("/clans/:guildId/setup", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const parsed = ClanSetupSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input" });
@@ -121,7 +121,7 @@ const ClanSettingsUpdateSchema = z.object({
 
 router.patch("/clans/:guildId/settings", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const parsed = ClanSettingsUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input" });

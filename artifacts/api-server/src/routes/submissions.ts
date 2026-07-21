@@ -20,7 +20,7 @@ function serializeSubmission(s: typeof xpSubmissionsTable.$inferSelect) {
 
 router.get("/clans/:guildId/submissions", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
     const userId = req.query.userId as string | undefined;
@@ -61,7 +61,7 @@ router.get("/clans/:guildId/submissions", requireAuth, async (req, res) => {
 
 router.get("/clans/:guildId/submissions/:submissionId", requireAuth, async (req, res) => {
   try {
-    const { guildId, submissionId } = req.params;
+    const { guildId, submissionId } = req.params as Record<string, string>;
     const [submission] = await db
       .select()
       .from(xpSubmissionsTable)
@@ -87,7 +87,7 @@ const UpdateSubmissionSchema = z.object({
 
 router.patch("/clans/:guildId/submissions/:submissionId", requireAuth, async (req, res) => {
   try {
-    const { guildId, submissionId } = req.params;
+    const { guildId, submissionId } = req.params as Record<string, string>;
     const parsed = UpdateSubmissionSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid input" });
@@ -145,7 +145,7 @@ router.patch("/clans/:guildId/submissions/:submissionId", requireAuth, async (re
 
 router.delete("/clans/:guildId/submissions/:submissionId", requireAuth, async (req, res) => {
   try {
-    const { guildId, submissionId } = req.params;
+    const { guildId, submissionId } = req.params as Record<string, string>;
 
     const [existing] = await db
       .select()

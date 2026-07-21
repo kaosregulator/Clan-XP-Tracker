@@ -18,7 +18,7 @@ function serializeMember(m: typeof clanMembersTable.$inferSelect) {
 
 router.get("/clans/:guildId/members", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
     const search = req.query.search as string | undefined;
@@ -55,7 +55,7 @@ router.get("/clans/:guildId/members", requireAuth, async (req, res) => {
 
 router.get("/clans/:guildId/members/:userId", requireAuth, async (req, res) => {
   try {
-    const { guildId, userId } = req.params;
+    const { guildId, userId } = req.params as Record<string, string>;
 
     const [member] = await db
       .select()

@@ -9,7 +9,7 @@ const router = Router();
 
 router.get("/clans/:guildId/leaderboard", requireAuth, async (req, res) => {
   try {
-    const { guildId } = req.params;
+    const { guildId } = req.params as Record<string, string>;
     const period = (req.query.period as string) || "weekly";
     const limit = Math.min(100, parseInt(req.query.limit as string) || 25);
 
