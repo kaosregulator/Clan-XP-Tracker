@@ -9,16 +9,65 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+/**
+ * A "clan" is one Discord guild's configuration row. It carries both the
+ * identity of the community and every setting the setup wizard writes.
+ *
+ * The product is Roblox-first in its defaults (activity "XP", game "Roblox"),
+ * but every game-facing label is a plain setting, so another community can
+ * point it at any game/link without code changes.
+ */
 export const clansTable = pgTable("clans", {
   id: serial("id").primaryKey(),
   guildId: text("guild_id").notNull().unique(),
   guildName: text("guild_name").notNull(),
+
+  // Identity
   clanName: text("clan_name").notNull(),
   clanLogoUrl: text("clan_logo_url"),
+
+  // Game / activity configuration (Roblox-first defaults, fully configurable)
+  activityName: text("activity_name").notNull().default("XP"),
+  gameName: text("game_name").notNull().default("Roblox"),
+  gameUrl: text("game_url"),
+
+  // Daily requirement. `dailyGoal` is the display target (e.g. 20000 XP);
+  // a day is "complete" for an account when it has an approved submission
+  // for that day. 0 means "no numeric target, just submit daily".
+  dailyGoal: integer("daily_goal").notNull().default(0),
+
+  // Scheduling — all reminder/reset math is done in this timezone.
+  timezone: text("timezone").notNull().default("UTC"),
+  resetTime: text("reset_time").notNull().default("00:00"), // HH:mm
+  reminderTimes: text("reminder_times").array().notNull().default([]), // ["18:00","22:00"]
+
+  // Channels
+  submissionChannelId: text("submission_channel_id"),
+  reviewChannelId: text("review_channel_id"),
   logChannelId: text("log_channel_id"),
-  proofRequired: boolean("proof_required").notNull().default(false),
+  staffDashboardChannelId: text("staff_dashboard_channel_id"),
+  clanDashboardChannelId: text("clan_dashboard_channel_id"),
+  patriotDashboardChannelId: text("patriot_dashboard_channel_id"),
+
+  // Roles
+  staffRoleIds: text("staff_role_ids").array().notNull().default([]),
+  warningRoleIds: text("warning_role_ids").array().notNull().default([]),
+  reminderRoleId: text("reminder_role_id"),
+
+  // Patriot / Guardian (alt account) system. null max = unlimited.
+  altAccountsEnabled: boolean("alt_accounts_enabled").notNull().default(false),
+  maxAltAccounts: integer("max_alt_accounts"),
+
+  // Behaviour
+  proofRequired: boolean("proof_required").notNull().default(true),
+  dmOnApprove: boolean("dm_on_approve").notNull().default(false),
+  dmOnWarn: boolean("dm_on_warn").notNull().default(true),
+  setupComplete: boolean("setup_complete").notNull().default(false),
+
+  // Legacy access controls (kept for the existing web dashboard)
   allowedRoleIds: text("allowed_role_ids").array().notNull().default([]),
   allowedUserIds: text("allowed_user_ids").array().notNull().default([]),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
