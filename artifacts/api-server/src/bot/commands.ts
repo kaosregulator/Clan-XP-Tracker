@@ -48,4 +48,18 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addUserOption((o) => o.setName("user").setDescription("Whose warnings to view").setRequired(false))
     .setDMPermission(false)
     .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("report")
+    .setDescription("Weekly or monthly activity report (staff)")
+    .addStringOption((o) =>
+      o
+        .setName("period")
+        .setDescription("Reporting period")
+        .setRequired(false)
+        .addChoices({ name: "Weekly", value: "week" }, { name: "Monthly", value: "month" })
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString())
+    .setDMPermission(false)
+    .toJSON(),
 ];

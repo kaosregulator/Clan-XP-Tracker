@@ -1,6 +1,7 @@
 import {
   EmbedBuilder,
   ActionRowBuilder,
+  AttachmentBuilder,
   StringSelectMenuBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
@@ -10,10 +11,11 @@ import type { Clan } from "@workspace/db";
 import { getClan, isStaff } from "../services/config";
 import { recentForUser } from "../services/submissions";
 import { listActive, removeWarning } from "../services/warnings";
-import { streakLeaderboard } from "../services/stats";
+import { streakLeaderboard, periodReport } from "../services/stats";
 import { formatInZone } from "../services/time";
+import { renderReportCard } from "../canvas/cards/reportCard";
 import { buildMemberHub, notConfiguredMessage } from "./hub";
-import { warnRemoveSelect, parseId } from "../ui/ids";
+import { warnRemoveSelect } from "../ui/ids";
 
 async function requireClan(interaction: ChatInputCommandInteraction): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
@@ -123,6 +125,38 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   }
 
   await interaction.editReply({ embeds: [embed], components });
+}
+
+/** /report [period] — staff weekly/monthly activity report card. */
+export async function handleReport(interaction: ChatInputCommandInteraction) {
+  const clan = await requireClan(interaction);
+  if (!clan || !interaction.inCachedGuild()) return;
+  if (!isStaff(interaction.member, clan)) {
+    await interaction.reply({ content: "Reports are for staff only.", flags: 64 });
+    return;
+  }
+  await interaction.deferReply();
+
+  const period = interaction.options.getString("period") ?? "week";
+  const days = period === "month" ? 30 : 7;
+  const report = await periodReport(clan, days);
+
+  const since = new Date(Date.now() - days * 86_400_000);
+  const png = renderReportCard({
+    communityName: clan.clanName,
+    activityName: clan.activityName || "XP",
+    periodLabel: period === "month" ? "Monthly" : "Weekly",
+    rangeLabel: `${formatInZone(since, clan, "MMM D")} – ${formatInZone(new Date(), clan, "MMM D")}`,
+    submissions: report.submissions,
+    approved: report.approved,
+    approvalRate: report.approvalRate,
+    activeMembers: report.activeMembers,
+    reminders: report.reminders,
+    warnings: report.warnings,
+    top: report.top,
+  });
+
+  await interaction.editReply({ files: [new AttachmentBuilder(png, { name: "report.png" })] });
 }
 
 /** Handle removal selection from /warnings. */

@@ -42,7 +42,7 @@ Roblox-first in its defaults (activity "XP", game "Roblox", "Open Roblox" button
 - `artifacts/api-server/src/bot/` — Discord bot, modular:
   - `index.ts` — client, intents, command registration, event wiring
   - `router.ts` — single interaction dispatcher (by customId namespace)
-  - `commands.ts` — slash command definitions (`/setup /xp /xpadmin /profile /leaderboard /warnings`)
+  - `commands.ts` — slash command definitions (`/setup /xp /xpadmin /profile /leaderboard /warnings /report`)
   - `canvas/` — canvas engine: `theme.ts` primitives, bundled OFL fonts in `canvas/assets/fonts`, `canvas/cards/*` renderers
   - `services/` — reusable DB/domain services (config, time, members/streaks, submissions, warnings, reminders, logging, stats)
   - `features/` — hub/submit/review/setup/adminHub/misc flows
