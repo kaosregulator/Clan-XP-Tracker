@@ -9,6 +9,7 @@ import {
   XP_SUBMIT,
   XP_PROGRESS,
   XP_HISTORY,
+  XP_ACCOUNTS,
   ADMIN_QUEUE,
   ADMIN_MISSING,
   ADMIN_LEADERBOARD,
@@ -35,23 +36,21 @@ export function memberHubComponents(clan: Clan): Row[] {
     .setLabel(`Open ${clan.gameName || "Game"}`)
     .setURL(clan.gameUrl || DEFAULT_GAME_URL);
 
-  return [
-    row(
-      launch,
-      new ButtonBuilder()
-        .setCustomId(XP_SUBMIT)
-        .setStyle(ButtonStyle.Success)
-        .setLabel(`Submit ${clan.activityName || "XP"}`),
-      new ButtonBuilder()
-        .setCustomId(XP_PROGRESS)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("My Progress"),
-      new ButtonBuilder()
-        .setCustomId(XP_HISTORY)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("History")
-    ),
+  const buttons = [
+    launch,
+    new ButtonBuilder()
+      .setCustomId(XP_SUBMIT)
+      .setStyle(ButtonStyle.Success)
+      .setLabel(`Submit ${clan.activityName || "XP"}`),
+    new ButtonBuilder().setCustomId(XP_PROGRESS).setStyle(ButtonStyle.Secondary).setLabel("My Progress"),
+    new ButtonBuilder().setCustomId(XP_HISTORY).setStyle(ButtonStyle.Secondary).setLabel("History"),
   ];
+  if (clan.altAccountsEnabled) {
+    buttons.push(
+      new ButtonBuilder().setCustomId(XP_ACCOUNTS).setStyle(ButtonStyle.Secondary).setLabel("My Accounts")
+    );
+  }
+  return [row(...buttons)];
 }
 
 /** Buttons for the /xpadmin staff hub. */

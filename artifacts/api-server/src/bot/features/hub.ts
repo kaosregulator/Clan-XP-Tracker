@@ -11,10 +11,12 @@ import { ensureMember, identityFromUser, getMember, getClan, isStaff } from "../
 import { todayStatus, recentForUser } from "../services/submissions";
 import { relative, formatInZone } from "../services/time";
 import { fetchAvatar } from "../canvas/theme";
-import { renderMemberHub, type DayState } from "../canvas/cards/memberHub";
+import { renderMemberHub, type DayState, type AccountRow } from "../canvas/cards/memberHub";
 import { memberHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { handleSubmitButton } from "./submit";
+import { accountStatesToday } from "../services/accounts";
+import { handleAccountsButton, handleAddAccountButton } from "./accounts";
 
 /**
  * Build the full /xp member hub message (canvas image + buttons) for a user.
@@ -28,6 +30,12 @@ export async function buildMemberHub(clan: Clan, user: User, displayName?: strin
 
   const reviewed = member.approvedCount + member.rejectedCount;
   const approvalRate = reviewed > 0 ? member.approvedCount / reviewed : 0;
+
+  let accounts: AccountRow[] | undefined;
+  if (clan.altAccountsEnabled) {
+    const states = await accountStatesToday(clan, user.id);
+    if (states.length > 1) accounts = states.map((s) => ({ label: s.account.label, state: s.state }));
+  }
 
   const png = renderMemberHub({
     communityName: clan.clanName,
@@ -43,6 +51,7 @@ export async function buildMemberHub(clan: Clan, user: User, displayName?: strin
     approvalRate,
     totalApproved: member.approvedCount,
     lastActivity: member.lastApprovedAt ? relative(member.lastApprovedAt) : "never",
+    accounts,
   });
 
   return {
@@ -104,6 +113,10 @@ export async function handleXpButton(interaction: ButtonInteraction) {
   switch (action) {
     case "submit":
       return handleSubmitButton(interaction, clan);
+    case "accounts":
+      return handleAccountsButton(interaction, clan);
+    case "addAccount":
+      return handleAddAccountButton(interaction);
     case "refresh": {
       await interaction.deferUpdate();
       const payload = await buildMemberHub(clan, interaction.user, interaction.member.displayName);

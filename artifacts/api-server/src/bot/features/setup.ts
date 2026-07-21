@@ -64,7 +64,9 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
     .addFields(
       {
         name: `${check(clan.clanName)} Identity & Goal`,
-        value: `Community **${clan.clanName}** · Activity **${clan.activityName}** · Daily goal **${clan.dailyGoal || "—"}**`,
+        value:
+          `Community **${clan.clanName}** · Activity **${clan.activityName}** · Daily goal **${clan.dailyGoal || "—"}**` +
+          `\nAlt accounts: **${clan.altAccountsEnabled ? (clan.maxAltAccounts ? `max ${clan.maxAltAccounts}` : "unlimited") : "off"}**`,
         inline: false,
       },
       {
@@ -250,6 +252,14 @@ function identityModal(clan: Clan) {
           .setStyle(TextInputStyle.Short)
           .setValue(String(clan.dailyGoal))
           .setRequired(false)
+      ),
+      row(
+        new TextInputBuilder()
+          .setCustomId("altAccounts")
+          .setLabel("Alt accounts (blank=off, 0=unlimited, N=max)")
+          .setStyle(TextInputStyle.Short)
+          .setValue(clan.altAccountsEnabled ? String(clan.maxAltAccounts ?? 0) : "")
+          .setRequired(false)
       )
     );
 }
@@ -379,10 +389,15 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
   let patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {};
   if (action === "identityModal") {
     const goal = parseInt(f("dailyGoal").replace(/[^0-9]/g, ""), 10);
+    const altRaw = f("altAccounts").trim();
+    const altEnabled = altRaw !== "";
+    const altMax = altEnabled ? parseInt(altRaw.replace(/[^0-9]/g, ""), 10) || 0 : 0;
     patch = {
       clanName: f("clanName").trim() || clan.clanName,
       activityName: f("activityName").trim() || "XP",
       dailyGoal: Number.isFinite(goal) ? goal : 0,
+      altAccountsEnabled: altEnabled,
+      maxAltAccounts: altEnabled && altMax > 0 ? altMax : null,
     };
   } else if (action === "gameModal") {
     const url = f("gameUrl").trim();

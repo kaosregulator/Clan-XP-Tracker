@@ -11,6 +11,11 @@ import {
   handleWarnRemoveSelect,
 } from "./features/misc";
 import {
+  handleAddAccountModal,
+  handleRemoveAccountSelect,
+  handleSubmitAccountSelect,
+} from "./features/accounts";
+import {
   handleApprove,
   handleRejectButton,
   handleRejectModal,
@@ -71,6 +76,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     if (interaction.isModalSubmit()) {
       const { ns, action } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
+      if (ns === NS.xp && action === "addAccountModal")
+        return void (await handleAddAccountModal(interaction));
       if (ns === NS.review) {
         if (action === "rejectModal") return void (await handleRejectModal(interaction));
         if (action === "warnModal") return void (await handleWarnModal(interaction));
@@ -85,8 +92,12 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     }
 
     if (interaction.isStringSelectMenu()) {
-      const { ns } = parseId(interaction.customId);
+      const { ns, action } = parseId(interaction.customId);
       if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));
+      if (ns === NS.xp) {
+        if (action === "removeAccount") return void (await handleRemoveAccountSelect(interaction));
+        if (action === "submitAccount") return void (await handleSubmitAccountSelect(interaction));
+      }
       return;
     }
   } catch (err) {

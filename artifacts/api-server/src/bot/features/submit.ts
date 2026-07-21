@@ -5,9 +5,16 @@ import { getClan, identityFromUser, ensureMember } from "../services/config";
 import {
   createPendingSubmission,
   hasSubmissionToday,
+  latestPendingAwaitingProof,
+  setProof,
+  getSubmission,
 } from "../services/submissions";
+import { listAccounts } from "../services/accounts";
 import { logAction } from "../services/logging";
 import { postReviewCard } from "./review";
+import { submitAccountPicker } from "./accounts";
+
+const PROOF_LINK_WINDOW_MS = 30 * 60_000;
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;
 
@@ -26,6 +33,15 @@ export async function handleSubmitButton(interaction: ButtonInteraction, clan: C
       flags: 64,
     });
     return;
+  }
+
+  // With alt accounts enabled and more than one account, offer an account picker.
+  if (clan.altAccountsEnabled && interaction.inCachedGuild()) {
+    const accounts = await listAccounts(clan.guildId, interaction.user.id);
+    if (accounts.length > 1) {
+      await interaction.reply({ ...(await submitAccountPicker(clan, interaction.user.id)), flags: 64 });
+      return;
+    }
   }
 
   const already = await hasSubmissionToday(clan, interaction.user.id);
@@ -63,12 +79,19 @@ export async function handleSubmissionMessage(message: Message): Promise<void> {
     await ensureMember(clan.guildId, identity);
 
     const note = message.content?.trim().slice(0, 1000) || null;
-    const submission = await createPendingSubmission({
-      clan,
-      identity,
-      notes: note,
-      proofImageUrls: images.map((a) => a.url),
-    });
+    const urls = images.map((a) => a.url);
+
+    // If the member started an account-tagged submission via the picker, attach
+    // the screenshot to that pending record; otherwise create a fresh one.
+    let submission = null;
+    const awaiting = await latestPendingAwaitingProof(clan.guildId, message.author.id);
+    if (awaiting && Date.now() - awaiting.submittedAt.getTime() <= PROOF_LINK_WINDOW_MS) {
+      await setProof(awaiting.id, urls);
+      submission = await getSubmission(awaiting.id);
+    }
+    if (!submission) {
+      submission = await createPendingSubmission({ clan, identity, notes: note, proofImageUrls: urls });
+    }
 
     await postReviewCard(message.client, clan, submission);
 

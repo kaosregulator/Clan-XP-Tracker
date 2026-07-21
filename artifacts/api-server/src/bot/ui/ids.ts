@@ -31,6 +31,11 @@ export const XP_SUBMIT = id(NS.xp, "submit");
 export const XP_PROGRESS = id(NS.xp, "progress");
 export const XP_HISTORY = id(NS.xp, "history");
 export const XP_REFRESH = id(NS.xp, "refresh");
+export const XP_ACCOUNTS = id(NS.xp, "accounts");
+export const XP_ADD_ACCOUNT = id(NS.xp, "addAccount");
+export const XP_ADD_ACCOUNT_MODAL = id(NS.xp, "addAccountModal");
+export const XP_REMOVE_ACCOUNT = id(NS.xp, "removeAccount");
+export const XP_SUBMIT_ACCOUNT = id(NS.xp, "submitAccount");
 
 // Submission modal
 export const MODAL_SUBMIT = id(NS.xp, "submitModal");
