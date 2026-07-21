@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -33,6 +33,8 @@ async function buildAll() {
       "better-sqlite3",
       "sqlite3",
       "canvas",
+      "@napi-rs/canvas",
+      "@napi-rs/canvas-*",
       "bcrypt",
       "argon2",
       "fsevents",
@@ -118,6 +120,15 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // Canvas fonts are loaded from disk at runtime; esbuild does not copy
+  // static assets, so mirror them next to the bundle. Runtime code resolves
+  // them relative to import.meta.url (dist/index.mjs -> dist/assets/fonts).
+  await cp(
+    path.resolve(artifactDir, "src/bot/canvas/assets"),
+    path.resolve(distDir, "assets"),
+    { recursive: true }
+  );
 }
 
 buildAll().catch((err) => {

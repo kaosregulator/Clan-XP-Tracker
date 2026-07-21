@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
+import DocsPage from "@/pages/docs";
 import GuildsPage from "@/pages/guilds";
 import AuthCallbackPage from "@/pages/auth-callback";
 import OverviewPage from "@/pages/dashboard/overview";
@@ -35,6 +36,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={LandingPage} />
+      <Route path="/docs" component={DocsPage} />
       <Route path="/guilds" component={GuildsPage} />
       <Route path="/auth/callback" component={AuthCallbackPage} />
 
