@@ -12,6 +12,9 @@ function getRedirectUri(req: { headers: { host?: string; "x-forwarded-proto"?: s
   if (DISCORD_REDIRECT_URI) {
     return DISCORD_REDIRECT_URI;
   }
+  if (process.env.REPLIT_DEV_DOMAIN) {
+    return `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/callback`;
+  }
   const host = req.headers["x-forwarded-proto"]
     ? `${req.headers["x-forwarded-proto"]}://${req.headers.host}`
     : `http://${req.headers.host}`;
