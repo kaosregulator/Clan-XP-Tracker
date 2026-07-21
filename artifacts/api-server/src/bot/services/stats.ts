@@ -129,6 +129,79 @@ export async function missingMembers(
   return [...rows, ...nullRows.filter((r) => !seen.has(r.userId))].slice(0, limit);
 }
 
+export interface PeriodReport {
+  days: number;
+  submissions: number;
+  approved: number;
+  rejected: number;
+  pending: number;
+  approvalRate: number;
+  activeMembers: number;
+  reminders: number;
+  warnings: number;
+  top: { name: string; approved: number }[];
+}
+
+/** Aggregate activity over the last `days` for a weekly/monthly report card. */
+export async function periodReport(clan: Clan, days: number): Promise<PeriodReport> {
+  const since = new Date(Date.now() - days * 86_400_000);
+  const inPeriod = and(
+    eq(xpSubmissionsTable.guildId, clan.guildId),
+    gte(xpSubmissionsTable.submittedAt, since),
+    isNull(xpSubmissionsTable.deletedAt)
+  );
+
+  const [agg, distinct, topRows, rem, warn] = await Promise.all([
+    db
+      .select({
+        submissions: sql<number>`count(*)::int`,
+        approved: sql<number>`count(*) filter (where ${xpSubmissionsTable.status} = 'approved')::int`,
+        rejected: sql<number>`count(*) filter (where ${xpSubmissionsTable.status} = 'rejected')::int`,
+        pending: sql<number>`count(*) filter (where ${xpSubmissionsTable.status} = 'pending')::int`,
+      })
+      .from(xpSubmissionsTable)
+      .where(inPeriod),
+    db
+      .select({ count: sql<number>`count(distinct ${xpSubmissionsTable.userId})::int` })
+      .from(xpSubmissionsTable)
+      .where(inPeriod),
+    db
+      .select({
+        userId: xpSubmissionsTable.userId,
+        username: xpSubmissionsTable.username,
+        approved: sql<number>`count(*)::int`,
+      })
+      .from(xpSubmissionsTable)
+      .where(and(inPeriod, eq(xpSubmissionsTable.status, "approved")))
+      .groupBy(xpSubmissionsTable.userId, xpSubmissionsTable.username)
+      .orderBy(desc(sql`count(*)`))
+      .limit(5),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(remindersTable)
+      .where(and(eq(remindersTable.guildId, clan.guildId), gte(remindersTable.createdAt, since))),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(warningsTable)
+      .where(and(eq(warningsTable.guildId, clan.guildId), gte(warningsTable.issuedAt, since))),
+  ]);
+
+  const a = agg[0] ?? { submissions: 0, approved: 0, rejected: 0, pending: 0 };
+  const reviewed = a.approved + a.rejected;
+  return {
+    days,
+    submissions: a.submissions,
+    approved: a.approved,
+    rejected: a.rejected,
+    pending: a.pending,
+    approvalRate: reviewed > 0 ? a.approved / reviewed : 0,
+    activeMembers: distinct[0]?.count ?? 0,
+    reminders: rem[0]?.count ?? 0,
+    warnings: warn[0]?.count ?? 0,
+    top: topRows.map((t) => ({ name: t.username, approved: t.approved })),
+  };
+}
+
 export async function streakLeaderboard(guildId: string, limit = 10): Promise<LeaderRow[]> {
   return db
     .select({
