@@ -9,6 +9,7 @@ const COMMANDS: [string, string][] = [
   ["/profile [user]", "A canvas profile card with streaks, approval %, warnings and recent activity."],
   ["/leaderboard", "The current streak leaderboard."],
   ["/warnings [user]", "View warnings; staff can remove them from a menu."],
+  ["/report [period]", "Staff weekly/monthly activity report card."],
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
