@@ -4,6 +4,7 @@ import {
   serial,
   integer,
   timestamp,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -32,6 +33,10 @@ export const xpSubmissionsTable = pgTable("xp_submissions", {
   status: text("status").notNull().default("pending"),
   notes: text("notes"),
   proofImageUrls: text("proof_image_urls").array().notNull().default([]),
+
+  // Optional data extracted from the screenshot (e.g. OCR). Null until an
+  // extractor is registered; shape is provider-defined (see services/extraction).
+  extracted: jsonb("extracted").$type<Record<string, unknown>>(),
 
   // Review metadata
   reviewedBy: text("reviewed_by"),

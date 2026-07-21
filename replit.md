@@ -47,6 +47,10 @@ Roblox-first in its defaults (activity "XP", game "Roblox", "Open Roblox" button
   - `services/` — reusable DB/domain services (config, time, members/streaks, submissions, warnings, reminders, logging, stats)
   - `features/` — hub/submit/review/setup/adminHub/misc flows
   - `ui/` — customId registry (`ids.ts`) + component builders (`components.ts`)
+  - `services/extraction.ts` — pluggable screenshot data-extraction seam (no-op by
+    default). Call `setExtractor()` with an OCR/Roblox-verification implementation and
+    every submission's screenshot is run through it; results land on
+    `xp_submissions.extracted` and show on the review card. Zero cost until enabled.
 - `artifacts/api-server/src/routes/` — API route handlers
 - `artifacts/clan-xp-tracker/src/` — React frontend
 - `artifacts/clan-xp-tracker/src/pages/` — All pages (landing, guilds, dashboard/*)

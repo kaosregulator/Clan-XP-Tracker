@@ -44,6 +44,16 @@ export function buildReviewEmbed(clan: Clan, sub: XpSubmission): EmbedBuilder {
     .setFooter({ text: `Submission #${sub.id} • ${formatInZone(sub.submittedAt, clan)}` });
 
   if (sub.notes) embed.addFields({ name: "Note", value: sub.notes.slice(0, 1024) });
+  if (sub.extracted) {
+    const { provider, confidence, ...fields } = sub.extracted as Record<string, unknown>;
+    const detected = Object.entries(fields)
+      .map(([k, v]) => `${k}: **${String(v)}**`)
+      .join(" · ");
+    if (detected) {
+      const conf = typeof confidence === "number" ? ` (${Math.round(confidence * 100)}%)` : "";
+      embed.addFields({ name: `Detected${conf}`, value: detected.slice(0, 1024) });
+    }
+  }
   if (sub.proofImageUrls[0]) embed.setImage(sub.proofImageUrls[0]);
   if (sub.reviewedByUsername) {
     embed.addFields({
