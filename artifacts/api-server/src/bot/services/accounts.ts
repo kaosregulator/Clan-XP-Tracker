@@ -1,4 +1,4 @@
-import { db, trackedAccountsTable, xpSubmissionsTable } from "@workspace/db";
+import { db, trackedAccountsTable, xpSubmissionsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, TrackedAccount } from "@workspace/db";
 import { eq, and, isNull, asc, desc } from "drizzle-orm";
 import { activityDate } from "./time";
@@ -93,4 +93,92 @@ export async function accountStatesToday(
         : "missing";
     return { account, state };
   });
+}
+
+export interface PatriotRow {
+  userId: string;
+  name: string;
+  accounts: { label: string; state: AccountState }[];
+}
+
+export interface PatriotOverview {
+  rows: PatriotRow[];
+  members: number;
+  totalAccounts: number;
+  completedAccounts: number;
+}
+
+/**
+ * Guild-wide view of members who manage multiple accounts (a non-main account),
+ * with today's per-account state — powers the Patriot/Guardian dashboard.
+ * Computed from two queries + in-memory grouping to avoid N+1.
+ */
+export async function patriotOverview(clan: Clan): Promise<PatriotOverview> {
+  const today = activityDate(clan);
+  const [accounts, subs, names] = await Promise.all([
+    db
+      .select()
+      .from(trackedAccountsTable)
+      .where(and(eq(trackedAccountsTable.guildId, clan.guildId), eq(trackedAccountsTable.active, true)))
+      .orderBy(desc(trackedAccountsTable.isMain), asc(trackedAccountsTable.id)),
+    db
+      .select({
+        userId: xpSubmissionsTable.userId,
+        status: xpSubmissionsTable.status,
+        accountId: xpSubmissionsTable.accountId,
+      })
+      .from(xpSubmissionsTable)
+      .where(
+        and(
+          eq(xpSubmissionsTable.guildId, clan.guildId),
+          eq(xpSubmissionsTable.activityDate, today),
+          isNull(xpSubmissionsTable.deletedAt)
+        )
+      ),
+    db
+      .select({ userId: clanMembersTable.userId, displayName: clanMembersTable.displayName })
+      .from(clanMembersTable)
+      .where(eq(clanMembersTable.guildId, clan.guildId)),
+  ]);
+
+  const nameByUser = new Map(names.map((n) => [n.userId, n.displayName]));
+  const byUser = new Map<string, TrackedAccount[]>();
+  for (const a of accounts) {
+    const list = byUser.get(a.userId) ?? [];
+    list.push(a);
+    byUser.set(a.userId, list);
+  }
+
+  const stateFor = (userId: string, account: TrackedAccount): AccountState => {
+    const mine = subs.filter(
+      (s) => s.userId === userId && (s.accountId === account.id || (account.isMain && s.accountId == null))
+    );
+    if (mine.some((s) => s.status === "approved")) return "done";
+    if (mine.some((s) => s.status === "pending")) return "pending";
+    return "missing";
+  };
+
+  const rows: PatriotRow[] = [];
+  let totalAccounts = 0;
+  let completedAccounts = 0;
+  for (const [userId, accs] of byUser) {
+    // Patriots = members responsible for more than their single main account.
+    if (accs.length < 2) continue;
+    const accountStates = accs.map((a) => {
+      const state = stateFor(userId, a);
+      totalAccounts++;
+      if (state === "done") completedAccounts++;
+      return { label: a.label, state };
+    });
+    rows.push({ userId, name: nameByUser.get(userId) ?? "Unknown", accounts: accountStates });
+  }
+
+  // Most incomplete first, so staff see who needs attention.
+  rows.sort(
+    (a, b) =>
+      a.accounts.filter((x) => x.state === "done").length / a.accounts.length -
+      b.accounts.filter((x) => x.state === "done").length / b.accounts.length
+  );
+
+  return { rows, members: rows.length, totalAccounts, completedAccounts };
 }
