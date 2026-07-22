@@ -44,6 +44,8 @@ import {
   SETUP_STAFF_DASH,
   SETUP_CLAN_DASH,
   SETUP_PATRIOT_DASH,
+  SETUP_TRACKER_CHANNEL,
+  SETUP_REQUIRED_ROLE,
   parseId,
 } from "../ui/ids";
 
@@ -66,7 +68,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         name: `${check(clan.clanName)} Identity & Goal`,
         value:
           `Community **${clan.clanName}** · Activity **${clan.activityName}** · Daily goal **${clan.dailyGoal || "—"}**` +
-          `\nAlt accounts: **${clan.altAccountsEnabled ? (clan.maxAltAccounts ? `max ${clan.maxAltAccounts}` : "unlimited") : "off"}**`,
+          `\nAlt accounts: **${clan.altAccountsEnabled ? (clan.maxAltAccounts ? `max ${clan.maxAltAccounts}` : "unlimited") : "off"}** · Submissions: **${clan.autoApprove ? "auto-approved" : "staff review"}**`,
         inline: false,
       },
       {
@@ -85,6 +87,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
           `Submissions: ${clan.submissionChannelId ? `<#${clan.submissionChannelId}>` : "_not set_"}`,
           `Review: ${clan.reviewChannelId ? `<#${clan.reviewChannelId}>` : "_not set_"}`,
           `Logs: ${clan.logChannelId ? `<#${clan.logChannelId}>` : "_not set_"}`,
+          `Tracker: ${clan.trackerChannelId ? `<#${clan.trackerChannelId}>` : "_not set_"}`,
         ].join("\n"),
         inline: false,
       },
@@ -93,6 +96,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         value: [
           `Staff: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_admins only_"}`,
           `Warning: ${clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
+          `Required: ${clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "_everyone tracked_"}`,
         ].join("\n"),
         inline: false,
       }
@@ -185,6 +189,7 @@ function dashboardsPayload(clan: Clan): BaseMessageOptions {
         ),
     ],
     components: [
+      menu(SETUP_TRACKER_CHANNEL, "Admin progress tracker channel", clan.trackerChannelId),
       menu(SETUP_CLAN_DASH, "Clan (public) dashboard channel", clan.clanDashboardChannelId),
       menu(SETUP_STAFF_DASH, "Staff dashboard channel", clan.staffDashboardChannelId),
       menu(SETUP_PATRIOT_DASH, "Patriot dashboard channel", clan.patriotDashboardChannelId),
@@ -203,18 +208,28 @@ function rolesPayload(clan: Clan): BaseMessageOptions {
         .setMaxValues(max)
         .setDefaultRoles(current)
     );
+  const singleRole = (cid: string, placeholder: string, current?: string | null) =>
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new RoleSelectMenuBuilder()
+        .setCustomId(cid)
+        .setPlaceholder(placeholder)
+        .setMinValues(0)
+        .setMaxValues(1)
+        .setDefaultRoles(current ? [current] : [])
+    );
   return {
     embeds: [
       new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("🛡️ Roles")
         .setDescription(
-          "**Staff** — can review submissions & use /xpadmin.\n**Warning** — auto-assigned when a member is warned."
+          "**Staff** — can review & use /xpadmin.\n**Warning** — auto-assigned on warn.\n**Required** — members who must submit (the tracker's denominator)."
         ),
     ],
     components: [
       menu(SETUP_STAFF_ROLES, "Staff roles", clan.staffRoleIds),
       menu(SETUP_WARN_ROLES, "Warning roles", clan.warningRoleIds),
+      singleRole(SETUP_REQUIRED_ROLE, "Required role (must submit)", clan.requiredRoleId),
       backRow(),
     ],
   };
@@ -259,6 +274,14 @@ function identityModal(clan: Clan) {
           .setLabel("Alt accounts (blank=off, 0=unlimited, N=max)")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.altAccountsEnabled ? String(clan.maxAltAccounts ?? 0) : "")
+          .setRequired(false)
+      ),
+      row(
+        new TextInputBuilder()
+          .setCustomId("autoApprove")
+          .setLabel("Auto-approve? yes = instant, no = staff review")
+          .setStyle(TextInputStyle.Short)
+          .setValue(clan.autoApprove ? "yes" : "no")
           .setRequired(false)
       )
     );
@@ -392,12 +415,15 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
     const altRaw = f("altAccounts").trim();
     const altEnabled = altRaw !== "";
     const altMax = altEnabled ? parseInt(altRaw.replace(/[^0-9]/g, ""), 10) || 0 : 0;
+    const autoRaw = f("autoApprove").trim().toLowerCase();
+    const autoApprove = !(autoRaw === "no" || autoRaw === "n" || autoRaw === "false" || autoRaw === "review");
     patch = {
       clanName: f("clanName").trim() || clan.clanName,
       activityName: f("activityName").trim() || "XP",
       dailyGoal: Number.isFinite(goal) ? goal : 0,
       altAccountsEnabled: altEnabled,
       maxAltAccounts: altEnabled && altMax > 0 ? altMax : null,
+      autoApprove,
     };
   } else if (action === "gameModal") {
     const url = f("gameUrl").trim();
@@ -447,12 +473,13 @@ export async function handleSetupSelect(
       staffDash: "staffDashboardChannelId",
       clanDash: "clanDashboardChannelId",
       patriotDash: "patriotDashboardChannelId",
+      trackerChannel: "trackerChannelId",
     };
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: channelId });
     const fresh = (await getClan(clan.guildId)) ?? clan;
-    const isDash = action === "staffDash" || action === "clanDash" || action === "patriotDash";
-    await interaction.update(isDash ? dashboardsPayload(fresh) : channelsPayload(fresh));
+    const dashActions = ["staffDash", "clanDash", "patriotDash", "trackerChannel"];
+    await interaction.update(dashActions.includes(action) ? dashboardsPayload(fresh) : channelsPayload(fresh));
     return;
   }
 
@@ -460,6 +487,7 @@ export async function handleSetupSelect(
     const roleIds = [...interaction.values];
     if (action === "staffRoles") await updateClan(clan.guildId, { staffRoleIds: roleIds });
     if (action === "warnRoles") await updateClan(clan.guildId, { warningRoleIds: roleIds });
+    if (action === "requiredRole") await updateClan(clan.guildId, { requiredRoleId: roleIds[0] ?? null });
     const fresh = (await getClan(clan.guildId)) ?? clan;
     await interaction.update(rolesPayload(fresh));
   }
@@ -513,16 +541,18 @@ async function autoCreateChannels(interaction: ButtonInteraction, clan: Clan) {
     const submissions = await mk("submissions");
     const review = await mk("review-queue", true);
     const logs = await mk("logs", true);
+    const tracker = await mk("xp-tracker", true);
 
     const updated =
       (await updateClan(clan.guildId, {
         submissionChannelId: submissions.id,
         reviewChannelId: review.id,
         logChannelId: logs.id,
+        trackerChannelId: tracker.id,
       })) ?? clan;
 
     await interaction.editReply({
-      content: `✅ Created ${submissions}, ${review} and ${logs}. Reopen /setup to see the summary.`,
+      content: `✅ Created ${submissions}, ${review}, ${logs} and ${tracker}. Reopen /setup to see the summary.`,
     });
     // Also refresh the original wizard message if possible.
     await interaction.message?.edit(setupMainPayload(updated)).catch(() => {});

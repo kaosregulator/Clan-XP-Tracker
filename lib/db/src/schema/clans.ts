@@ -60,9 +60,17 @@ export const clansTable = pgTable("clans", {
 
   // Behaviour
   proofRequired: boolean("proof_required").notNull().default(true),
+  // When true, submissions count immediately (no staff approval). When false,
+  // they enter the review queue for approve/reject.
+  autoApprove: boolean("auto_approve").notNull().default(true),
   dmOnApprove: boolean("dm_on_approve").notNull().default(false),
   dmOnWarn: boolean("dm_on_warn").notNull().default(true),
   setupComplete: boolean("setup_complete").notNull().default(false),
+
+  // The role whose members are REQUIRED to submit (the tracker denominator).
+  requiredRoleId: text("required_role_id"),
+  // Channel holding the live admin progress tracker embed.
+  trackerChannelId: text("tracker_channel_id"),
 
   // Legacy access controls (kept for the existing web dashboard)
   allowedRoleIds: text("allowed_role_ids").array().notNull().default([]),

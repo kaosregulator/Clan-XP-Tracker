@@ -13,7 +13,7 @@ import {
   toPng,
 } from "../theme";
 
-export type DayState = "done" | "pending" | "missing";
+export type DayState = "done" | "pending" | "missing" | "vacation";
 
 export interface AccountRow {
   label: string;
@@ -34,6 +34,7 @@ export interface MemberHubView {
   approvalRate: number; // 0..1
   totalApproved: number;
   lastActivity: string;
+  vacations?: number;
   accounts?: AccountRow[];
 }
 
@@ -41,6 +42,7 @@ const STATUS_META: Record<DayState, { label: string; color: string; sub: string 
   done: { label: "Complete", color: PALETTE.greenBright, sub: "You're done for today" },
   pending: { label: "In Review", color: PALETTE.amber, sub: "Waiting on staff approval" },
   missing: { label: "Not Submitted", color: PALETTE.red, sub: "Submit before today's reset" },
+  vacation: { label: "On Vacation", color: PALETTE.cyan, sub: "Marked as away today" },
 };
 
 /** Renders the /xp member hub as a PNG buffer. */
@@ -164,7 +166,8 @@ export function renderMemberHub(view: MemberHubView): Buffer {
 
   // Footer meta
   const footY = tilesY + tileH + 34;
-  text(ctx, `${view.totalApproved} approved • Last activity ${view.lastActivity}`, pad, footY, {
+  const vac = view.vacations && view.vacations > 0 ? ` • ${view.vacations} vacation` : "";
+  text(ctx, `${view.totalApproved} approved${vac} • Last activity ${view.lastActivity}`, pad, footY, {
     size: 17,
     color: PALETTE.muted,
   });
@@ -182,9 +185,10 @@ const STATE_COLOR: Record<DayState, string> = {
   done: PALETTE.greenBright,
   pending: PALETTE.amber,
   missing: PALETTE.red,
+  vacation: PALETTE.cyan,
 };
 // Glyphs restricted to characters present in the bundled font (no emoji/tofu).
-const STATE_GLYPH: Record<DayState, string> = { done: "✓", pending: "•", missing: "×" };
+const STATE_GLYPH: Record<DayState, string> = { done: "✓", pending: "•", missing: "×", vacation: "~" };
 
 function drawAccountGrid(
   ctx: import("@napi-rs/canvas").SKRSContext2D,

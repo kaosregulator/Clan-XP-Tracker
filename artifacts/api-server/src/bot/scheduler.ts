@@ -7,6 +7,7 @@ import { missingMembers, todaySnapshot } from "./services/stats";
 import { pendingQueue } from "./services/submissions";
 import { sendReminder, reminderSentToday } from "./services/reminders";
 import { refreshDashboards } from "./features/dashboard";
+import { refreshTracker } from "./features/tracker";
 
 const TICK_MS = 60_000;
 const MAX_DMS_PER_WINDOW = 40;
@@ -115,7 +116,10 @@ async function tick(client: Client) {
         await runReminderWindow(client, clan, hhmm, dateKey);
       }
       await runStaffMonitoring(client, clan);
-      if (dueForDashboards) await refreshDashboards(client, clan).catch(() => {});
+      if (dueForDashboards) {
+        await refreshDashboards(client, clan).catch(() => {});
+        await refreshTracker(client, clan).catch(() => {});
+      }
     } catch (err) {
       logger.error({ err, guild: clan.guildId }, "Scheduler tick failed for clan");
     }

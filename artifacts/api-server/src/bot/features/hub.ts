@@ -10,11 +10,13 @@ import type { Clan } from "@workspace/db";
 import { ensureMember, identityFromUser, getMember, getClan, isStaff } from "../services/config";
 import { todayStatus, recentForUser } from "../services/submissions";
 import { relative, formatInZone } from "../services/time";
+import { onVacationToday, recordVacation } from "../services/vacations";
 import { fetchAvatar } from "../canvas/theme";
 import { renderMemberHub, type DayState, type AccountRow } from "../canvas/cards/memberHub";
 import { memberHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { handleSubmitButton } from "./submit";
+import { scheduleTrackerRefresh } from "./tracker";
 import { accountStatesToday } from "../services/accounts";
 import { handleAccountsButton, handleAddAccountButton } from "./accounts";
 
@@ -25,7 +27,8 @@ import { handleAccountsButton, handleAddAccountButton } from "./accounts";
 export async function buildMemberHub(clan: Clan, user: User, displayName?: string): Promise<BaseMessageOptions> {
   const identity = identityFromUser(user, displayName);
   const member = await ensureMember(clan.guildId, identity);
-  const status: DayState = await todayStatus(clan, user.id);
+  let status: DayState = await todayStatus(clan, user.id);
+  if (status === "missing" && (await onVacationToday(clan, user.id))) status = "vacation";
   const avatar = await fetchAvatar(identity.avatarUrl);
 
   const reviewed = member.approvedCount + member.rejectedCount;
@@ -51,6 +54,7 @@ export async function buildMemberHub(clan: Clan, user: User, displayName?: strin
     approvalRate,
     totalApproved: member.approvedCount,
     lastActivity: member.lastApprovedAt ? relative(member.lastApprovedAt) : "never",
+    vacations: member.vacationCount,
     accounts,
   });
 
@@ -113,6 +117,8 @@ export async function handleXpButton(interaction: ButtonInteraction) {
   switch (action) {
     case "submit":
       return handleSubmitButton(interaction, clan);
+    case "vacation":
+      return handleVacation(interaction, clan);
     case "accounts":
       return handleAccountsButton(interaction, clan);
     case "addAccount":
@@ -139,4 +145,18 @@ export async function handleXpButton(interaction: ButtonInteraction) {
     default:
       return;
   }
+}
+
+/** Vacation button — records a negative "can't do it today" mark. */
+async function handleVacation(interaction: ButtonInteraction, clan: Clan) {
+  if (!interaction.inCachedGuild()) return;
+  const identity = identityFromUser(interaction.user, interaction.member.displayName);
+  const { recorded } = await recordVacation(clan, identity);
+  if (recorded) scheduleTrackerRefresh(interaction.client, clan);
+  await interaction.reply({
+    content: recorded
+      ? `🏝️ You're marked **on vacation** for today. This is logged and counts against your record — it does not complete the day.`
+      : `You're already marked on vacation for today.`,
+    flags: 64,
+  });
 }

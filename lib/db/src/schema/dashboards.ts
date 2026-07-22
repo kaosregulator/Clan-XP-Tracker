@@ -8,7 +8,7 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const DASHBOARD_TYPES = ["staff", "clan", "patriot"] as const;
+export const DASHBOARD_TYPES = ["staff", "clan", "patriot", "tracker"] as const;
 export type DashboardType = (typeof DASHBOARD_TYPES)[number];
 
 /**

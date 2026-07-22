@@ -10,6 +10,7 @@ import {
   XP_PROGRESS,
   XP_HISTORY,
   XP_ACCOUNTS,
+  XP_VACATION,
   ADMIN_QUEUE,
   ADMIN_MISSING,
   ADMIN_LEADERBOARD,
@@ -36,21 +37,25 @@ export function memberHubComponents(clan: Clan): Row[] {
     .setLabel(`Open ${clan.gameName || "Game"}`)
     .setURL(clan.gameUrl || DEFAULT_GAME_URL);
 
-  const buttons = [
+  // Row 1: the actions. Row 2: navigation.
+  const primary = [
     launch,
     new ButtonBuilder()
       .setCustomId(XP_SUBMIT)
       .setStyle(ButtonStyle.Success)
       .setLabel(`Submit ${clan.activityName || "XP"}`),
+    new ButtonBuilder().setCustomId(XP_VACATION).setStyle(ButtonStyle.Secondary).setLabel("Vacation"),
+  ];
+  const secondary = [
     new ButtonBuilder().setCustomId(XP_PROGRESS).setStyle(ButtonStyle.Secondary).setLabel("My Progress"),
     new ButtonBuilder().setCustomId(XP_HISTORY).setStyle(ButtonStyle.Secondary).setLabel("History"),
   ];
   if (clan.altAccountsEnabled) {
-    buttons.push(
+    secondary.push(
       new ButtonBuilder().setCustomId(XP_ACCOUNTS).setStyle(ButtonStyle.Secondary).setLabel("My Accounts")
     );
   }
-  return [row(...buttons)];
+  return [row(...primary), row(...secondary)];
 }
 
 /** Buttons for the /xpadmin staff hub. */

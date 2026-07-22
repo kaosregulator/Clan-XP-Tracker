@@ -37,6 +37,9 @@ export const clanMembersTable = pgTable(
     remindersCount: integer("reminders_count").notNull().default(0),
     warningsCount: integer("warnings_count").notNull().default(0),
     submissionsCount: integer("submissions_count").notNull().default(0),
+    // Self-reported "can't do XP today" days — a negative mark, not an excuse.
+    vacationCount: integer("vacation_count").notNull().default(0),
+    lastVacationDate: text("last_vacation_date"),
 
     // The last activity-day (YYYY-MM-DD, clan timezone) the member completed.
     lastActivityDate: text("last_activity_date"),

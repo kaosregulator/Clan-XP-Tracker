@@ -17,7 +17,9 @@ import {
 import type { Clan } from "@workspace/db";
 import { getClan, identityFromUser, ensureMember } from "../services/config";
 import { ensureAccounts, listAccounts, addAccount, removeAccount, accountStatesToday } from "../services/accounts";
-import { createPendingSubmission } from "../services/submissions";
+import { createSubmission } from "../services/submissions";
+import { recomputeMemberStats } from "../services/members";
+import { scheduleTrackerRefresh } from "./tracker";
 import {
   XP_ADD_ACCOUNT,
   XP_ADD_ACCOUNT_MODAL,
@@ -123,18 +125,25 @@ export async function handleSubmitAccountSelect(interaction: StringSelectMenuInt
 
   const identity = identityFromUser(interaction.user, interaction.member.displayName);
   await ensureMember(clan.guildId, identity);
-  await createPendingSubmission({
+  await createSubmission({
     clan,
     identity,
     accountId: account.id,
     accountLabel: account.label,
+    status: clan.autoApprove ? "approved" : "pending",
   });
+  if (clan.autoApprove) {
+    await recomputeMemberStats(clan, identity.userId);
+    scheduleTrackerRefresh(interaction.client, clan);
+  }
 
+  const proofNote = clan.submissionChannelId
+    ? ` Optionally post your screenshot in <#${clan.submissionChannelId}> to attach it.`
+    : "";
   await interaction.update({
-    content:
-      `📸 **Submitting for ${account.label}.**\n` +
-      `Now post your screenshot in <#${clan.submissionChannelId}> within the next few minutes — ` +
-      `I'll attach it to this account automatically.`,
+    content: clan.autoApprove
+      ? `✅ **${clan.activityName || "XP"} recorded for ${account.label}.**${proofNote}`
+      : `📸 **Submitting for ${account.label}.** Post your screenshot in <#${clan.submissionChannelId}> to complete it.`,
     embeds: [],
     components: [],
   });

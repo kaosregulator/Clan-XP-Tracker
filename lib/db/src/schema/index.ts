@@ -3,6 +3,7 @@ export * from "./clan_members";
 export * from "./tracked_accounts";
 export * from "./xp_submissions";
 export * from "./warnings";
+export * from "./vacations";
 export * from "./reminders";
 export * from "./dashboards";
 export * from "./audit_logs";
