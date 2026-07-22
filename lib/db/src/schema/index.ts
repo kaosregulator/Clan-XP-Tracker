@@ -7,4 +7,5 @@ export * from "./vacations";
 export * from "./reminders";
 export * from "./dashboards";
 export * from "./audit_logs";
+export * from "./connect_sessions";
 export * from "./sessions";
