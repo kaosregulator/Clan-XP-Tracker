@@ -5,6 +5,7 @@ import {
   integer,
   timestamp,
   jsonb,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -44,6 +45,13 @@ export const xpSubmissionsTable = pgTable("xp_submissions", {
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewNote: text("review_note"),
   reviewMessageId: text("review_message_id"),
+
+  // How many contributions this submission represents (1 for the member's own
+  // daily, +1 per alt they completed). Drives the clan capacity/overflow math.
+  contributions: integer("contributions").notNull().default(1),
+  // True when the clan was already MAXED at submit time: the member still gets
+  // credit (no XP warning) but it does not count toward the clan total.
+  overflow: boolean("overflow").notNull().default(false),
 
   // Legacy numeric field (kept for web compat; defaults to 0 in the new model)
   xpEarned: integer("xp_earned").notNull().default(0),

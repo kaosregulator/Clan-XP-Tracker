@@ -14,12 +14,17 @@ export interface CreateSubmissionInput {
   /** "pending" for the review queue, "approved" for the auto-approve flow. */
   status?: "pending" | "approved";
   autoReviewer?: { id: string; username: string };
+  /** Contributions this submission represents (1 + alts). Defaults to 1. */
+  contributions?: number;
+  /** Whether the clan was already maxed when this was submitted. */
+  overflow?: boolean;
 }
 
 /** Create a submission for the current activity day (pending by default). */
 export async function createSubmission(input: CreateSubmissionInput): Promise<XpSubmission> {
   const status = input.status ?? "pending";
   const approved = status === "approved";
+  const contributions = Math.max(1, input.contributions ?? 1);
   const [row] = await db
     .insert(xpSubmissionsTable)
     .values({
@@ -33,6 +38,9 @@ export async function createSubmission(input: CreateSubmissionInput): Promise<Xp
       status,
       notes: input.notes ?? null,
       proofImageUrls: input.proofImageUrls ?? [],
+      contributions,
+      overflow: input.overflow ?? false,
+      altAccountsCompleted: Math.max(0, contributions - 1),
       reviewedBy: approved ? (input.autoReviewer?.id ?? "auto") : null,
       reviewedByUsername: approved ? (input.autoReviewer?.username ?? "Auto-approved") : null,
       reviewedAt: approved ? new Date() : null,

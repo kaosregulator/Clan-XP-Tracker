@@ -62,6 +62,8 @@ export const reviewWarnModal = (subId: number) => id(NS.review, "warnModal", sub
 export const SETUP_IDENTITY = id(NS.setup, "identity");
 export const SETUP_GAME = id(NS.setup, "game");
 export const SETUP_SCHEDULE = id(NS.setup, "schedule");
+export const SETUP_CAPACITY = id(NS.setup, "capacity");
+export const SETUP_CAPACITY_MODAL = id(NS.setup, "capacityModal");
 export const SETUP_CHANNELS = id(NS.setup, "channels");
 export const SETUP_ROLES = id(NS.setup, "roles");
 export const SETUP_CREATE_CHANNELS = id(NS.setup, "createChannels");

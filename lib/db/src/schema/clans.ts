@@ -31,10 +31,17 @@ export const clansTable = pgTable("clans", {
   gameName: text("game_name").notNull().default("Roblox"),
   gameUrl: text("game_url"),
 
-  // Daily requirement. `dailyGoal` is the display target (e.g. 20000 XP);
-  // a day is "complete" for an account when it has an approved submission
-  // for that day. 0 means "no numeric target, just submit daily".
+  // Daily requirement. `dailyGoal` is the per-member display target (e.g.
+  // 1500 XP). 0 means "no numeric target, just submit daily".
   dailyGoal: integer("daily_goal").notNull().default(0),
+
+  // Clan-wide daily capacity (mirrors the in-game "Daily Clan Limit").
+  // `clanDailyLimit` is the total XP the clan can bank per day (0 = no cap);
+  // `contributionValue` is the XP one contribution is worth (a member's daily,
+  // and each alt). Once the limit is reached the clan is MAXED and further
+  // contributions become overflow (credited to the member, not the clan).
+  clanDailyLimit: integer("clan_daily_limit").notNull().default(0),
+  contributionValue: integer("contribution_value").notNull().default(1500),
 
   // Scheduling — all reminder/reset math is done in this timezone.
   timezone: text("timezone").notNull().default("UTC"),
