@@ -16,6 +16,8 @@ import {
   handleRemoveAccountSelect,
   handleSubmitAccountSelect,
 } from "./features/accounts";
+import { handleSubmitModal } from "./features/submit";
+import { handleTrackerRemind, handleTrackerRefresh } from "./features/tracker";
 import {
   handleApprove,
   handleRejectButton,
@@ -58,6 +60,10 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleAdminButton(interaction));
         case NS.setup:
           return void (await handleSetupButton(interaction));
+        case NS.tracker:
+          if (action === "remind") return void (await handleTrackerRemind(interaction));
+          if (action === "refresh") return void (await handleTrackerRefresh(interaction));
+          return;
         case NS.review:
           switch (action) {
             case "approve":
@@ -79,6 +85,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     if (interaction.isModalSubmit()) {
       const { ns, action } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
+      if (ns === NS.xp && action === "submitModal")
+        return void (await handleSubmitModal(interaction));
       if (ns === NS.xp && action === "addAccountModal")
         return void (await handleAddAccountModal(interaction));
       if (ns === NS.review) {

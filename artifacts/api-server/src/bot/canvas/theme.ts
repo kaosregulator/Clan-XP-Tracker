@@ -95,11 +95,14 @@ export function card(
   opts: CardOptions = {}
 ) {
   const { fill = PALETTE.card, stroke = PALETTE.border, radius = 22, shadow = true } = opts;
+  // Gaussian shadow blur is by far the most expensive canvas op; keep it small
+  // and only where it matters. A tight, low-blur shadow reads as depth for a
+  // fraction of the cost of the old 28px blur.
   ctx.save();
   if (shadow) {
-    ctx.shadowColor = "rgba(0,0,0,0.35)";
-    ctx.shadowBlur = 28;
-    ctx.shadowOffsetY = 10;
+    ctx.shadowColor = "rgba(0,0,0,0.30)";
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 6;
   }
   roundRectPath(ctx, x, y, w, h, radius);
   ctx.fillStyle = fill;
@@ -300,13 +303,25 @@ export function pill(
 
 const avatarCache = new Map<string, Image>();
 
-/** Load a remote (or fallback) avatar with a small in-memory cache. */
-export async function fetchAvatar(url: string | null): Promise<Image | null> {
+/**
+ * Load a remote avatar with a small in-memory cache and a hard timeout, so a
+ * slow CDN can never stall a hub render — we just fall back to the initial.
+ */
+export async function fetchAvatar(url: string | null, timeoutMs = 2500): Promise<Image | null> {
   if (!url) return null;
   const cached = avatarCache.get(url);
   if (cached) return cached;
   try {
-    const img = await loadImage(url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let img: Image;
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) return null;
+      img = await loadImage(Buffer.from(await res.arrayBuffer()));
+    } finally {
+      clearTimeout(timer);
+    }
     if (avatarCache.size > 200) avatarCache.clear();
     avatarCache.set(url, img);
     return img;

@@ -4,17 +4,22 @@ import { eq, and, desc, isNull } from "drizzle-orm";
 import { activityDate } from "./time";
 import type { MemberIdentity } from "./config";
 
-export interface CreatePendingInput {
+export interface CreateSubmissionInput {
   clan: Clan;
   identity: MemberIdentity;
   accountId?: number | null;
   accountLabel?: string | null;
   notes?: string | null;
   proofImageUrls?: string[];
+  /** "pending" for the review queue, "approved" for the auto-approve flow. */
+  status?: "pending" | "approved";
+  autoReviewer?: { id: string; username: string };
 }
 
-/** Create a pending submission for the current activity day. */
-export async function createPendingSubmission(input: CreatePendingInput): Promise<XpSubmission> {
+/** Create a submission for the current activity day (pending by default). */
+export async function createSubmission(input: CreateSubmissionInput): Promise<XpSubmission> {
+  const status = input.status ?? "pending";
+  const approved = status === "approved";
   const [row] = await db
     .insert(xpSubmissionsTable)
     .values({
@@ -25,12 +30,22 @@ export async function createPendingSubmission(input: CreatePendingInput): Promis
       accountId: input.accountId ?? null,
       accountLabel: input.accountLabel ?? null,
       activityDate: activityDate(input.clan),
-      status: "pending",
+      status,
       notes: input.notes ?? null,
       proofImageUrls: input.proofImageUrls ?? [],
+      reviewedBy: approved ? (input.autoReviewer?.id ?? "auto") : null,
+      reviewedByUsername: approved ? (input.autoReviewer?.username ?? "Auto-approved") : null,
+      reviewedAt: approved ? new Date() : null,
     })
     .returning();
   return row!;
+}
+
+/** Back-compat helper — a pending submission for the review-queue flow. */
+export async function createPendingSubmission(
+  input: Omit<CreateSubmissionInput, "status" | "autoReviewer">
+): Promise<XpSubmission> {
+  return createSubmission({ ...input, status: "pending" });
 }
 
 export async function getSubmission(id: number): Promise<XpSubmission | null> {
@@ -51,6 +66,31 @@ export async function latestPendingAwaitingProof(
         eq(xpSubmissionsTable.guildId, guildId),
         eq(xpSubmissionsTable.userId, userId),
         eq(xpSubmissionsTable.status, "pending"),
+        isNull(xpSubmissionsTable.deletedAt)
+      )
+    )
+    .orderBy(desc(xpSubmissionsTable.submittedAt))
+    .limit(5);
+  return rows.find((r) => r.proofImageUrls.length === 0) ?? null;
+}
+
+/**
+ * The member's most recent submission today that still has no screenshot —
+ * used to attach a screenshot posted right after a modal submit, regardless of
+ * whether it's pending (review flow) or already approved (auto-approve flow).
+ */
+export async function latestTodayAwaitingProof(
+  clan: Clan,
+  userId: string
+): Promise<XpSubmission | null> {
+  const rows = await db
+    .select()
+    .from(xpSubmissionsTable)
+    .where(
+      and(
+        eq(xpSubmissionsTable.guildId, clan.guildId),
+        eq(xpSubmissionsTable.userId, userId),
+        eq(xpSubmissionsTable.activityDate, activityDate(clan)),
         isNull(xpSubmissionsTable.deletedAt)
       )
     )

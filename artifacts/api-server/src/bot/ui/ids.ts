@@ -9,6 +9,7 @@ export const NS = {
   review: "rev", // review queue card
   setup: "setup", // setup wizard
   warn: "warn", // warnings management
+  tracker: "trk", // admin progress tracker embed
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -31,6 +32,8 @@ export const XP_SUBMIT = id(NS.xp, "submit");
 export const XP_PROGRESS = id(NS.xp, "progress");
 export const XP_HISTORY = id(NS.xp, "history");
 export const XP_REFRESH = id(NS.xp, "refresh");
+export const XP_SUBMIT_MODAL = id(NS.xp, "submitModal");
+export const XP_VACATION = id(NS.xp, "vacation");
 export const XP_ACCOUNTS = id(NS.xp, "accounts");
 export const XP_ADD_ACCOUNT = id(NS.xp, "addAccount");
 export const XP_ADD_ACCOUNT_MODAL = id(NS.xp, "addAccountModal");
@@ -76,6 +79,12 @@ export const SETUP_DASHBOARDS = id(NS.setup, "dashboards");
 export const SETUP_STAFF_DASH = id(NS.setup, "staffDash");
 export const SETUP_CLAN_DASH = id(NS.setup, "clanDash");
 export const SETUP_PATRIOT_DASH = id(NS.setup, "patriotDash");
+export const SETUP_TRACKER_CHANNEL = id(NS.setup, "trackerChannel");
+export const SETUP_REQUIRED_ROLE = id(NS.setup, "requiredRole");
+
+// Admin tracker embed actions
+export const TRACKER_REMIND = id(NS.tracker, "remind");
+export const TRACKER_REFRESH = id(NS.tracker, "refresh");
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
