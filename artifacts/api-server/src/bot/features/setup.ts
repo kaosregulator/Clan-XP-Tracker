@@ -27,6 +27,8 @@ import {
   SETUP_IDENTITY,
   SETUP_GAME,
   SETUP_SCHEDULE,
+  SETUP_CAPACITY,
+  SETUP_CAPACITY_MODAL,
   SETUP_CHANNELS,
   SETUP_ROLES,
   SETUP_CREATE_CHANNELS,
@@ -68,6 +70,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         name: `${check(clan.clanName)} Identity & Goal`,
         value:
           `Community **${clan.clanName}** · Activity **${clan.activityName}** · Daily goal **${clan.dailyGoal || "—"}**` +
+          `\nClan cap: **${clan.clanDailyLimit > 0 ? `${clan.clanDailyLimit.toLocaleString()} ${clan.activityName}` : "none"}** @ **${clan.contributionValue.toLocaleString()}/contribution**` +
           `\nAlt accounts: **${clan.altAccountsEnabled ? (clan.maxAltAccounts ? `max ${clan.maxAltAccounts}` : "unlimited") : "off"}** · Submissions: **${clan.autoApprove ? "auto-approved" : "staff review"}**`,
         inline: false,
       },
@@ -115,7 +118,8 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(SETUP_IDENTITY, "Identity & Goal"),
       b(SETUP_GAME, "Game Link"),
-      b(SETUP_SCHEDULE, "Schedule")
+      b(SETUP_SCHEDULE, "Schedule"),
+      b(SETUP_CAPACITY, "Clan Capacity")
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(SETUP_CHANNELS, "Channels", ButtonStyle.Primary),
@@ -314,6 +318,34 @@ function gameModal(clan: Clan) {
     );
 }
 
+function capacityModal(clan: Clan) {
+  const row = (input: TextInputBuilder) =>
+    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
+  return new ModalBuilder()
+    .setCustomId(SETUP_CAPACITY_MODAL)
+    .setTitle("Clan Capacity")
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId("clanDailyLimit")
+          .setLabel("Daily clan XP limit (0 = no cap)")
+          .setStyle(TextInputStyle.Short)
+          .setValue(String(clan.clanDailyLimit))
+          .setPlaceholder("e.g. 112500")
+          .setRequired(false)
+      ),
+      row(
+        new TextInputBuilder()
+          .setCustomId("contributionValue")
+          .setLabel("XP per contribution (each member & alt)")
+          .setStyle(TextInputStyle.Short)
+          .setValue(String(clan.contributionValue))
+          .setPlaceholder("e.g. 1500")
+          .setRequired(false)
+      )
+    );
+}
+
 function scheduleModal(clan: Clan) {
   const row = (input: TextInputBuilder) =>
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
@@ -386,6 +418,8 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return interaction.showModal(gameModal(clan));
     case "schedule":
       return interaction.showModal(scheduleModal(clan));
+    case "capacity":
+      return interaction.showModal(capacityModal(clan));
     case "channels":
       return interaction.update(channelsPayload(clan));
     case "roles":
@@ -424,6 +458,13 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
       altAccountsEnabled: altEnabled,
       maxAltAccounts: altEnabled && altMax > 0 ? altMax : null,
       autoApprove,
+    };
+  } else if (action === "capacityModal") {
+    const limit = parseInt(f("clanDailyLimit").replace(/[^0-9]/g, ""), 10);
+    const value = parseInt(f("contributionValue").replace(/[^0-9]/g, ""), 10);
+    patch = {
+      clanDailyLimit: Number.isFinite(limit) ? limit : 0,
+      contributionValue: Number.isFinite(value) && value > 0 ? value : 1500,
     };
   } else if (action === "gameModal") {
     const url = f("gameUrl").trim();

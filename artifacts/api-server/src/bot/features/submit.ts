@@ -21,12 +21,11 @@ import {
   getSubmission,
 } from "../services/submissions";
 import { recomputeMemberStats } from "../services/members";
-import { listAccounts } from "../services/accounts";
 import { logAction, sendLog } from "../services/logging";
 import { runExtraction, extractionEnabled } from "../services/extraction";
 import { discordRelative, nextReset } from "../services/time";
+import { isOverflowNow, clanCapacity } from "../services/contributions";
 import { postReviewCard } from "./review";
-import { submitAccountPicker } from "./accounts";
 import { scheduleTrackerRefresh } from "./tracker";
 import { XP_SUBMIT_MODAL } from "../ui/ids";
 
@@ -37,19 +36,34 @@ const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;
 
 function submitModal(clan: Clan): ModalBuilder {
   const activity = clan.activityName || "XP";
-  return new ModalBuilder()
-    .setCustomId(XP_SUBMIT_MODAL)
-    .setTitle(`Submit ${activity}`.slice(0, 45))
-    .addComponents(
+  const modal = new ModalBuilder().setCustomId(XP_SUBMIT_MODAL).setTitle(`Submit ${activity}`.slice(0, 45));
+  const rows: ActionRowBuilder<ModalActionRowComponentBuilder>[] = [];
+
+  // Patriots enter how many alt accounts they also completed.
+  if (clan.altAccountsEnabled) {
+    rows.push(
       new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
         new TextInputBuilder()
-          .setCustomId("notes")
-          .setLabel("Notes (optional)")
-          .setStyle(TextInputStyle.Paragraph)
+          .setCustomId("alts")
+          .setLabel("Alt accounts completed (0 if none)")
+          .setStyle(TextInputStyle.Short)
           .setRequired(false)
-          .setPlaceholder("Anything to add about today's session…")
+          .setValue("0")
+          .setPlaceholder("e.g. 6")
       )
     );
+  }
+  rows.push(
+    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("notes")
+        .setLabel("Notes (optional)")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(false)
+        .setPlaceholder("Anything to add about today's session…")
+    )
+  );
+  return modal.addComponents(...rows);
 }
 
 function logEmbed(clan: Clan, sub: XpSubmission, auto: boolean): EmbedBuilder {
@@ -93,19 +107,16 @@ async function runExtractionIfEnabled(clan: Clan, sub: XpSubmission): Promise<Xp
 /* --------------------------------------------------------------- button */
 
 /**
- * Submit button. Opens a notes modal (Discord modals can't hold images, so the
- * screenshot is an optional follow-up). With alt accounts enabled it first
- * offers an account picker.
+ * Submit button. Opens a modal (notes + alts for patriots). Discord modals
+ * can't hold images, so the screenshot is an optional follow-up.
  */
 export async function handleSubmitButton(interaction: ButtonInteraction, clan: Clan) {
-  if (clan.altAccountsEnabled && interaction.inCachedGuild()) {
-    const accounts = await listAccounts(clan.guildId, interaction.user.id);
-    if (accounts.length > 1) {
-      await interaction.reply({ ...(await submitAccountPicker(clan, interaction.user.id)), flags: 64 });
-      return;
-    }
-  }
   await interaction.showModal(submitModal(clan));
+}
+
+function parseAlts(raw: string | null | undefined): number {
+  const n = parseInt((raw ?? "").replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(n) ? Math.min(50, Math.max(0, n)) : 0;
 }
 
 export async function handleSubmitModal(interaction: ModalSubmitInteraction) {
@@ -120,24 +131,45 @@ export async function handleSubmitModal(interaction: ModalSubmitInteraction) {
   const identity = identityFromUser(interaction.user, interaction.member.displayName);
   await ensureMember(clan.guildId, identity);
   const notes = interaction.fields.getTextInputValue("notes")?.trim().slice(0, 1000) || null;
+  const alts = clan.altAccountsEnabled ? parseAlts(interaction.fields.getTextInputValue("alts")) : 0;
+  const contributions = 1 + alts;
 
+  const overflow = await isOverflowNow(clan);
   const auto = clan.autoApprove;
   const sub = await createSubmission({
     clan,
     identity,
     notes,
+    contributions,
+    overflow,
     status: auto ? "approved" : "pending",
   });
   await finalize(interaction.client, clan, sub, auto);
 
+  await interaction.editReply(await confirmText(clan, contributions, overflow, auto));
+}
+
+/** Build the ephemeral confirmation, capacity- and overflow-aware. */
+async function confirmText(clan: Clan, contributions: number, overflow: boolean, auto: boolean): Promise<string> {
   const activity = clan.activityName || "XP";
-  const proofHint =
-    ` You can drop a screenshot in ${clan.submissionChannelId ? `<#${clan.submissionChannelId}>` : "the submission channel"} to attach proof.`;
-  await interaction.editReply(
-    auto
-      ? `✅ **${activity} recorded** for today — your streak is updated. Next reset ${discordRelative(nextReset(clan))}.${proofHint}`
-      : `⏳ **Submitted for review.**${proofHint}`
-  );
+  const altNote = contributions > 1 ? ` (you + ${contributions - 1} alt${contributions - 1 === 1 ? "" : "s"})` : "";
+  const proofHint = ` You can drop a screenshot in ${clan.submissionChannelId ? `<#${clan.submissionChannelId}>` : "the submission channel"} to attach proof.`;
+
+  if (!auto) return `⏳ **Submitted for review.**${altNote}${proofHint}`;
+
+  if (overflow) {
+    return (
+      `🌊 **${activity} recorded as overflow**${altNote} — the clan is already maxed for today, so this doesn't add to the clan, ` +
+      `but you're **credited** and safe from an XP warning. Please post a screenshot as proof.${proofHint}`
+    );
+  }
+
+  const cap = await clanCapacity(clan);
+  const capLine =
+    cap.limitXp > 0
+      ? ` Clan: **${cap.filledXp.toLocaleString()}/${cap.limitXp.toLocaleString()} ${activity}** (${cap.pct}%)${cap.maxed ? " — MAXED 🔴" : ""}.`
+      : "";
+  return `✅ **${activity} recorded**${altNote} for today — streak updated. Next reset ${discordRelative(nextReset(clan))}.${capLine}${proofHint}`;
 }
 
 /* -------------------------------------------------------------- messages */
@@ -185,6 +217,7 @@ export async function handleSubmissionMessage(message: Message): Promise<void> {
         identity,
         notes: note,
         proofImageUrls: urls,
+        overflow: await isOverflowNow(clan),
         status: clan.autoApprove ? "approved" : "pending",
       });
       brandNew = true;
