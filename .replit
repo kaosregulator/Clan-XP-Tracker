@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "postgresql-16"]
+modules = ["nodejs-20", "web"]
 
 [deployment]
 router = "application"
@@ -25,4 +25,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-DISCORD_REDIRECT_URI = "https://clan-xp-tracker--guestacount107.replit.app/api/auth/callback"
+DISCORD_REDIRECT_URI = "https://c8bfe639-580a-4d86-a5bd-a346ede7178c-00-1myfil2sd5fsu.riker.replit.dev/api/auth/callback"
