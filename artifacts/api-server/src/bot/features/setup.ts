@@ -83,7 +83,10 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
       },
       {
         name: `${check(true)} Schedule`,
-        value: `Timezone **${clan.timezone}** · Reset **${clan.resetTime}** · Reminders **${clan.reminderTimes.join(", ") || "off"}**`,
+        value:
+          `Timezone **${clan.timezone}** · Reset **${clan.resetTime}**` +
+          `\nAuto reminders: **${clan.remindersEnabled ? (clan.reminderTimes[0] ? `on @ ${clan.reminderTimes[0]}` : "on (no time set)") : "OFF (safety)"}**` +
+          `${clan.reminderTimes.length > 1 ? ` · manual: ${clan.reminderTimes.slice(1).join(", ")}` : ""}`,
         inline: false,
       },
       {
@@ -374,10 +377,18 @@ function scheduleModal(clan: Clan) {
       row(
         new TextInputBuilder()
           .setCustomId("reminderTimes")
-          .setLabel("Reminder times (HH:mm, comma-separated)")
+          .setLabel("Reminder times (1st is auto, rest manual)")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.reminderTimes.join(", "))
-          .setPlaceholder("18:00, 22:00")
+          .setPlaceholder("22:00  (extra times = staff Remind button)")
+          .setRequired(false)
+      ),
+      row(
+        new TextInputBuilder()
+          .setCustomId("remindersEnabled")
+          .setLabel("Auto reminders on? (yes / no safety switch)")
+          .setStyle(TextInputStyle.Short)
+          .setValue(clan.remindersEnabled ? "yes" : "no")
           .setRequired(false)
       )
     );
@@ -484,10 +495,13 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
         return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
       });
     const { hour, minute } = parseHm(f("resetTime"));
+    const remRaw = f("remindersEnabled").trim().toLowerCase();
+    const remindersEnabled = !(remRaw === "no" || remRaw === "n" || remRaw === "off" || remRaw === "false");
     patch = {
       timezone: f("timezone").trim() || "UTC",
       resetTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
       reminderTimes: reminders,
+      remindersEnabled,
     };
   }
 

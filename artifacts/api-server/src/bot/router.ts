@@ -17,7 +17,7 @@ import {
   handleSubmitAccountSelect,
 } from "./features/accounts";
 import { handleSubmitModal } from "./features/submit";
-import { handleTrackerRemind, handleTrackerRefresh } from "./features/tracker";
+import { handleTrackerRemind, handleTrackerRefresh, handleTrackerCheck } from "./features/tracker";
 import {
   handleApprove,
   handleRejectButton,
@@ -63,6 +63,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case NS.tracker:
           if (action === "remind") return void (await handleTrackerRemind(interaction));
           if (action === "refresh") return void (await handleTrackerRefresh(interaction));
+          if (action === "check") return void (await handleTrackerCheck(interaction));
           return;
         case NS.review:
           switch (action) {

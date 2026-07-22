@@ -1,9 +1,9 @@
 import { db, remindersTable, clanMembersTable } from "@workspace/db";
 import type { Clan } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
-import type { User } from "discord.js";
+import { EmbedBuilder, type User } from "discord.js";
 import { activityDate, nextReset, discordRelative } from "./time";
-import { logAction } from "./logging";
+import { logAction, sendLog } from "./logging";
 
 export interface SendReminderInput {
   clan: Clan;
@@ -62,6 +62,19 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     moderatorUsername: input.moderatorUsername ?? null,
     details: { auto: input.auto, delivered },
   });
+
+  await sendLog(
+    target.client,
+    clan,
+    new EmbedBuilder()
+      .setColor(0xfaa61a)
+      .setAuthor({ name: `Reminder • ${target.username}`, iconURL: target.displayAvatarURL() })
+      .setDescription(
+        `<@${target.id}> was reminded${input.auto ? " automatically" : input.moderatorId ? ` by <@${input.moderatorId}>` : ""}.` +
+          (delivered ? "" : " (DMs closed — not delivered)")
+      )
+      .setTimestamp()
+  );
 
   return { delivered };
 }

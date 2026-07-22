@@ -1,10 +1,10 @@
 import { db, warningsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, Warning } from "@workspace/db";
 import { eq, and, isNull, desc, sql } from "drizzle-orm";
-import type { Client, Guild, User } from "discord.js";
+import { EmbedBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser } from "./config";
-import { logAction } from "./logging";
+import { logAction, sendLog } from "./logging";
 
 export interface IssueWarningInput {
   client: Client;
@@ -65,6 +65,20 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     moderatorUsername: input.moderatorUsername,
     details: { reason: input.reason, warningId: warning?.id, activeCount },
   });
+
+  await sendLog(
+    client,
+    clan,
+    new EmbedBuilder()
+      .setColor(0xed4245)
+      .setAuthor({ name: `Warning issued • ${target.username}`, iconURL: target.displayAvatarURL() })
+      .setDescription(`<@${target.id}> was warned by <@${input.moderatorId}>.`)
+      .addFields(
+        { name: "Reason", value: input.reason.slice(0, 1024) },
+        { name: "Active warnings", value: `${activeCount}`, inline: true }
+      )
+      .setTimestamp()
+  );
 
   if (clan.dmOnWarn) {
     await target
