@@ -27,16 +27,19 @@ import { isOverflowNow, clanCapacity } from "../services/contributions";
 import { postReviewCard } from "./review";
 import { scheduleTrackerRefresh } from "./tracker";
 import { postXpCard } from "./xpcard";
-import { XP_SUBMIT_MODAL } from "../ui/ids";
+import { XP_SUBMIT_MODAL, submitModalForGuild, parseId } from "../ui/ids";
 
 const PROOF_LINK_WINDOW_MS = 30 * 60_000;
 const IMAGE_RE = /\.(png|jpe?g|webp|gif)$/i;
 
 /* --------------------------------------------------------------- helpers */
 
-function submitModal(clan: Clan): ModalBuilder {
+function submitModal(clan: Clan, fromGuildId?: string): ModalBuilder {
   const activity = clan.activityName || "XP";
-  const modal = new ModalBuilder().setCustomId(XP_SUBMIT_MODAL).setTitle(`Submit ${activity}`.slice(0, 45));
+  // From a DM (reminder button) the modal must carry the guild id so the
+  // handler knows which server to record for.
+  const customId = fromGuildId ? submitModalForGuild(fromGuildId) : XP_SUBMIT_MODAL;
+  const modal = new ModalBuilder().setCustomId(customId).setTitle(`Submit ${activity}`.slice(0, 45));
   const rows: ActionRowBuilder<ModalActionRowComponentBuilder>[] = [];
 
   // Patriots enter how many alt accounts they also completed.
@@ -99,21 +102,40 @@ export async function handleSubmitButton(interaction: ButtonInteraction, clan: C
   await interaction.showModal(submitModal(clan));
 }
 
+/**
+ * Reminder DM buttons ("I did it — log now" / "Submit"): open the submit modal
+ * for the reminder's guild so a member can log XP they forgot to submit.
+ */
+export async function handleRemindAck(interaction: ButtonInteraction) {
+  const { arg: guildId } = parseId(interaction.customId);
+  if (!guildId) return;
+  const clan = await getClan(guildId);
+  if (!clan) {
+    await interaction.reply({ content: "That server isn't set up anymore." });
+    return;
+  }
+  await interaction.showModal(submitModal(clan, guildId));
+}
+
 function parseAlts(raw: string | null | undefined): number {
   const n = parseInt((raw ?? "").replace(/[^0-9]/g, ""), 10);
   return Number.isFinite(n) ? Math.min(50, Math.max(0, n)) : 0;
 }
 
 export async function handleSubmitModal(interaction: ModalSubmitInteraction) {
-  if (!interaction.inCachedGuild()) return;
-  const clan = await getClan(interaction.guildId);
+  // guildId comes from the modal id (DM flow) or the interaction (in-guild flow).
+  const guildId = parseId(interaction.customId).arg ?? interaction.guildId ?? undefined;
+  if (!guildId) return;
+  const clan = await getClan(guildId);
   if (!clan) {
-    await interaction.reply({ content: "This server isn't set up yet.", flags: 64 });
+    await interaction.reply({ content: "This server isn't set up yet." });
     return;
   }
-  await interaction.deferReply({ flags: 64 });
+  const inGuild = interaction.inGuild();
+  await interaction.deferReply(inGuild ? { flags: 64 } : {});
 
-  const identity = identityFromUser(interaction.user, interaction.member.displayName);
+  const displayName = interaction.inCachedGuild() ? interaction.member.displayName : undefined;
+  const identity = identityFromUser(interaction.user, displayName);
   await ensureMember(clan.guildId, identity);
   const notes = interaction.fields.getTextInputValue("notes")?.trim().slice(0, 1000) || null;
   const alts = clan.altAccountsEnabled ? parseAlts(interaction.fields.getTextInputValue("alts")) : 0;

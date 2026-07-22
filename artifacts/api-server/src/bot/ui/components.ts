@@ -16,6 +16,7 @@ import {
   ADMIN_LEADERBOARD,
   ADMIN_REFRESH,
   ADMIN_DASHBOARDS,
+  ADMIN_EXPORT,
   reviewApprove,
   reviewReject,
   reviewRemind,
@@ -71,6 +72,9 @@ export function adminHubComponents(): Row[] {
         .setLabel("Leaderboard"),
       new ButtonBuilder().setCustomId(ADMIN_DASHBOARDS).setStyle(ButtonStyle.Secondary).setLabel("Post Dashboards"),
       new ButtonBuilder().setCustomId(ADMIN_REFRESH).setStyle(ButtonStyle.Secondary).setLabel("Refresh")
+    ),
+    row(
+      new ButtonBuilder().setCustomId(ADMIN_EXPORT).setStyle(ButtonStyle.Secondary).setLabel("Export Data (backup)")
     ),
   ];
 }
