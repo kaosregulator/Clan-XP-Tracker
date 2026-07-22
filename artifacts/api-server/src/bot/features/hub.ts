@@ -17,6 +17,7 @@ import { memberHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { handleSubmitButton } from "./submit";
 import { scheduleTrackerRefresh } from "./tracker";
+import { postVacationCard } from "./xpcard";
 import { accountStatesToday } from "../services/accounts";
 import { handleAccountsButton, handleAddAccountButton } from "./accounts";
 
@@ -152,7 +153,10 @@ async function handleVacation(interaction: ButtonInteraction, clan: Clan) {
   if (!interaction.inCachedGuild()) return;
   const identity = identityFromUser(interaction.user, interaction.member.displayName);
   const { recorded } = await recordVacation(clan, identity);
-  if (recorded) scheduleTrackerRefresh(interaction.client, clan);
+  if (recorded) {
+    await postVacationCard(interaction.client, clan, identity); // visible vacation card
+    scheduleTrackerRefresh(interaction.client, clan);
+  }
   await interaction.reply({
     content: recorded
       ? `🏝️ You're marked **on vacation** for today. This is logged and counts against your record — it does not complete the day.`
