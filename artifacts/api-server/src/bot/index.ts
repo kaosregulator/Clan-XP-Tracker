@@ -56,6 +56,15 @@ export function startBot() {
     return;
   }
 
+  // Avoid running two Discord bots at the same time (dev workflow + production
+  // deployment both share the same token and would steal each other's interactions).
+  // In development, explicitly opt in with DISCORD_BOT_ENABLED=true when you need to test bot logic.
+  const botEnabled = process.env.DISCORD_BOT_ENABLED;
+  if (process.env.NODE_ENV === "development" && botEnabled !== "true" && botEnabled !== "1") {
+    logger.info("Bot not started in development — set DISCORD_BOT_ENABLED=true to test locally");
+    return;
+  }
+
   // Warm the canvas fonts once at boot so the first hub render is fast.
   ensureFonts();
 

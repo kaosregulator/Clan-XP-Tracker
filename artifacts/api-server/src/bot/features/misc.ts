@@ -119,7 +119,11 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
 
 /** /help — a quick how-it-works canvas for members and staff. */
 export async function handleHelp(interaction: ChatInputCommandInteraction) {
-  if (!interaction.inCachedGuild()) return;
+  if (!interaction.inCachedGuild()) {
+    await interaction.reply({ content: "This command only works inside a server.", flags: 64 });
+    return;
+  }
+  await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   const activity = clan?.activityName || "XP";
   const game = clan?.gameName || "Roblox";
@@ -155,7 +159,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
     activityName: activity,
     sections,
   });
-  await interaction.reply({ files: [new AttachmentBuilder(png, { name: "help.png" })], flags: 64 });
+  await interaction.editReply({ files: [new AttachmentBuilder(png, { name: "help.png" })] });
 }
 
 /** /report [period] — staff weekly/monthly activity report card. */

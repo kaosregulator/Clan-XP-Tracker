@@ -59,8 +59,9 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       switch (ns) {
         case NS.xp:
           // Reminder DM buttons work outside a guild — route them first.
-          if (action === "remindSubmit" || action === "remindDone")
+          if (action === "remindSubmit" || action === "remindDone") {
             return void (await handleRemindAck(interaction));
+          }
           return void (await handleXpButton(interaction));
         case NS.admin:
           return void (await handleAdminButton(interaction));
