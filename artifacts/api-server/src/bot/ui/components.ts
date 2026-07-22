@@ -15,6 +15,7 @@ import {
   ADMIN_MISSING,
   ADMIN_LEADERBOARD,
   ADMIN_REFRESH,
+  ADMIN_DASHBOARDS,
   reviewApprove,
   reviewReject,
   reviewRemind,
@@ -68,6 +69,7 @@ export function adminHubComponents(): Row[] {
         .setCustomId(ADMIN_LEADERBOARD)
         .setStyle(ButtonStyle.Secondary)
         .setLabel("Leaderboard"),
+      new ButtonBuilder().setCustomId(ADMIN_DASHBOARDS).setStyle(ButtonStyle.Secondary).setLabel("Post Dashboards"),
       new ButtonBuilder().setCustomId(ADMIN_REFRESH).setStyle(ButtonStyle.Secondary).setLabel("Refresh")
     ),
   ];

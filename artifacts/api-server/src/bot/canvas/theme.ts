@@ -5,7 +5,7 @@ import {
   type Canvas,
   type Image,
 } from "@napi-rs/canvas";
-import { ensureFonts, font } from "./fonts";
+import { ensureFonts, font, sanitizeText } from "./fonts";
 
 // The runtime is Node (no DOM lib), so alias the few canvas value/enum types
 // we reference instead of relying on the ambient DOM globals.
@@ -191,7 +191,8 @@ export function text(
   ctx.fillStyle = color;
   ctx.textAlign = align;
   ctx.textBaseline = baseline;
-  ctx.fillText(maxWidth ? ellipsize(ctx, value, maxWidth) : value, x, y);
+  const safe = sanitizeText(value);
+  ctx.fillText(maxWidth ? ellipsize(ctx, safe, maxWidth) : safe, x, y);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 }
@@ -352,7 +353,8 @@ export function drawAvatar(
   } else {
     ctx.fillStyle = PALETTE.cardAlt;
     ctx.fillRect(x, y, size, size);
-    text(ctx, fallbackInitial.slice(0, 1).toUpperCase(), cx, cy, {
+    const initial = (sanitizeText(fallbackInitial).slice(0, 1) || "?").toUpperCase();
+    text(ctx, initial, cx, cy, {
       size: size * 0.42,
       weight: "bold",
       color: PALETTE.soft,

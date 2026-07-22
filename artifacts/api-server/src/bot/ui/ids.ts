@@ -48,6 +48,7 @@ export const ADMIN_QUEUE = id(NS.admin, "queue");
 export const ADMIN_MISSING = id(NS.admin, "missing");
 export const ADMIN_LEADERBOARD = id(NS.admin, "leaderboard");
 export const ADMIN_REFRESH = id(NS.admin, "refresh");
+export const ADMIN_DASHBOARDS = id(NS.admin, "dashboards");
 
 // Review card actions take the submission id as arg
 export const reviewApprove = (subId: number) => id(NS.review, "approve", subId);

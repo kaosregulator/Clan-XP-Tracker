@@ -23,6 +23,8 @@ import type { Clan } from "@workspace/db";
 import { logger } from "../../lib/logger";
 import { ensureClan, updateClan, isStaff, getClan } from "../services/config";
 import { parseHm } from "../services/time";
+import { refreshDashboards } from "./dashboard";
+import { refreshTracker } from "./tracker";
 import {
   SETUP_IDENTITY,
   SETUP_GAME,
@@ -535,15 +537,28 @@ export async function handleSetupSelect(
 }
 
 async function finishSetup(interaction: ButtonInteraction, clan: Clan) {
-  if (!clan.submissionChannelId || !clan.reviewChannelId) {
+  // A submission channel is always needed. A review channel is only needed
+  // when submissions require staff review (auto-approve doesn't use one).
+  if (!clan.submissionChannelId) {
     await interaction.reply({
-      content: "Please set at least a **Submission** and **Review** channel first (Channels button).",
+      content: "Please set at least a **Submission** channel first (Channels button).",
+      flags: 64,
+    });
+    return;
+  }
+  if (!clan.autoApprove && !clan.reviewChannelId) {
+    await interaction.reply({
+      content: "Staff review is on, so please also set a **Review** channel (Channels button) — or switch to auto-approve in Identity & Goal.",
       flags: 64,
     });
     return;
   }
   const updated = (await updateClan(clan.guildId, { setupComplete: true })) ?? clan;
   await interaction.update(setupMainPayload(updated));
+  // Post the configured dashboards + tracker right away so they appear now
+  // instead of on the next scheduler cycle.
+  void refreshDashboards(interaction.client, updated);
+  void refreshTracker(interaction.client, updated);
 }
 
 async function autoCreateChannels(interaction: ButtonInteraction, clan: Clan) {
