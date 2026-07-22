@@ -7,6 +7,7 @@ import { getDashboard, upsertDashboard, setDashboardMessage } from "../services/
 import { renderAdminHub } from "../canvas/cards/adminHub";
 import { renderClanDashboard } from "../canvas/cards/clanDashboard";
 import { renderPatriotDashboard } from "../canvas/cards/patriotDashboard";
+import { renderLeaderboardCard } from "../canvas/cards/leaderboardCard";
 import { patriotOverview } from "../services/accounts";
 
 async function renderStaffImage(clan: Clan): Promise<Buffer> {
@@ -41,6 +42,16 @@ async function renderClanImage(clan: Clan): Promise<Buffer> {
     totalMembers: snap.totalMembers,
     deadline: relative(nextReset(clan)),
     leaders: leaders.map((l) => ({ name: l.displayName, streak: l.currentStreak, approved: l.approvedCount })),
+  });
+}
+
+async function renderLeaderboardImage(clan: Clan): Promise<Buffer> {
+  const rows = await streakLeaderboard(clan.guildId, 10);
+  return renderLeaderboardCard({
+    communityName: clan.clanName,
+    activityName: clan.activityName || "XP",
+    subtitle: "Ranked by current streak",
+    rows: rows.map((l) => ({ name: l.displayName, streak: l.currentStreak, approved: l.approvedCount })),
   });
 }
 
@@ -117,6 +128,20 @@ export async function refreshDashboards(client: Client, clan: Clan): Promise<voi
       );
     } catch (err) {
       logger.warn({ err, guild: clan.guildId }, "Clan dashboard refresh failed");
+    }
+  }
+  if (clan.leaderboardChannelId) {
+    try {
+      await upsertDashboardMessage(
+        client,
+        clan,
+        "leaderboard",
+        clan.leaderboardChannelId,
+        await renderLeaderboardImage(clan),
+        "leaderboard.png"
+      );
+    } catch (err) {
+      logger.warn({ err, guild: clan.guildId }, "Leaderboard dashboard refresh failed");
     }
   }
   if (clan.altAccountsEnabled && clan.patriotDashboardChannelId) {

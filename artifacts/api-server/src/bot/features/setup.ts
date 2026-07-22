@@ -49,6 +49,7 @@ import {
   SETUP_CLAN_DASH,
   SETUP_PATRIOT_DASH,
   SETUP_TRACKER_CHANNEL,
+  SETUP_LEADERBOARD_DASH,
   SETUP_REQUIRED_ROLE,
   parseId,
 } from "../ui/ids";
@@ -165,13 +166,14 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("📥 Channels")
         .setDescription(
-          "**Submissions** — where members post screenshots.\n**Review** — private staff queue.\n**Logs** — audit trail."
+          "**Submissions** — where members post screenshots.\n**Review** — private staff queue.\n**Logs** — audit trail.\n**Tracker** — the live admin progress board."
         ),
     ],
     components: [
       menu(SETUP_SUB_CHANNEL, "Submission channel", clan.submissionChannelId),
       menu(SETUP_REVIEW_CHANNEL, "Review channel", clan.reviewChannelId),
       menu(SETUP_LOG_CHANNEL, "Log channel", clan.logChannelId),
+      menu(SETUP_TRACKER_CHANNEL, "Admin tracker channel", clan.trackerChannelId),
       backRow(),
     ],
   };
@@ -194,12 +196,12 @@ function dashboardsPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("📊 Dashboards")
         .setDescription(
-          "Auto-updating canvas boards (refreshed every few minutes).\n**Clan** — public progress & top streaks.\n**Staff** — private operations board.\n**Patriot** — alt-account board (optional)."
+          "Auto-updating canvas boards that live in their channel (refreshed every few minutes).\n**Clan** — public progress & top streaks.\n**Leaderboard** — public streak ranking.\n**Staff** — private operations board.\n**Patriot** — alt-account board (optional).\n_(The admin Tracker channel is on the Channels page.)_"
         ),
     ],
     components: [
-      menu(SETUP_TRACKER_CHANNEL, "Admin progress tracker channel", clan.trackerChannelId),
       menu(SETUP_CLAN_DASH, "Clan (public) dashboard channel", clan.clanDashboardChannelId),
+      menu(SETUP_LEADERBOARD_DASH, "Leaderboard channel", clan.leaderboardChannelId),
       menu(SETUP_STAFF_DASH, "Staff dashboard channel", clan.staffDashboardChannelId),
       menu(SETUP_PATRIOT_DASH, "Patriot dashboard channel", clan.patriotDashboardChannelId),
       backRow(),
@@ -527,15 +529,16 @@ export async function handleSetupSelect(
       subChannel: "submissionChannelId",
       reviewChannel: "reviewChannelId",
       logChannel: "logChannelId",
+      trackerChannel: "trackerChannelId",
       staffDash: "staffDashboardChannelId",
       clanDash: "clanDashboardChannelId",
       patriotDash: "patriotDashboardChannelId",
-      trackerChannel: "trackerChannelId",
+      leaderboardDash: "leaderboardChannelId",
     };
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: channelId });
     const fresh = (await getClan(clan.guildId)) ?? clan;
-    const dashActions = ["staffDash", "clanDash", "patriotDash", "trackerChannel"];
+    const dashActions = ["staffDash", "clanDash", "patriotDash", "leaderboardDash"];
     await interaction.update(dashActions.includes(action) ? dashboardsPayload(fresh) : channelsPayload(fresh));
     return;
   }
