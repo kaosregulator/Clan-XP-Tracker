@@ -1,9 +1,12 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  getGetClanQueryOptions,
   getGetClanStatsQueryOptions,
   getGetLeaderboardQueryOptions,
   getGetRecentActivityQueryOptions,
 } from "@workspace/api-client-react";
+import { useLocation } from "wouter";
 import DashboardLayout from "./layout";
 import { formatXP, formatRelativeTime } from "@/lib/utils";
 import { Trophy, Users, FileCheck, TrendingUp, Activity } from "lucide-react";
@@ -47,6 +50,19 @@ function StatCard({
 }
 
 export default function OverviewPage({ guildId }: Props) {
+  const [, navigate] = useLocation();
+
+  const { data: clan, error: clanError } = useQuery({
+    ...getGetClanQueryOptions(guildId),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (clanError && (clanError as { status?: number }).status === 404) {
+      navigate(`/dashboard/${guildId}/setup`);
+    }
+  }, [clanError, guildId, navigate]);
+
   const { data: stats } = useQuery(getGetClanStatsQueryOptions(guildId));
   const { data: topMembers } = useQuery(
     getGetLeaderboardQueryOptions(guildId, { period: "weekly", limit: 5 }),

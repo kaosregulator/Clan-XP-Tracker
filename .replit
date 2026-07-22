@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "postgresql-16", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -25,3 +25,7 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
+DISCORD_DEV_GUILD_ID = "1363917781355069761,1517943940240642288,1523858821477568615"
+
+[userenv.production]
+DISCORD_REDIRECT_URI = "https://clan-xp-tracker.replit.app/api/auth/callback"

@@ -86,7 +86,7 @@ export default function GuildsPage() {
                 {guilds.map((guild) => (
                   <button
                     key={guild.id}
-                    onClick={() => navigate(`/dashboard/${guild.id}`)}
+                    onClick={() => navigate(guild.isSetUp ? `/dashboard/${guild.id}` : `/dashboard/${guild.id}/setup`)}
                     className="bg-card border border-card-border rounded-xl p-5 flex items-center gap-4 text-left hover-elevate hover:border-primary/50 transition-colors cursor-pointer"
                   >
                     <img
@@ -104,7 +104,11 @@ export default function GuildsPage() {
                         {guild.isSetUp ? " · Clan active" : " · Not configured"}
                       </p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    {guild.isSetUp ? (
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                    ) : (
+                      <span className="text-xs font-medium text-primary shrink-0">Set up →</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -132,7 +136,7 @@ export default function GuildsPage() {
                   const res = await customFetch<{ inviteUrl: string }>('/api/auth/invite-url');
                   if (res.inviteUrl) window.open(res.inviteUrl, "_blank");
                 } catch {
-                  window.open("https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2147485696", "_blank");
+                  window.open("https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2147871808", "_blank");
                 }
               }}>
                 Invite Bot

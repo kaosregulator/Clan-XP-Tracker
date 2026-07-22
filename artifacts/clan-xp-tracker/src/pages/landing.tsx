@@ -18,7 +18,7 @@ import { getGetMeQueryOptions } from "@workspace/api-client-react";
 import { useLocation, Link } from "wouter";
 
 const INVITE_FALLBACK =
-  "https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2147485696";
+  "https://discord.com/oauth2/authorize?client_id=1519561210024956015&scope=bot+applications.commands&permissions=2147871808";
 
 async function inviteBot() {
   try {

@@ -94,10 +94,14 @@ export default function DashboardLayout({ guildId, children, currentPath = "" }:
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-muted animate-pulse" />
-            <div className="flex-1">
-              <div className="h-3 bg-muted rounded animate-pulse mb-1.5" />
-              <div className="h-2.5 bg-muted rounded animate-pulse w-3/4" />
+            <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-muted-foreground font-bold text-sm shrink-0">
+              ?
+            </div>
+            <div className="min-w-0">
+              <p className="font-semibold text-sidebar-foreground truncate text-sm">
+                Not configured
+              </p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">Run setup to activate</p>
             </div>
           </div>
         )}

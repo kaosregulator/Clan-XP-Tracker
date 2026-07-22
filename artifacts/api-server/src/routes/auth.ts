@@ -149,7 +149,7 @@ router.get("/auth/invite-url", (_req, res) => {
   const params = new URLSearchParams({
     client_id: DISCORD_CLIENT_ID,
     scope: "bot applications.commands",
-    permissions: "2147485696",
+    permissions: "2147871808",
     integration_type: "0",
   });
   res.json({ inviteUrl: `https://discord.com/oauth2/authorize?${params}` });
