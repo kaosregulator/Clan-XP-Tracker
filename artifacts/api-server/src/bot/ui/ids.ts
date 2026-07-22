@@ -88,6 +88,7 @@ export const SETUP_REQUIRED_ROLE = id(NS.setup, "requiredRole");
 // Admin tracker embed actions
 export const TRACKER_REMIND = id(NS.tracker, "remind");
 export const TRACKER_REFRESH = id(NS.tracker, "refresh");
+export const TRACKER_CHECK = id(NS.tracker, "check");
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);

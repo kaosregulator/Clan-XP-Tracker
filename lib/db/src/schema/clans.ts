@@ -47,6 +47,9 @@ export const clansTable = pgTable("clans", {
   timezone: text("timezone").notNull().default("UTC"),
   resetTime: text("reset_time").notNull().default("00:00"), // HH:mm
   reminderTimes: text("reminder_times").array().notNull().default([]), // ["18:00","22:00"]
+  // Master safety switch for automatic reminders. When false, the scheduler
+  // sends no auto reminders (staff can still use the manual Remind button).
+  remindersEnabled: boolean("reminders_enabled").notNull().default(true),
 
   // Channels
   submissionChannelId: text("submission_channel_id"),

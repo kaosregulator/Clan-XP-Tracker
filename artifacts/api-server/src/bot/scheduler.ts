@@ -112,7 +112,11 @@ async function tick(client: Client) {
     try {
       const hhmm = localHm(clan);
       const dateKey = new Date().toISOString().slice(0, 10);
-      if (clan.reminderTimes.includes(hhmm)) {
+      // Only the FIRST configured reminder time fires automatically; any extra
+      // times are for staff to trigger manually via the Remind button. The
+      // master switch (remindersEnabled) can turn auto reminders off entirely.
+      const autoTime = clan.reminderTimes[0];
+      if (clan.remindersEnabled && autoTime && autoTime === hhmm) {
         await runReminderWindow(client, clan, hhmm, dateKey);
       }
       await runStaffMonitoring(client, clan);
