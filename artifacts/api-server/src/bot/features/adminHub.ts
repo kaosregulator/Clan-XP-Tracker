@@ -14,6 +14,8 @@ import { renderAdminHub } from "../canvas/cards/adminHub";
 import { adminHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./hub";
+import { refreshDashboards } from "./dashboard";
+import { refreshTracker } from "./tracker";
 
 /** Build the /xpadmin staff operations hub (canvas image + buttons). */
 export async function buildAdminHub(clan: Clan): Promise<BaseMessageOptions> {
@@ -77,6 +79,24 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
   if (action === "refresh") {
     await interaction.deferUpdate();
     await interaction.editReply(await buildAdminHub(clan));
+    return;
+  }
+
+  if (action === "dashboards") {
+    await interaction.deferReply({ flags: 64 });
+    await refreshDashboards(interaction.client, clan);
+    await refreshTracker(interaction.client, clan);
+    const set = [
+      clan.trackerChannelId && `tracker → <#${clan.trackerChannelId}>`,
+      clan.clanDashboardChannelId && `clan → <#${clan.clanDashboardChannelId}>`,
+      clan.staffDashboardChannelId && `staff → <#${clan.staffDashboardChannelId}>`,
+      clan.altAccountsEnabled && clan.patriotDashboardChannelId && `patriot → <#${clan.patriotDashboardChannelId}>`,
+    ].filter(Boolean);
+    await interaction.editReply(
+      set.length
+        ? `📊 Posted/updated: ${set.join(" · ")}`
+        : "No dashboard channels are set yet. Add them in **/setup → Dashboards** (and a Tracker channel)."
+    );
     return;
   }
 
