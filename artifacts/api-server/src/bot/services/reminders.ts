@@ -1,9 +1,10 @@
 import { db, remindersTable, clanMembersTable } from "@workspace/db";
 import type { Clan } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
-import { EmbedBuilder, type User } from "discord.js";
+import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, type User, type MessageActionRowComponentBuilder } from "discord.js";
 import { activityDate, nextReset, discordRelative } from "./time";
 import { logAction, sendLog } from "./logging";
+import { remindSubmit, remindDone } from "../ui/ids";
 
 export interface SendReminderInput {
   clan: Clan;
@@ -26,13 +27,23 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   const activity = clan.activityName || "XP";
   const resetLine = `Please submit before today's reset (${discordRelative(nextReset(clan))}).`;
 
+  // Buttons so the member can acknowledge & log right from the reminder —
+  // handy when they DID their XP but forgot to submit it.
+  const buttons = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(remindDone(clan.guildId)).setStyle(ButtonStyle.Success).setLabel(`I did it — log now`),
+    new ButtonBuilder().setCustomId(remindSubmit(clan.guildId)).setStyle(ButtonStyle.Primary).setLabel(`Submit ${activity}`)
+  );
+
   let delivered = true;
   try {
-    await target.send(
-      `👋 **Friendly reminder** from **${clan.clanName}**\n\n` +
+    await target.send({
+      content:
+        `👋 **Friendly reminder** from **${clan.clanName}**\n\n` +
         `You haven't submitted today's ${activity} yet. ` +
-        `**This is only a reminder — it is not a warning.**\n${resetLine}`
-    );
+        `**This is only a reminder — it is not a warning.**\n${resetLine}\n\n` +
+        `Already did it? Tap **I did it — log now** to record it.`,
+      components: [buttons],
+    });
   } catch {
     delivered = false;
   }

@@ -34,6 +34,10 @@ export const XP_HISTORY = id(NS.xp, "history");
 export const XP_REFRESH = id(NS.xp, "refresh");
 export const XP_SUBMIT_MODAL = id(NS.xp, "submitModal");
 export const XP_VACATION = id(NS.xp, "vacation");
+// Reminder DM buttons carry the guild id so they work from a DM (no guild ctx).
+export const remindSubmit = (guildId: string) => id(NS.xp, "remindSubmit", guildId);
+export const remindDone = (guildId: string) => id(NS.xp, "remindDone", guildId);
+export const submitModalForGuild = (guildId: string) => id(NS.xp, "submitModal", guildId);
 export const XP_ACCOUNTS = id(NS.xp, "accounts");
 export const XP_ADD_ACCOUNT = id(NS.xp, "addAccount");
 export const XP_ADD_ACCOUNT_MODAL = id(NS.xp, "addAccountModal");
@@ -49,6 +53,7 @@ export const ADMIN_MISSING = id(NS.admin, "missing");
 export const ADMIN_LEADERBOARD = id(NS.admin, "leaderboard");
 export const ADMIN_REFRESH = id(NS.admin, "refresh");
 export const ADMIN_DASHBOARDS = id(NS.admin, "dashboards");
+export const ADMIN_EXPORT = id(NS.admin, "export");
 
 // Review card actions take the submission id as arg
 export const reviewApprove = (subId: number) => id(NS.review, "approve", subId);

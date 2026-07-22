@@ -17,7 +17,7 @@ import {
   handleRemoveAccountSelect,
   handleSubmitAccountSelect,
 } from "./features/accounts";
-import { handleSubmitModal } from "./features/submit";
+import { handleSubmitModal, handleRemindAck } from "./features/submit";
 import { handleTrackerRemind, handleTrackerRefresh, handleTrackerCheck } from "./features/tracker";
 import {
   handleApprove,
@@ -58,6 +58,9 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       const { ns, action } = parseId(interaction.customId);
       switch (ns) {
         case NS.xp:
+          // Reminder DM buttons work outside a guild — route them first.
+          if (action === "remindSubmit" || action === "remindDone")
+            return void (await handleRemindAck(interaction));
           return void (await handleXpButton(interaction));
         case NS.admin:
           return void (await handleAdminButton(interaction));

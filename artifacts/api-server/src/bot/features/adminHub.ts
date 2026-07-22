@@ -16,6 +16,7 @@ import { parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./hub";
 import { refreshDashboards } from "./dashboard";
 import { refreshTracker } from "./tracker";
+import { exportGuildData } from "../services/export";
 
 /** Build the /xpadmin staff operations hub (canvas image + buttons). */
 export async function buildAdminHub(clan: Clan): Promise<BaseMessageOptions> {
@@ -79,6 +80,19 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
   if (action === "refresh") {
     await interaction.deferUpdate();
     await interaction.editReply(await buildAdminHub(clan));
+    return;
+  }
+
+  if (action === "export") {
+    await interaction.deferReply({ flags: 64 });
+    const data = await exportGuildData(clan.guildId);
+    const buf = Buffer.from(JSON.stringify(data, null, 2), "utf8");
+    const stamp = new Date().toISOString().slice(0, 10);
+    const c = (data.counts as Record<string, number>) ?? {};
+    await interaction.editReply({
+      content: `💾 **Backup** — ${c.members ?? 0} members · ${c.submissions ?? 0} submissions · ${c.warnings ?? 0} warnings. Your live data always stays in the database; this is a copy you can keep.`,
+      files: [new AttachmentBuilder(buf, { name: `xp-backup-${clan.guildId}-${stamp}.json` })],
+    });
     return;
   }
 
