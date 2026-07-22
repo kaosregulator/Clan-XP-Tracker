@@ -11,7 +11,10 @@ export const sessionMiddleware = session({
   store: new PgSession({
     conString: process.env.DATABASE_URL,
     tableName: "connect_sessions",
-    createTableIfMissing: false,
+    // Auto-create the session table if it doesn't exist yet. Without this, a
+    // missing table makes every session write fail silently — the OAuth `state`
+    // is never persisted, so login bounces back to the home page.
+    createTableIfMissing: true,
   }),
   secret: process.env.SESSION_SECRET,
   resave: false,

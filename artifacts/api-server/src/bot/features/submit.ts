@@ -1,5 +1,4 @@
 import {
-  EmbedBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -21,12 +20,13 @@ import {
   getSubmission,
 } from "../services/submissions";
 import { recomputeMemberStats } from "../services/members";
-import { logAction, sendLog } from "../services/logging";
+import { logAction } from "../services/logging";
 import { runExtraction, extractionEnabled } from "../services/extraction";
 import { discordRelative, nextReset } from "../services/time";
 import { isOverflowNow, clanCapacity } from "../services/contributions";
 import { postReviewCard } from "./review";
 import { scheduleTrackerRefresh } from "./tracker";
+import { postXpCard } from "./xpcard";
 import { XP_SUBMIT_MODAL } from "../ui/ids";
 
 const PROOF_LINK_WINDOW_MS = 30 * 60_000;
@@ -66,26 +66,11 @@ function submitModal(clan: Clan): ModalBuilder {
   return modal.addComponents(...rows);
 }
 
-function logEmbed(clan: Clan, sub: XpSubmission, auto: boolean): EmbedBuilder {
-  const embed = new EmbedBuilder()
-    .setColor(auto ? 0x3ba55d : 0xfaa61a)
-    .setAuthor({ name: `${sub.username} • ${clan.activityName || "XP"}`, iconURL: sub.avatarUrl ?? undefined })
-    .setTitle(auto ? "✅ Submitted" : "⏳ Submitted for review")
-    .addFields(
-      { name: "Member", value: `<@${sub.userId}>`, inline: true },
-      { name: "For", value: sub.activityDate, inline: true }
-    )
-    .setTimestamp();
-  if (sub.notes) embed.addFields({ name: "Note", value: sub.notes.slice(0, 1024) });
-  if (sub.proofImageUrls[0]) embed.setImage(sub.proofImageUrls[0]);
-  return embed;
-}
-
-/** Finalize a brand-new submission: recompute stats, log, refresh tracker. */
+/** Finalize a brand-new submission: recompute stats, post the XP card, refresh tracker. */
 async function finalize(client: Message["client"], clan: Clan, sub: XpSubmission, auto: boolean) {
   if (auto) {
     await recomputeMemberStats(clan, sub.userId);
-    await sendLog(client, clan, logEmbed(clan, sub, true));
+    await postXpCard(client, clan, sub); // the visible "xp card" embed
     scheduleTrackerRefresh(client, clan);
   } else {
     await postReviewCard(client, clan, sub);
@@ -94,7 +79,7 @@ async function finalize(client: Message["client"], clan: Clan, sub: XpSubmission
     action: auto ? "submission_recorded" : "submission_created",
     targetUserId: sub.userId,
     targetUsername: sub.username,
-    details: { submissionId: sub.id, auto },
+    details: { submissionId: sub.id, auto, contributions: sub.contributions, overflow: sub.overflow },
   });
 }
 
