@@ -58,6 +58,7 @@ export const clansTable = pgTable("clans", {
   staffDashboardChannelId: text("staff_dashboard_channel_id"),
   clanDashboardChannelId: text("clan_dashboard_channel_id"),
   patriotDashboardChannelId: text("patriot_dashboard_channel_id"),
+  leaderboardChannelId: text("leaderboard_channel_id"),
 
   // Roles
   staffRoleIds: text("staff_role_ids").array().notNull().default([]),

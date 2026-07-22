@@ -14,6 +14,8 @@ import { listActive, removeWarning } from "../services/warnings";
 import { streakLeaderboard, periodReport } from "../services/stats";
 import { formatInZone } from "../services/time";
 import { renderReportCard } from "../canvas/cards/reportCard";
+import { renderHelpCard } from "../canvas/cards/helpCard";
+import { renderLeaderboardCard } from "../canvas/cards/leaderboardCard";
 import { buildMemberHub, notConfiguredMessage } from "./hub";
 import { warnRemoveSelect } from "../ui/ids";
 
@@ -55,32 +57,20 @@ export async function handleProfile(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({ ...hub, embeds: [embed] });
 }
 
-/** /leaderboard — streak leaderboard. */
+/** /leaderboard — streak leaderboard as a canvas card. */
 export async function handleLeaderboard(interaction: ChatInputCommandInteraction) {
   const clan = await requireClan(interaction);
   if (!clan) return;
   await interaction.deferReply();
 
   const rows = await streakLeaderboard(clan.guildId, 10);
-  if (!rows.length) {
-    await interaction.editReply("No activity yet — be the first to submit!");
-    return;
-  }
-  const medals = ["🥇", "🥈", "🥉"];
-  const body = rows
-    .map((r, i) => {
-      const prefix = medals[i] ?? `**${i + 1}.**`;
-      return `${prefix} <@${r.userId}> — 🔥 **${r.currentStreak}** day streak · ${r.approvedCount} approved`;
-    })
-    .join("\n");
-
-  const embed = new EmbedBuilder()
-    .setColor(0xfaa61a)
-    .setTitle(`${clan.clanName} — ${clan.activityName || "XP"} Leaderboard`)
-    .setDescription(body)
-    .setFooter({ text: "Ranked by current streak" });
-
-  await interaction.editReply({ embeds: [embed] });
+  const png = renderLeaderboardCard({
+    communityName: clan.clanName,
+    activityName: clan.activityName || "XP",
+    subtitle: "Ranked by current streak",
+    rows: rows.map((r) => ({ name: r.displayName, streak: r.currentStreak, approved: r.approvedCount })),
+  });
+  await interaction.editReply({ files: [new AttachmentBuilder(png, { name: "leaderboard.png" })] });
 }
 
 /** /warnings [user] — view active warnings; staff can remove via a menu. */
@@ -127,7 +117,7 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({ embeds: [embed], components });
 }
 
-/** /help — a quick how-it-works for members and staff. */
+/** /help — a quick how-it-works canvas for members and staff. */
 export async function handleHelp(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   const clan = await getClan(interaction.guildId);
@@ -135,40 +125,37 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   const game = clan?.gameName || "Roblox";
   const staff = isStaff(interaction.member, clan ?? null);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setTitle(`${clan?.clanName ?? "ClanXP"} — How it works`)
-    .setDescription(`A quick guide to tracking your daily ${activity}. Everything happens through **/xp** — buttons, not commands.`)
-    .addFields({
-      name: "🎮 For members",
-      value: [
-        `**\`/xp\`** — open your hub (streak, warnings, daily goal).`,
-        `• **Submit ${activity}** — quick box${clan?.altAccountsEnabled ? " (add your alt count if you run alts)" : ""}, records **instantly**. Your card auto-posts.`,
-        `• **Open ${game}** — launch the game.`,
-        `• **My Progress / History** — your record.`,
-        `• **Vacation** — can't play today? Log it (counts as a miss, not an excuse).`,
-        clan?.submissionChannelId ? `• Post a screenshot in <#${clan.submissionChannelId}> for proof / overflow.` : "",
-      ].filter(Boolean).join("\n"),
-    });
+  const memberLines = [
+    `/xp  —  open your hub (streak, warnings, daily goal)`,
+    `Submit ${activity}  —  quick box${clan?.altAccountsEnabled ? " (+ your alt count)" : ""}, records instantly`,
+    `Open ${game}  —  launch the game and do your ${activity}`,
+    `My Progress / History  —  see your record`,
+    `Vacation  —  can't play today? Log it (counts as a miss)`,
+  ];
 
+  const sections = [
+    { title: "For members", accent: "#57f287", lines: memberLines },
+  ];
   if (staff) {
-    embed.addFields({
-      name: "🛡️ For staff",
-      value: [
-        `**\`/setup\`** — the wizard (goal, capacity, schedule, channels, roles, dashboards).`,
-        `**\`/xpadmin\`** — ops hub; **Post Dashboards** publishes/refreshes the boards.`,
-        `**Tracker board** — lives in its channel: progress + **Show Users / Remind Missing / Refresh**.`,
-        `**\`/warnings\` \`/leaderboard\` \`/report\` \`/profile @user\`** — manage & review.`,
-        `Warnings & reminders log to your logs channel. Auto reminders have an on/off safety switch in **/setup → Schedule**.`,
-      ].join("\n"),
+    sections.push({
+      title: "For staff",
+      accent: "#5865f2",
+      lines: [
+        `/setup  —  wizard: goal, capacity, schedule, channels, roles, boards`,
+        `/xpadmin  —  ops hub · Post Dashboards publishes the boards`,
+        `Tracker board  —  progress + Show Users / Remind / Refresh`,
+        `/warnings  /leaderboard  /report  /profile @user`,
+        `Warnings & reminders log to your logs channel`,
+      ],
     });
   }
 
-  embed.setFooter({
-    text: staff ? "You're staff — you see the admin section too." : "Ask an admin for staff tools.",
+  const png = renderHelpCard({
+    communityName: clan?.clanName ?? "ClanXP",
+    activityName: activity,
+    sections,
   });
-
-  await interaction.reply({ embeds: [embed], flags: 64 });
+  await interaction.reply({ files: [new AttachmentBuilder(png, { name: "help.png" })], flags: 64 });
 }
 
 /** /report [period] — staff weekly/monthly activity report card. */

@@ -83,6 +83,7 @@ export const SETUP_STAFF_DASH = id(NS.setup, "staffDash");
 export const SETUP_CLAN_DASH = id(NS.setup, "clanDash");
 export const SETUP_PATRIOT_DASH = id(NS.setup, "patriotDash");
 export const SETUP_TRACKER_CHANNEL = id(NS.setup, "trackerChannel");
+export const SETUP_LEADERBOARD_DASH = id(NS.setup, "leaderboardDash");
 export const SETUP_REQUIRED_ROLE = id(NS.setup, "requiredRole");
 
 // Admin tracker embed actions
