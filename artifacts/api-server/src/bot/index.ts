@@ -8,8 +8,42 @@ import { startScheduler } from "./scheduler";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+// Optional: register commands to specific guild(s) for INSTANT availability
+// (global commands can take up to an hour to appear). Comma-separated IDs.
+const DISCORD_DEV_GUILD_ID = process.env.DISCORD_DEV_GUILD_ID;
 
 let client: Client | null = null;
+
+/**
+ * Register slash commands. If DISCORD_DEV_GUILD_ID is set we register to those
+ * guilds (instant, ideal while setting up/testing); otherwise globally.
+ */
+async function registerCommands(client: Client) {
+  const rest = new REST().setToken(DISCORD_BOT_TOKEN!);
+  const guildIds = (DISCORD_DEV_GUILD_ID ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  try {
+    if (guildIds.length) {
+      for (const guildId of guildIds) {
+        await rest.put(Routes.applicationGuildCommands(DISCORD_CLIENT_ID!, guildId), { body: commands });
+      }
+      // Clear any stale global commands so members don't see duplicates.
+      await rest.put(Routes.applicationCommands(DISCORD_CLIENT_ID!), { body: [] }).catch(() => {});
+      logger.info({ count: commands.length, guilds: guildIds }, "Slash commands registered (guild — instant)");
+    } else {
+      await rest.put(Routes.applicationCommands(DISCORD_CLIENT_ID!), { body: commands });
+      logger.info(
+        { count: commands.length },
+        "Slash commands registered (global — can take up to 1h to appear; set DISCORD_DEV_GUILD_ID for instant)"
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to register slash commands");
+  }
+}
 
 /** The single bot client, if started. Used by schedulers/dashboards later. */
 export function getClient(): Client | null {
@@ -36,14 +70,8 @@ export function startBot() {
   });
 
   client.once(Events.ClientReady, async (c) => {
-    logger.info({ tag: c.user.tag }, "Discord bot ready");
-    try {
-      const rest = new REST().setToken(DISCORD_BOT_TOKEN!);
-      await rest.put(Routes.applicationCommands(DISCORD_CLIENT_ID!), { body: commands });
-      logger.info({ count: commands.length }, "Slash commands registered");
-    } catch (err) {
-      logger.error({ err }, "Failed to register slash commands");
-    }
+    logger.info({ tag: c.user.tag, guilds: c.guilds.cache.size }, "Discord bot ready");
+    await registerCommands(c);
     startScheduler(c);
   });
 

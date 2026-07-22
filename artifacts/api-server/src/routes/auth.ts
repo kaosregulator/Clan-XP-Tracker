@@ -8,17 +8,41 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID ?? "";
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET ?? "";
 const DISCORD_REDIRECT_URI = process.env.DISCORD_REDIRECT_URI ?? "";
 
-function getRedirectUri(req: { headers: { host?: string; "x-forwarded-proto"?: string } }) {
-  if (DISCORD_REDIRECT_URI) {
-    return DISCORD_REDIRECT_URI;
-  }
+type ReqLike = {
+  headers: {
+    host?: string;
+    "x-forwarded-host"?: string | string[];
+    "x-forwarded-proto"?: string | string[];
+  };
+};
+
+function firstHeader(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/**
+ * The OAuth redirect_uri MUST be identical between the /authorize step and the
+ * /callback step, and MUST be registered in the Discord Developer Portal.
+ *
+ * Order of precedence:
+ *  1. DISCORD_REDIRECT_URI — set this to your stable domain to pin it. Best for
+ *     production so it never drifts.
+ *  2. The request's own forwarded host — self-consistent by construction: the
+ *     user is redirected back to the exact domain they started on. This is what
+ *     keeps dev + deployed both working without the URI "changing" mid-flow.
+ *
+ * We deliberately do NOT derive from REPLIT_DEV_DOMAIN, which changes between
+ * dev sessions and caused the redirect to flap.
+ */
+function getRedirectUri(req: ReqLike): string {
+  if (DISCORD_REDIRECT_URI) return DISCORD_REDIRECT_URI;
+  const proto = firstHeader(req.headers["x-forwarded-proto"]) ?? "https";
+  const host = firstHeader(req.headers["x-forwarded-host"]) ?? req.headers.host;
+  if (host) return `${proto}://${host}/api/auth/callback`;
   if (process.env.REPLIT_DEV_DOMAIN) {
     return `https://${process.env.REPLIT_DEV_DOMAIN}/api/auth/callback`;
   }
-  const host = req.headers["x-forwarded-proto"]
-    ? `${req.headers["x-forwarded-proto"]}://${req.headers.host}`
-    : `http://${req.headers.host}`;
-  return `${host}/api/auth/callback`;
+  return "";
 }
 
 router.get("/auth/discord", (req, res) => {
