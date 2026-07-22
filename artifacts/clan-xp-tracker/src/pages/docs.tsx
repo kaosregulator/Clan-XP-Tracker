@@ -10,6 +10,7 @@ const COMMANDS: [string, string][] = [
   ["/leaderboard", "The current streak leaderboard."],
   ["/warnings [user]", "View warnings; staff can remove them from a menu."],
   ["/report [period]", "Staff weekly/monthly activity report card."],
+  ["/help", "Quick how-it-works for members and staff."],
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

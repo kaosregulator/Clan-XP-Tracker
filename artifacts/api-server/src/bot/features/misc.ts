@@ -127,6 +127,50 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   await interaction.editReply({ embeds: [embed], components });
 }
 
+/** /help — a quick how-it-works for members and staff. */
+export async function handleHelp(interaction: ChatInputCommandInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  const clan = await getClan(interaction.guildId);
+  const activity = clan?.activityName || "XP";
+  const game = clan?.gameName || "Roblox";
+  const staff = isStaff(interaction.member, clan ?? null);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`${clan?.clanName ?? "ClanXP"} — How it works`)
+    .setDescription(`A quick guide to tracking your daily ${activity}. Everything happens through **/xp** — buttons, not commands.`)
+    .addFields({
+      name: "🎮 For members",
+      value: [
+        `**\`/xp\`** — open your hub (streak, warnings, daily goal).`,
+        `• **Submit ${activity}** — quick box${clan?.altAccountsEnabled ? " (add your alt count if you run alts)" : ""}, records **instantly**. Your card auto-posts.`,
+        `• **Open ${game}** — launch the game.`,
+        `• **My Progress / History** — your record.`,
+        `• **Vacation** — can't play today? Log it (counts as a miss, not an excuse).`,
+        clan?.submissionChannelId ? `• Post a screenshot in <#${clan.submissionChannelId}> for proof / overflow.` : "",
+      ].filter(Boolean).join("\n"),
+    });
+
+  if (staff) {
+    embed.addFields({
+      name: "🛡️ For staff",
+      value: [
+        `**\`/setup\`** — the wizard (goal, capacity, schedule, channels, roles, dashboards).`,
+        `**\`/xpadmin\`** — ops hub; **Post Dashboards** publishes/refreshes the boards.`,
+        `**Tracker board** — lives in its channel: progress + **Show Users / Remind Missing / Refresh**.`,
+        `**\`/warnings\` \`/leaderboard\` \`/report\` \`/profile @user\`** — manage & review.`,
+        `Warnings & reminders log to your logs channel. Auto reminders have an on/off safety switch in **/setup → Schedule**.`,
+      ].join("\n"),
+    });
+  }
+
+  embed.setFooter({
+    text: staff ? "You're staff — you see the admin section too." : "Ask an admin for staff tools.",
+  });
+
+  await interaction.reply({ embeds: [embed], flags: 64 });
+}
+
 /** /report [period] — staff weekly/monthly activity report card. */
 export async function handleReport(interaction: ChatInputCommandInteraction) {
   const clan = await requireClan(interaction);

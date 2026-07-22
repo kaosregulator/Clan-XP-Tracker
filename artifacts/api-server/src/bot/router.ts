@@ -9,6 +9,7 @@ import {
   handleLeaderboard,
   handleWarnings,
   handleReport,
+  handleHelp,
   handleWarnRemoveSelect,
 } from "./features/misc";
 import {
@@ -47,6 +48,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleWarnings(interaction));
         case "report":
           return void (await handleReport(interaction));
+        case "help":
+          return void (await handleHelp(interaction));
       }
       return;
     }

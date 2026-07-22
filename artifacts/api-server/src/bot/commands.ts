@@ -50,6 +50,12 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .toJSON(),
 
   new SlashCommandBuilder()
+    .setName("help")
+    .setDescription("How to use the tracker (members & staff)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
     .setName("report")
     .setDescription("Weekly or monthly activity report (staff)")
     .addStringOption((o) =>
