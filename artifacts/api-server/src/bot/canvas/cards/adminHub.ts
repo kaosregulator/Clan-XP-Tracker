@@ -31,7 +31,7 @@ export interface AdminHubView {
 }
 
 /** Renders the /xpadmin operations dashboard as a PNG buffer. */
-export function renderAdminHub(view: AdminHubView): Buffer {
+export async function renderAdminHub(view: AdminHubView): Promise<Buffer> {
   const W = 960;
   const H = 560;
   const rc = createSurface(W, H);

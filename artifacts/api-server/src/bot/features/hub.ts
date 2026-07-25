@@ -41,7 +41,7 @@ export async function buildMemberHub(clan: Clan, user: User, displayName?: strin
     if (states.length > 1) accounts = states.map((s) => ({ label: s.account.label, state: s.state }));
   }
 
-  const png = renderMemberHub({
+  const png = await renderMemberHub({
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     gameName: clan.gameName || "Roblox",

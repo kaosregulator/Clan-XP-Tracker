@@ -64,7 +64,7 @@ export async function handleLeaderboard(interaction: ChatInputCommandInteraction
   await interaction.deferReply();
 
   const rows = await streakLeaderboard(clan.guildId, 10);
-  const png = renderLeaderboardCard({
+  const png = await renderLeaderboardCard({
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     subtitle: "Ranked by current streak",
@@ -154,7 +154,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
     });
   }
 
-  const png = renderHelpCard({
+  const png = await renderHelpCard({
     communityName: clan?.clanName ?? "ClanXP",
     activityName: activity,
     sections,
@@ -177,7 +177,7 @@ export async function handleReport(interaction: ChatInputCommandInteraction) {
   const report = await periodReport(clan, days);
 
   const since = new Date(Date.now() - days * 86_400_000);
-  const png = renderReportCard({
+  const png = await renderReportCard({
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     periodLabel: period === "month" ? "Monthly" : "Weekly",

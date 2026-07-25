@@ -20,7 +20,7 @@ export interface HelpCardView {
 }
 
 /** A clean, uniform help card matching the hubs/dashboards. */
-export function renderHelpCard(view: HelpCardView): Buffer {
+export async function renderHelpCard(view: HelpCardView): Promise<Buffer> {
   const W = 960;
   const pad = 40;
   const headerH = 130;

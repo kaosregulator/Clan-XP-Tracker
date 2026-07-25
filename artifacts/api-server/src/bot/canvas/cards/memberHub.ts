@@ -46,7 +46,7 @@ const STATUS_META: Record<DayState, { label: string; color: string; sub: string 
 };
 
 /** Renders the /xp member hub as a PNG buffer. */
-export function renderMemberHub(view: MemberHubView): Buffer {
+export async function renderMemberHub(view: MemberHubView): Promise<Buffer> {
   const W = 960;
   const H = view.accounts && view.accounts.length ? 600 : 520;
   const rc = createSurface(W, H);

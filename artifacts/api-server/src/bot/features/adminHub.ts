@@ -21,7 +21,7 @@ import { exportGuildData } from "../services/export";
 /** Build the /xpadmin staff operations hub (canvas image + buttons). */
 export async function buildAdminHub(clan: Clan): Promise<BaseMessageOptions> {
   const snap = await todaySnapshot(clan);
-  const png = renderAdminHub({
+  const png = await renderAdminHub({
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     activityDate: activityDate(clan),

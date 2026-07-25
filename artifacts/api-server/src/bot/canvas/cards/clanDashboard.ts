@@ -28,7 +28,7 @@ export interface ClanDashboardView {
 }
 
 /** Public, auto-updating clan dashboard. */
-export function renderClanDashboard(view: ClanDashboardView): Buffer {
+export async function renderClanDashboard(view: ClanDashboardView): Promise<Buffer> {
   const W = 960;
   const H = 600;
   const rc = createSurface(W, H);

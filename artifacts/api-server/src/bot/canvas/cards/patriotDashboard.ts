@@ -34,7 +34,7 @@ const STATE_COLOR: Record<AccountState, string> = {
 const MAX_ROWS = 7;
 
 /** Patriot / Guardian dashboard: per-member alt-account completion for today. */
-export function renderPatriotDashboard(view: PatriotDashboardView): Buffer {
+export async function renderPatriotDashboard(view: PatriotDashboardView): Promise<Buffer> {
   const rows = view.rows.slice(0, MAX_ROWS);
   const rowH = 58;
   const headerH = 250;
