@@ -27,18 +27,28 @@ import { handleAccountsButton, handleAddAccountButton } from "./accounts";
  */
 export async function buildMemberHub(clan: Clan, user: User, displayName?: string): Promise<BaseMessageOptions> {
   const identity = identityFromUser(user, displayName);
-  const member = await ensureMember(clan.guildId, identity);
-  let status: DayState = await todayStatus(clan, user.id);
+
+  // Run all independent fetches in parallel: DB queries + avatar download have
+  // no ordering dependency, so there's no reason to await them one-by-one.
+  const [member, rawStatus, avatar, altStates] = await Promise.all([
+    ensureMember(clan.guildId, identity),
+    todayStatus(clan, user.id),
+    fetchAvatar(identity.avatarUrl),
+    clan.altAccountsEnabled
+      ? accountStatesToday(clan, user.id)
+      : Promise.resolve([] as Awaited<ReturnType<typeof accountStatesToday>>),
+  ]);
+
+  // onVacationToday is only needed when status is "missing"; check it after.
+  let status: DayState = rawStatus;
   if (status === "missing" && (await onVacationToday(clan, user.id))) status = "vacation";
-  const avatar = await fetchAvatar(identity.avatarUrl);
 
   const reviewed = member.approvedCount + member.rejectedCount;
   const approvalRate = reviewed > 0 ? member.approvedCount / reviewed : 0;
 
   let accounts: AccountRow[] | undefined;
-  if (clan.altAccountsEnabled) {
-    const states = await accountStatesToday(clan, user.id);
-    if (states.length > 1) accounts = states.map((s) => ({ label: s.account.label, state: s.state }));
+  if (clan.altAccountsEnabled && altStates.length > 1) {
+    accounts = altStates.map((s) => ({ label: s.account.label, state: s.state }));
   }
 
   const png = await renderMemberHub({
@@ -95,12 +105,14 @@ async function historyEmbed(clan: Clan, user: User): Promise<EmbedBuilder> {
 /** /xp — open the member hub (ephemeral). */
 export async function sendMemberHub(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
+  // Defer BEFORE any async work so the 3-second Discord window never expires
+  // on a slow first DB connection.
+  await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.reply({ ...notConfiguredMessage(isStaff(interaction.member, null)), flags: 64 });
+    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
     return;
   }
-  await interaction.deferReply({ flags: 64 });
   const payload = await buildMemberHub(clan, interaction.user, interaction.member.displayName);
   await interaction.editReply(payload);
 }
@@ -108,12 +120,27 @@ export async function sendMemberHub(interaction: ChatInputCommandInteraction) {
 /** Route the member-hub buttons (submit / progress / history / refresh). */
 export async function handleXpButton(interaction: ButtonInteraction) {
   if (!interaction.inCachedGuild()) return;
+  // Parse the action from the custom ID first (sync — no DB) so we can defer
+  // before fetching the clan and beat the 3-second Discord window.
+  const { action } = parseId(interaction.customId);
+
+  // Defer early for actions that need it. "submit", "vacation", "accounts" and
+  // "addAccount" respond via modal or immediate reply so we must NOT defer them.
+  if (action === "refresh") {
+    await interaction.deferUpdate();
+  } else if (action === "progress" || action === "history") {
+    await interaction.deferReply({ flags: 64 });
+  }
+
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.reply({ ...notConfiguredMessage(false), flags: 64 });
+    if (interaction.deferred) {
+      await interaction.editReply(notConfiguredMessage(false));
+    } else {
+      await interaction.reply({ ...notConfiguredMessage(false), flags: 64 });
+    }
     return;
   }
-  const { action } = parseId(interaction.customId);
 
   switch (action) {
     case "submit":
@@ -125,20 +152,19 @@ export async function handleXpButton(interaction: ButtonInteraction) {
     case "addAccount":
       return handleAddAccountButton(interaction);
     case "refresh": {
-      await interaction.deferUpdate();
       const payload = await buildMemberHub(clan, interaction.user, interaction.member.displayName);
       await interaction.editReply(payload);
       return;
     }
     case "progress": {
-      await interaction.deferReply({ flags: 64 });
-      const payload = await buildMemberHub(clan, interaction.user, interaction.member.displayName);
-      const embed = await historyEmbed(clan, interaction.user);
+      const [payload, embed] = await Promise.all([
+        buildMemberHub(clan, interaction.user, interaction.member.displayName),
+        historyEmbed(clan, interaction.user),
+      ]);
       await interaction.editReply({ ...payload, embeds: [embed] });
       return;
     }
     case "history": {
-      await interaction.deferReply({ flags: 64 });
       const embed = await historyEmbed(clan, interaction.user);
       await interaction.editReply({ embeds: [embed] });
       return;

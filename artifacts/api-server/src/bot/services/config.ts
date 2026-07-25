@@ -4,9 +4,31 @@ import { eq, and } from "drizzle-orm";
 import type { GuildMember, User } from "discord.js";
 import { PermissionFlagsBits } from "discord.js";
 
+/**
+ * Short-lived in-memory cache for clan rows. Keeps the first cold DB hit hot
+ * for 30 s so that button handlers (which must look up the clan before they
+ * know which action to dispatch) never burn through the 3-second Discord
+ * interaction window on a cold Postgres connection.
+ */
+const clanCache = new Map<string, { clan: Clan; expiresAt: number }>();
+const CLAN_CACHE_TTL_MS = 30_000;
+
 export async function getClan(guildId: string): Promise<Clan | null> {
+  const hit = clanCache.get(guildId);
+  if (hit && hit.expiresAt > Date.now()) return hit.clan;
+
   const [clan] = await db.select().from(clansTable).where(eq(clansTable.guildId, guildId));
+  if (clan) {
+    clanCache.set(guildId, { clan, expiresAt: Date.now() + CLAN_CACHE_TTL_MS });
+  } else {
+    clanCache.delete(guildId);
+  }
   return clan ?? null;
+}
+
+/** Drop the cached entry for a guild — call after any write to the clans row. */
+export function invalidateClanCache(guildId: string): void {
+  clanCache.delete(guildId);
 }
 
 /** All clans that have completed setup (used by the scheduler & dashboards). */
@@ -22,7 +44,9 @@ export async function ensureClan(guildId: string, guildName: string): Promise<Cl
     .insert(clansTable)
     .values({ guildId, guildName, clanName: guildName })
     .returning();
-  return created!;
+  const clan = created!;
+  clanCache.set(guildId, { clan, expiresAt: Date.now() + CLAN_CACHE_TTL_MS });
+  return clan;
 }
 
 /** Patch a clan's configuration and return the fresh row. */
@@ -35,6 +59,9 @@ export async function updateClan(
     .set(patch)
     .where(eq(clansTable.guildId, guildId))
     .returning();
+  // Bust the cache so the next read reflects the new values immediately.
+  if (row) clanCache.set(guildId, { clan: row, expiresAt: Date.now() + CLAN_CACHE_TTL_MS });
+  else invalidateClanCache(guildId);
   return row ?? null;
 }
 

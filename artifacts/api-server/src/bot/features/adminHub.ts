@@ -60,9 +60,19 @@ async function requireStaff(
 
 /** /xpadmin — open the staff operations hub (ephemeral). */
 export async function sendAdminHub(interaction: ChatInputCommandInteraction) {
-  const clan = await requireStaff(interaction);
-  if (!clan) return;
+  if (!interaction.inCachedGuild()) return;
+  // Defer BEFORE the DB lookup so the 3-second window never expires on a cold
+  // Postgres connection. Staff/config checks move to editReply.
   await interaction.deferReply({ flags: 64 });
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    return;
+  }
+  if (!isStaff(interaction.member, clan)) {
+    await interaction.editReply({ content: "This hub is for staff only." });
+    return;
+  }
   await interaction.editReply(await buildAdminHub(clan));
 }
 
@@ -73,18 +83,32 @@ function jumpLink(guildId: string, channelId: string | null, messageId: string |
 
 /** Route the admin-hub buttons (queue / missing / leaderboard / refresh). */
 export async function handleAdminButton(interaction: ButtonInteraction) {
-  const clan = await requireStaff(interaction);
-  if (!clan) return;
+  if (!interaction.inCachedGuild()) return;
   const { action } = parseId(interaction.customId);
 
+  // Defer before any DB work to beat the 3-second Discord window.
   if (action === "refresh") {
     await interaction.deferUpdate();
+  } else {
+    await interaction.deferReply({ flags: 64 });
+  }
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(false));
+    return;
+  }
+  if (!isStaff(interaction.member, clan)) {
+    await interaction.editReply({ content: "This hub is for staff only." });
+    return;
+  }
+
+  if (action === "refresh") {
     await interaction.editReply(await buildAdminHub(clan));
     return;
   }
 
   if (action === "export") {
-    await interaction.deferReply({ flags: 64 });
     const data = await exportGuildData(clan.guildId);
     const buf = Buffer.from(JSON.stringify(data, null, 2), "utf8");
     const stamp = new Date().toISOString().slice(0, 10);
@@ -97,7 +121,6 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
   }
 
   if (action === "dashboards") {
-    await interaction.deferReply({ flags: 64 });
     await refreshDashboards(interaction.client, clan);
     await refreshTracker(interaction.client, clan);
     const set = [
@@ -113,8 +136,6 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
     );
     return;
   }
-
-  await interaction.deferReply({ flags: 64 });
 
   if (action === "queue") {
     const pending = await pendingQueue(clan.guildId, 15);

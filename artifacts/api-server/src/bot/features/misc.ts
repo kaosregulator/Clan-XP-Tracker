@@ -19,21 +19,15 @@ import { renderLeaderboardCard } from "../canvas/cards/leaderboardCard";
 import { buildMemberHub, notConfiguredMessage } from "./hub";
 import { warnRemoveSelect } from "../ui/ids";
 
-async function requireClan(interaction: ChatInputCommandInteraction): Promise<Clan | null> {
-  if (!interaction.inCachedGuild()) return null;
-  const clan = await getClan(interaction.guildId);
-  if (!clan) {
-    await interaction.reply({ ...notConfiguredMessage(isStaff(interaction.member, null)), flags: 64 });
-    return null;
-  }
-  return clan;
-}
-
 /** /profile [user] — canvas profile card + recent submission history. */
 export async function handleProfile(interaction: ChatInputCommandInteraction) {
-  const clan = await requireClan(interaction);
-  if (!clan) return;
+  if (!interaction.inCachedGuild()) return;
   await interaction.deferReply();
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    return;
+  }
 
   const target = interaction.options.getUser("user") ?? interaction.user;
   const hub = await buildMemberHub(clan, target);
@@ -59,9 +53,13 @@ export async function handleProfile(interaction: ChatInputCommandInteraction) {
 
 /** /leaderboard — streak leaderboard as a canvas card. */
 export async function handleLeaderboard(interaction: ChatInputCommandInteraction) {
-  const clan = await requireClan(interaction);
-  if (!clan) return;
+  if (!interaction.inCachedGuild()) return;
   await interaction.deferReply();
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    return;
+  }
 
   const rows = await streakLeaderboard(clan.guildId, 10);
   const png = await renderLeaderboardCard({
@@ -75,9 +73,13 @@ export async function handleLeaderboard(interaction: ChatInputCommandInteraction
 
 /** /warnings [user] — view active warnings; staff can remove via a menu. */
 export async function handleWarnings(interaction: ChatInputCommandInteraction) {
-  const clan = await requireClan(interaction);
-  if (!clan || !interaction.inCachedGuild()) return;
+  if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    return;
+  }
 
   const target = interaction.options.getUser("user") ?? interaction.user;
   const staff = isStaff(interaction.member, clan);
@@ -164,13 +166,17 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
 
 /** /report [period] — staff weekly/monthly activity report card. */
 export async function handleReport(interaction: ChatInputCommandInteraction) {
-  const clan = await requireClan(interaction);
-  if (!clan || !interaction.inCachedGuild()) return;
-  if (!isStaff(interaction.member, clan)) {
-    await interaction.reply({ content: "Reports are for staff only.", flags: 64 });
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply();
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
     return;
   }
-  await interaction.deferReply();
+  if (!isStaff(interaction.member, clan)) {
+    await interaction.editReply({ content: "Reports are for staff only." });
+    return;
+  }
 
   const period = interaction.options.getString("period") ?? "week";
   const days = period === "month" ? 30 : 7;
