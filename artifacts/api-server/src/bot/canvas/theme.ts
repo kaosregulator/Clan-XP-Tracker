@@ -54,8 +54,13 @@ export function createSurface(width: number, height: number): RenderCanvas {
   return { canvas, ctx, width, height };
 }
 
-export function toPng(canvas: Canvas): Buffer {
-  return canvas.toBuffer("image/png");
+/**
+ * Encode the canvas to PNG *asynchronously*. `encode` runs the (CPU-heavy)
+ * compression on the libuv thread pool instead of the main thread, so rendering
+ * a card never blocks the event loop / stalls other interactions.
+ */
+export function toPng(canvas: Canvas): Promise<Buffer> {
+  return canvas.encode("png");
 }
 
 /* ------------------------------------------------------------------ shapes */

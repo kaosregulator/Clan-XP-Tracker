@@ -30,7 +30,7 @@ export interface TrackerCardView {
 }
 
 /** Clean, at-a-glance tracker card (no mention wall — that's behind Check Users). */
-export function renderTrackerCard(v: TrackerCardView): Buffer {
+export async function renderTrackerCard(v: TrackerCardView): Promise<Buffer> {
   const W = 960;
   const H = 460;
   const rc = createSurface(W, H);

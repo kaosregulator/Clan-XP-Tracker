@@ -118,7 +118,7 @@ function trackerComponents(): ActionRowBuilder<MessageActionRowComponentBuilder>
 /** The clean canvas tracker (no mention wall — that's behind Show Users). */
 export async function buildTrackerMessage(guild: Guild, clan: Clan): Promise<BaseMessageOptions> {
   const [p, cap] = await Promise.all([computeProgress(guild, clan), clanCapacity(clan)]);
-  const png = renderTrackerCard({
+  const png = await renderTrackerCard({
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     activityDate: activityDate(clan),

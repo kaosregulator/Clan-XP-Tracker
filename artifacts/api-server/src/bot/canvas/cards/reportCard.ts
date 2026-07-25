@@ -25,7 +25,7 @@ export interface ReportView {
 }
 
 /** A weekly/monthly summary report card. */
-export function renderReportCard(view: ReportView): Buffer {
+export async function renderReportCard(view: ReportView): Promise<Buffer> {
   const W = 960;
   const H = 680;
   const rc = createSurface(W, H);

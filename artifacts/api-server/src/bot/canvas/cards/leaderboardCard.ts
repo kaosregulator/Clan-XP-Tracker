@@ -24,7 +24,7 @@ export interface LeaderboardCardView {
 const MAX = 10;
 
 /** A clean streak leaderboard card, uniform with the dashboards. */
-export function renderLeaderboardCard(view: LeaderboardCardView): Buffer {
+export async function renderLeaderboardCard(view: LeaderboardCardView): Promise<Buffer> {
   const rows = view.rows.slice(0, MAX);
   const W = 960;
   const pad = 40;
