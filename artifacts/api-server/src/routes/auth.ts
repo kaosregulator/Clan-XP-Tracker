@@ -49,15 +49,27 @@ router.get("/auth/discord", (req, res) => {
   const state = crypto.randomBytes(16).toString("hex");
   req.session.oauthState = state;
 
+  const redirectUri = getRedirectUri(req);
   const params = new URLSearchParams({
     client_id: DISCORD_CLIENT_ID,
-    redirect_uri: getRedirectUri(req),
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: "identify guilds",
     state,
   });
 
-  res.redirect(`https://discord.com/api/oauth2/authorize?${params}`);
+  // Explicitly save the session BEFORE redirecting to Discord. Without this,
+  // express-session fires the DB write asynchronously and the redirect can race
+  // ahead of it — so when Discord bounces back, req.session.oauthState is empty,
+  // state !== oauthState, and the user gets sent back to the home page.
+  req.session.save((err) => {
+    if (err) {
+      logger.error({ err }, "Failed to save OAuth session state");
+      res.redirect("/?error=session_error");
+      return;
+    }
+    res.redirect(`https://discord.com/api/oauth2/authorize?${params}`);
+  });
 });
 
 router.get("/auth/callback", async (req, res) => {
