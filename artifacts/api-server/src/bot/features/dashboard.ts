@@ -4,15 +4,12 @@ import { logger } from "../../lib/logger";
 import { todaySnapshot, streakLeaderboard } from "../services/stats";
 import { activityDate, relative, nextReset } from "../services/time";
 import { getDashboard, upsertDashboard, setDashboardMessage } from "../services/dashboards";
-import { renderAdminHub } from "../canvas/cards/adminHub";
-import { renderClanDashboard } from "../canvas/cards/clanDashboard";
-import { renderPatriotDashboard } from "../canvas/cards/patriotDashboard";
-import { renderLeaderboardCard } from "../canvas/cards/leaderboardCard";
+import { renderOffThread } from "../canvas/render-pool";
 import { patriotOverview } from "../services/accounts";
 
 async function renderStaffImage(clan: Clan): Promise<Buffer> {
   const snap = await todaySnapshot(clan);
-  return renderAdminHub({
+  return renderOffThread("adminHub", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     activityDate: activityDate(clan),
@@ -33,7 +30,7 @@ async function renderClanImage(clan: Clan): Promise<Buffer> {
     todaySnapshot(clan),
     streakLeaderboard(clan.guildId, 5),
   ]);
-  return renderClanDashboard({
+  return renderOffThread("clanDashboard", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     activityDate: activityDate(clan),
@@ -47,7 +44,7 @@ async function renderClanImage(clan: Clan): Promise<Buffer> {
 
 async function renderLeaderboardImage(clan: Clan): Promise<Buffer> {
   const rows = await streakLeaderboard(clan.guildId, 10);
-  return renderLeaderboardCard({
+  return renderOffThread("leaderboardCard", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     subtitle: "Ranked by current streak",
@@ -57,7 +54,7 @@ async function renderLeaderboardImage(clan: Clan): Promise<Buffer> {
 
 async function renderPatriotImage(clan: Clan): Promise<Buffer> {
   const overview = await patriotOverview(clan);
-  return renderPatriotDashboard({
+  return renderOffThread("patriotDashboard", {
     communityName: clan.clanName,
     activityDate: activityDate(clan),
     members: overview.members,

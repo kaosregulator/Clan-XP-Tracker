@@ -1,0 +1,66 @@
+/**
+ * Canvas render worker thread.
+ *
+ * This module runs inside a dedicated worker thread. All synchronous
+ * @napi-rs/canvas draw calls (fills, shadows, gradients, text) happen here,
+ * so they never block the bot's main event loop. Discord interactions can
+ * always reach deferReply() within the 3-second window even while a complex
+ * canvas card is being rendered for a different user.
+ *
+ * Communication protocol (message passing, no shared memory):
+ *   Main → Worker: { id: number; fn: string; params: Record<string, unknown> }
+ *   Worker → Main: { id: number; buf: ArrayBuffer }   (success — transferred, not copied)
+ *                  { id: number; error: string }       (failure)
+ */
+import { parentPort } from "node:worker_threads";
+import { renderAdminHub } from "./cards/adminHub";
+import { renderClanDashboard } from "./cards/clanDashboard";
+import { renderHelpCard } from "./cards/helpCard";
+import { renderLeaderboardCard } from "./cards/leaderboardCard";
+import { renderMemberHub } from "./cards/memberHub";
+import { renderPatriotDashboard } from "./cards/patriotDashboard";
+import { renderReportCard } from "./cards/reportCard";
+import { renderTrackerCard } from "./cards/trackerCard";
+import { fetchAvatar } from "./theme";
+
+if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
+
+parentPort.on("message", (msg: { id: number; fn: string; params: Record<string, unknown> }) => {
+  void dispatch(msg.fn, msg.params)
+    .then((buf) => {
+      // Transfer the underlying ArrayBuffer so the bytes aren't copied across threads.
+      const ab = buf.buffer as ArrayBuffer;
+      parentPort!.postMessage({ id: msg.id, buf: ab }, [ab]);
+    })
+    .catch((err: unknown) => {
+      parentPort!.postMessage({ id: msg.id, error: String(err) });
+    });
+});
+
+async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer> {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  switch (fn) {
+    case "memberHub": {
+      // avatarUrl is a plain string — the worker fetches the image itself so
+      // no non-serializable Image object crosses the thread boundary.
+      const avatar = await fetchAvatar((p.avatarUrl as string | null) ?? null);
+      return renderMemberHub({ ...(p as any), avatar });
+    }
+    case "adminHub":
+      return renderAdminHub(p as any);
+    case "clanDashboard":
+      return renderClanDashboard(p as any);
+    case "helpCard":
+      return renderHelpCard(p as any);
+    case "leaderboardCard":
+      return renderLeaderboardCard(p as any);
+    case "patriotDashboard":
+      return renderPatriotDashboard(p as any);
+    case "reportCard":
+      return renderReportCard(p as any);
+    case "trackerCard":
+      return renderTrackerCard(p as any);
+    default:
+      throw new Error(`Unknown render function: "${fn}"`);
+  }
+}

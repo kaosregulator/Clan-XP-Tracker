@@ -10,7 +10,7 @@ import { todaySnapshot, missingMembers, streakLeaderboard } from "../services/st
 import { pendingQueue } from "../services/submissions";
 import { activityDate, relative, nextReset, formatInZone } from "../services/time";
 import { getClan, isStaff } from "../services/config";
-import { renderAdminHub } from "../canvas/cards/adminHub";
+import { renderOffThread } from "../canvas/render-pool";
 import { adminHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./hub";
@@ -21,7 +21,7 @@ import { exportGuildData } from "../services/export";
 /** Build the /xpadmin staff operations hub (canvas image + buttons). */
 export async function buildAdminHub(clan: Clan): Promise<BaseMessageOptions> {
   const snap = await todaySnapshot(clan);
-  const png = await renderAdminHub({
+  const png = await renderOffThread("adminHub", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     activityDate: activityDate(clan),

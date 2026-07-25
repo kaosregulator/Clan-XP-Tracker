@@ -11,8 +11,8 @@ import { ensureMember, identityFromUser, getMember, getClan, isStaff } from "../
 import { todayStatus, recentForUser } from "../services/submissions";
 import { relative, formatInZone } from "../services/time";
 import { onVacationToday, recordVacation } from "../services/vacations";
-import { fetchAvatar } from "../canvas/theme";
-import { renderMemberHub, type DayState, type AccountRow } from "../canvas/cards/memberHub";
+import { type DayState, type AccountRow } from "../canvas/cards/memberHub";
+import { renderOffThread } from "../canvas/render-pool";
 import { memberHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { handleSubmitButton } from "./submit";
@@ -28,12 +28,11 @@ import { handleAccountsButton, handleAddAccountButton } from "./accounts";
 export async function buildMemberHub(clan: Clan, user: User, displayName?: string): Promise<BaseMessageOptions> {
   const identity = identityFromUser(user, displayName);
 
-  // Run all independent fetches in parallel: DB queries + avatar download have
-  // no ordering dependency, so there's no reason to await them one-by-one.
-  const [member, rawStatus, avatar, altStates] = await Promise.all([
+  // Run all independent DB fetches in parallel. Avatar download is handled
+  // by the render worker thread — no need to fetch it here.
+  const [member, rawStatus, altStates] = await Promise.all([
     ensureMember(clan.guildId, identity),
     todayStatus(clan, user.id),
-    fetchAvatar(identity.avatarUrl),
     clan.altAccountsEnabled
       ? accountStatesToday(clan, user.id)
       : Promise.resolve([] as Awaited<ReturnType<typeof accountStatesToday>>),
@@ -51,12 +50,12 @@ export async function buildMemberHub(clan: Clan, user: User, displayName?: strin
     accounts = altStates.map((s) => ({ label: s.account.label, state: s.state }));
   }
 
-  const png = await renderMemberHub({
+  const png = await renderOffThread("memberHub", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     gameName: clan.gameName || "Roblox",
     displayName: identity.displayName,
-    avatar,
+    avatarUrl: identity.avatarUrl,
     dailyGoal: clan.dailyGoal,
     status,
     currentStreak: member.currentStreak,

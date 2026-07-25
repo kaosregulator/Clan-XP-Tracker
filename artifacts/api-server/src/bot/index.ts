@@ -4,6 +4,7 @@ import { commands } from "./commands";
 import { routeInteraction } from "./router";
 import { handleSubmissionMessage } from "./features/submit";
 import { ensureFonts } from "./canvas/fonts";
+import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
@@ -67,6 +68,9 @@ export function startBot() {
 
   // Warm the canvas fonts once at boot so the first hub render is fast.
   ensureFonts();
+  // Pre-warm the render worker pool so the first interaction doesn't pay the
+  // thread-spawn cost.
+  initRenderPool();
 
   client = new Client({
     intents: [

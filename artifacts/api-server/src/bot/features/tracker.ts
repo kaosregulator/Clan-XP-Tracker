@@ -19,7 +19,7 @@ import { activityDate, relative, nextReset } from "../services/time";
 import { sendReminder, reminderSentToday } from "../services/reminders";
 import { clanCapacity } from "../services/contributions";
 import { getDashboard, upsertDashboard, setDashboardMessage } from "../services/dashboards";
-import { renderTrackerCard } from "../canvas/cards/trackerCard";
+import { renderOffThread } from "../canvas/render-pool";
 import { TRACKER_REMIND, TRACKER_REFRESH, TRACKER_CHECK } from "../ui/ids";
 
 interface Progress {
@@ -118,7 +118,7 @@ function trackerComponents(): ActionRowBuilder<MessageActionRowComponentBuilder>
 /** The clean canvas tracker (no mention wall — that's behind Show Users). */
 export async function buildTrackerMessage(guild: Guild, clan: Clan): Promise<BaseMessageOptions> {
   const [p, cap] = await Promise.all([computeProgress(guild, clan), clanCapacity(clan)]);
-  const png = await renderTrackerCard({
+  const png = await renderOffThread("trackerCard", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     activityDate: activityDate(clan),

@@ -13,9 +13,7 @@ import { recentForUser } from "../services/submissions";
 import { listActive, removeWarning } from "../services/warnings";
 import { streakLeaderboard, periodReport } from "../services/stats";
 import { formatInZone } from "../services/time";
-import { renderReportCard } from "../canvas/cards/reportCard";
-import { renderHelpCard } from "../canvas/cards/helpCard";
-import { renderLeaderboardCard } from "../canvas/cards/leaderboardCard";
+import { renderOffThread } from "../canvas/render-pool";
 import { buildMemberHub, notConfiguredMessage } from "./hub";
 import { warnRemoveSelect } from "../ui/ids";
 
@@ -62,7 +60,7 @@ export async function handleLeaderboard(interaction: ChatInputCommandInteraction
   }
 
   const rows = await streakLeaderboard(clan.guildId, 10);
-  const png = await renderLeaderboardCard({
+  const png = await renderOffThread("leaderboardCard", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     subtitle: "Ranked by current streak",
@@ -156,7 +154,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
     });
   }
 
-  const png = await renderHelpCard({
+  const png = await renderOffThread("helpCard", {
     communityName: clan?.clanName ?? "ClanXP",
     activityName: activity,
     sections,
@@ -183,7 +181,7 @@ export async function handleReport(interaction: ChatInputCommandInteraction) {
   const report = await periodReport(clan, days);
 
   const since = new Date(Date.now() - days * 86_400_000);
-  const png = await renderReportCard({
+  const png = await renderOffThread("reportCard", {
     communityName: clan.clanName,
     activityName: clan.activityName || "XP",
     periodLabel: period === "month" ? "Monthly" : "Weekly",

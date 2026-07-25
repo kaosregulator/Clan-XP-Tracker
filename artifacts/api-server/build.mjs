@@ -15,7 +15,15 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      // Bot runs in a worker thread — bundled as a separate entry point so it
+      // gets its own module graph and can be spawned via new Worker(path).
+      path.resolve(artifactDir, "src/bot-worker.ts"),
+      // Canvas render worker — a second level of isolation: synchronous draw
+      // calls run here so they never block the bot's Discord interaction loop.
+      path.resolve(artifactDir, "src/bot/canvas/render-worker.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
