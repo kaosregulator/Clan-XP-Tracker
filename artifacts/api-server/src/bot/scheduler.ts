@@ -1,5 +1,6 @@
 import type { Client, TextBasedChannel } from "discord.js";
 import type { Clan } from "@workspace/db";
+import PQueue from "p-queue";
 import { logger } from "../lib/logger";
 import { activeClans } from "./services/config";
 import { localHm, minutesUntilReset } from "./services/time";
@@ -50,14 +51,21 @@ async function runReminderWindow(client: Client, clan: Clan, hhmm: string, dateK
   if (firedWindows.size > 5000) firedWindows.clear();
 
   const missing = await missingMembers(clan, MAX_DMS_PER_WINDOW);
+
+  // Rate-limited queue: max 3 DMs in-flight, max 3 per second — stays well
+  // inside Discord's DM rate limits even when many members are missing.
+  const queue = new PQueue({ concurrency: 3, intervalCap: 3, interval: 1000 });
   let sent = 0;
   for (const m of missing) {
-    if (await reminderSentToday(clan, m.userId)) continue;
-    const user = await client.users.fetch(m.userId).catch(() => null);
-    if (!user) continue;
-    await sendReminder({ clan, target: user, auto: true });
-    sent++;
+    queue.add(async () => {
+      if (await reminderSentToday(clan, m.userId)) return;
+      const user = await client.users.fetch(m.userId).catch(() => null);
+      if (!user) return;
+      await sendReminder({ clan, target: user, auto: true });
+      sent++;
+    });
   }
+  await queue.onIdle();
   if (sent > 0) logger.info({ guild: clan.guildId, hhmm, sent }, "Auto reminders sent");
 }
 

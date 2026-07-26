@@ -16,7 +16,7 @@ import { parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./hub";
 import { refreshDashboards } from "./dashboard";
 import { refreshTracker } from "./tracker";
-import { exportGuildData } from "../services/export";
+import { exportGuildData, exportGuildDataAsXlsx } from "../services/export";
 
 /** Build the /xpadmin staff operations hub (canvas image + buttons). */
 export async function buildAdminHub(clan: Clan): Promise<BaseMessageOptions> {
@@ -109,13 +109,15 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
   }
 
   if (action === "export") {
-    const data = await exportGuildData(clan.guildId);
-    const buf = Buffer.from(JSON.stringify(data, null, 2), "utf8");
+    const [data, xlsxBuf] = await Promise.all([
+      exportGuildData(clan.guildId),
+      exportGuildDataAsXlsx(clan.guildId),
+    ]);
     const stamp = new Date().toISOString().slice(0, 10);
     const c = (data.counts as Record<string, number>) ?? {};
     await interaction.editReply({
-      content: `💾 **Backup** — ${c.members ?? 0} members · ${c.submissions ?? 0} submissions · ${c.warnings ?? 0} warnings. Your live data always stays in the database; this is a copy you can keep.`,
-      files: [new AttachmentBuilder(buf, { name: `xp-backup-${clan.guildId}-${stamp}.json` })],
+      content: `💾 **Backup** — ${c.members ?? 0} members · ${c.submissions ?? 0} submissions · ${c.warnings ?? 0} warnings. Opens directly in Excel or Google Sheets. Your live data always stays in the database; this is a copy you control.`,
+      files: [new AttachmentBuilder(xlsxBuf, { name: `xp-backup-${clan.guildId}-${stamp}.xlsx` })],
     });
     return;
   }

@@ -129,12 +129,12 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     },
   });
 
-  // Canvas fonts are loaded from disk at runtime; esbuild does not copy
-  // static assets, so mirror them next to the bundle. Runtime code resolves
-  // them relative to import.meta.url (dist/index.mjs -> dist/assets/fonts).
+  // Canvas fonts are loaded from disk at runtime by render-worker.mjs (at
+  // dist/bot/canvas/render-worker.mjs). Paths resolve relative to import.meta.url
+  // of that bundle, so fonts must land at dist/bot/canvas/assets/fonts/.
   await cp(
     path.resolve(artifactDir, "src/bot/canvas/assets"),
-    path.resolve(distDir, "assets"),
+    path.resolve(distDir, "bot/canvas/assets"),
     { recursive: true }
   );
 }
