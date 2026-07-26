@@ -176,16 +176,18 @@ export async function handleXpButton(interaction: ButtonInteraction) {
 /** Vacation button — records a negative "can't do it today" mark. */
 async function handleVacation(interaction: ButtonInteraction, clan: Clan) {
   if (!interaction.inCachedGuild()) return;
+  // Defer first — recordVacation + postVacationCard are async and can exceed
+  // Discord's 3-second acknowledgement window on a cold DB connection.
+  await interaction.deferReply({ flags: 64 });
   const identity = identityFromUser(interaction.user, interaction.member.displayName);
   const { recorded } = await recordVacation(clan, identity);
   if (recorded) {
     await postVacationCard(interaction.client, clan, identity); // visible vacation card
     scheduleTrackerRefresh(interaction.client, clan);
   }
-  await interaction.reply({
+  await interaction.editReply({
     content: recorded
       ? `🏝️ You're marked **on vacation** for today. This is logged and counts against your record — it does not complete the day.`
       : `You're already marked on vacation for today.`,
-    flags: 64,
   });
 }

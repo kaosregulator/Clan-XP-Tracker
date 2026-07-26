@@ -201,9 +201,11 @@ export async function handleReport(interaction: ChatInputCommandInteraction) {
 /** Handle removal selection from /warnings. */
 export async function handleWarnRemoveSelect(interaction: StringSelectMenuInteraction) {
   if (!interaction.inCachedGuild()) return;
+  // Defer first — getClan + removeWarning (DB writes + role sync) can exceed 3 seconds.
+  await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan || !isStaff(interaction.member, clan)) {
-    await interaction.reply({ content: "Only staff can remove warnings.", flags: 64 });
+    await interaction.editReply({ content: "Only staff can remove warnings." });
     return;
   }
   const warningId = Number(interaction.values[0]);
@@ -214,8 +216,7 @@ export async function handleWarnRemoveSelect(interaction: StringSelectMenuIntera
     moderatorId: interaction.user.id,
     moderatorUsername: interaction.user.username,
   });
-  await interaction.reply({
+  await interaction.editReply({
     content: removed ? `✅ Removed warning #${warningId}.` : "That warning was already removed.",
-    flags: 64,
   });
 }

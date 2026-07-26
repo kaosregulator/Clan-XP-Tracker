@@ -21,6 +21,7 @@ import { clanCapacity } from "../services/contributions";
 import { getDashboard, upsertDashboard, setDashboardMessage } from "../services/dashboards";
 import { renderOffThread } from "../canvas/render-pool";
 import { TRACKER_REMIND, TRACKER_REFRESH, TRACKER_CHECK } from "../ui/ids";
+import PQueue from "p-queue";
 
 interface Progress {
   total: number;
@@ -184,29 +185,36 @@ export function scheduleTrackerRefresh(client: Client, clan: Clan): void {
 
 /* --------------------------------------------------------------- actions */
 
-async function staffGuard(interaction: ButtonInteraction): Promise<Clan | null> {
+/**
+ * Verify the invoker is staff. Pass deferred=true when the caller has already
+ * called deferReply/deferUpdate so errors use editReply instead of reply.
+ */
+async function staffGuard(interaction: ButtonInteraction, deferred = false): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
   if (!clan || !isStaff(interaction.member, clan)) {
-    await interaction.reply({ content: "Staff only.", flags: 64 });
+    const msg = { content: "Staff only.", flags: 64 };
+    if (deferred) await interaction.editReply(msg); else await interaction.reply(msg);
     return null;
   }
   return clan;
 }
 
 export async function handleTrackerRefresh(interaction: ButtonInteraction) {
-  const clan = await staffGuard(interaction);
+  // Defer first — getClan can hit the DB on a cold cache.
+  await interaction.deferUpdate();
+  const clan = await staffGuard(interaction, true);
   if (!clan || !interaction.inCachedGuild()) return;
   invalidateRoleCache(clan.guildId); // force a fresh member count on manual refresh
-  await interaction.deferUpdate();
   await interaction.message.edit(await buildTrackerMessage(interaction.guild, clan)).catch(() => {});
 }
 
 /** Show Users — the submitted / missing / vacation lists, ephemerally. */
 export async function handleTrackerCheck(interaction: ButtonInteraction) {
-  const clan = await staffGuard(interaction);
-  if (!clan || !interaction.inCachedGuild()) return;
+  // Defer first — getClan + computeProgress can exceed 3 seconds on cold paths.
   await interaction.deferReply({ flags: 64 });
+  const clan = await staffGuard(interaction, true);
+  if (!clan || !interaction.inCachedGuild()) return;
   const p = await computeProgress(interaction.guild, clan);
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
@@ -222,28 +230,34 @@ export async function handleTrackerCheck(interaction: ButtonInteraction) {
 }
 
 export async function handleTrackerRemind(interaction: ButtonInteraction) {
-  const clan = await staffGuard(interaction);
+  // Defer first — getClan + computeProgress + bulk DM loop all exceed 3 seconds.
+  await interaction.deferReply({ flags: 64 });
+  const clan = await staffGuard(interaction, true);
   if (!clan || !interaction.inCachedGuild()) return;
   if (!clan.remindersEnabled) {
-    await interaction.reply({ content: "Reminders are turned OFF (safety). Re-enable them in /setup → Schedule.", flags: 64 });
+    await interaction.editReply({ content: "Reminders are turned OFF (safety). Re-enable them in /setup → Schedule." });
     return;
   }
-  await interaction.deferReply({ flags: 64 });
 
   const progress = await computeProgress(interaction.guild, clan);
+  // Rate-limited queue: same 3/sec cap as the scheduler to stay inside Discord's DM limits.
+  const queue = new PQueue({ concurrency: 3, intervalCap: 3, interval: 1000 });
   let sent = 0;
   for (const userId of progress.missingIds.slice(0, 50)) {
-    if (await reminderSentToday(clan, userId)) continue; // don't double-ping
-    const user = await interaction.client.users.fetch(userId).catch(() => null);
-    if (!user) continue;
-    await sendReminder({
-      clan,
-      target: user,
-      auto: false,
-      moderatorId: interaction.user.id,
-      moderatorUsername: interaction.user.username,
+    queue.add(async () => {
+      if (await reminderSentToday(clan, userId)) return;
+      const user = await interaction.client.users.fetch(userId).catch(() => null);
+      if (!user) return;
+      await sendReminder({
+        clan,
+        target: user,
+        auto: false,
+        moderatorId: interaction.user.id,
+        moderatorUsername: interaction.user.username,
+      });
+      sent++;
     });
-    sent++;
   }
+  await queue.onIdle();
   await interaction.editReply(`👋 Sent reminders to **${sent}** missing member(s) who hadn't been reminded today.`);
 }

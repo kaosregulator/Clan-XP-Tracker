@@ -86,20 +86,28 @@ export async function postReviewCard(client: Client, clan: Clan, sub: XpSubmissi
 
 /* --------------------------------------------------------------- guards */
 
+/**
+ * Load clan + submission for a review interaction.
+ * Pass deferred=true when the caller has already called deferReply/deferUpdate —
+ * error replies will use editReply instead of reply so they don't double-ack.
+ */
 async function loadForReview(
-  interaction: ButtonInteraction | ModalSubmitInteraction
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  deferred = false
 ): Promise<{ clan: Clan; sub: XpSubmission } | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
   if (!clan) return null;
   if (!isStaff(interaction.member, clan)) {
-    await interaction.reply({ content: "You don't have permission to review submissions.", flags: 64 });
+    const msg = { content: "You don't have permission to review submissions.", flags: 64 };
+    if (deferred) await interaction.editReply(msg); else await interaction.reply(msg);
     return null;
   }
   const { arg } = parseId(interaction.customId);
   const sub = arg ? await getSubmission(Number(arg)) : null;
   if (!sub) {
-    await interaction.reply({ content: "That submission no longer exists.", flags: 64 });
+    const msg = { content: "That submission no longer exists." };
+    if (deferred) await interaction.editReply(msg); else await interaction.reply({ ...msg, flags: 64 });
     return null;
   }
   return { clan, sub };
@@ -116,14 +124,15 @@ async function refreshCard(interaction: ButtonInteraction | ModalSubmitInteracti
 /* --------------------------------------------------------------- actions */
 
 export async function handleApprove(interaction: ButtonInteraction) {
-  const ctx = await loadForReview(interaction);
+  // Defer first so the 3-second Discord window never expires on DB lookups.
+  await interaction.deferUpdate();
+  const ctx = await loadForReview(interaction, true);
   if (!ctx) return;
   const { clan, sub } = ctx;
   if (sub.status !== "pending") {
-    await interaction.reply({ content: "Already reviewed.", flags: 64 });
+    await interaction.followUp({ content: "Already reviewed.", flags: 64 });
     return;
   }
-  await interaction.deferUpdate();
 
   await setStatus(sub.id, "approved", {
     moderatorId: interaction.user.id,
@@ -151,7 +160,9 @@ export async function handleApprove(interaction: ButtonInteraction) {
 }
 
 export async function handleRejectButton(interaction: ButtonInteraction) {
-  const ctx = await loadForReview(interaction);
+  // showModal is the first response — cannot defer before it.
+  // getClan is cached and getSubmission is a PK lookup; both are fast enough.
+  const ctx = await loadForReview(interaction, false);
   if (!ctx) return;
   const { sub } = ctx;
   const modal = new ModalBuilder().setCustomId(reviewRejectModal(sub.id)).setTitle("Reject submission");
@@ -169,15 +180,16 @@ export async function handleRejectButton(interaction: ButtonInteraction) {
 }
 
 export async function handleRejectModal(interaction: ModalSubmitInteraction) {
-  const ctx = await loadForReview(interaction);
+  // Defer first — status update + stats recompute + DM can exceed 3 seconds.
+  await interaction.deferUpdate();
+  const ctx = await loadForReview(interaction, true);
   if (!ctx) return;
   const { clan, sub } = ctx;
   if (sub.status !== "pending") {
-    await interaction.reply({ content: "Already reviewed.", flags: 64 });
+    await interaction.followUp({ content: "Already reviewed.", flags: 64 });
     return;
   }
   const reason = interaction.fields.getTextInputValue("reason") || null;
-  await interaction.deferUpdate();
 
   await setStatus(sub.id, "rejected", {
     moderatorId: interaction.user.id,
@@ -207,12 +219,14 @@ export async function handleRejectModal(interaction: ModalSubmitInteraction) {
 }
 
 export async function handleRemind(interaction: ButtonInteraction) {
-  const ctx = await loadForReview(interaction);
+  // Defer first — user.fetch + sendReminder (DB + DM) can exceed 3 seconds.
+  await interaction.deferReply({ flags: 64 });
+  const ctx = await loadForReview(interaction, true);
   if (!ctx) return;
   const { clan, sub } = ctx;
   const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
   if (!user) {
-    await interaction.reply({ content: "Could not find that user.", flags: 64 });
+    await interaction.editReply({ content: "Could not find that user." });
     return;
   }
   const { delivered } = await sendReminder({
@@ -222,16 +236,16 @@ export async function handleRemind(interaction: ButtonInteraction) {
     moderatorId: interaction.user.id,
     moderatorUsername: interaction.user.username,
   });
-  await interaction.reply({
+  await interaction.editReply({
     content: delivered
       ? `👋 Friendly reminder sent to <@${sub.userId}>.`
       : `Reminder logged, but <@${sub.userId}> has DMs closed.`,
-    flags: 64,
   });
 }
 
 export async function handleWarnButton(interaction: ButtonInteraction) {
-  const ctx = await loadForReview(interaction);
+  // showModal is the first response — cannot defer before it.
+  const ctx = await loadForReview(interaction, false);
   if (!ctx) return;
   const { sub } = ctx;
   const modal = new ModalBuilder().setCustomId(reviewWarnModal(sub.id)).setTitle("Warn member");
@@ -249,15 +263,17 @@ export async function handleWarnButton(interaction: ButtonInteraction) {
 }
 
 export async function handleWarnModal(interaction: ModalSubmitInteraction) {
-  const ctx = await loadForReview(interaction);
-  if (!ctx || !interaction.inCachedGuild()) return;
+  if (!interaction.inCachedGuild()) return;
+  // Defer first — issueWarning does DB writes + sends a DM.
+  await interaction.deferReply({ flags: 64 });
+  const ctx = await loadForReview(interaction, true);
+  if (!ctx) return;
   const { clan, sub } = ctx;
   const reason = interaction.fields.getTextInputValue("reason");
-  await interaction.deferReply({ flags: 64 });
 
   const target = await interaction.client.users.fetch(sub.userId).catch(() => null);
   if (!target) {
-    await interaction.editReply("Could not find that user.");
+    await interaction.editReply({ content: "Could not find that user." });
     return;
   }
   const { activeCount } = await issueWarning({
@@ -273,10 +289,11 @@ export async function handleWarnModal(interaction: ModalSubmitInteraction) {
 }
 
 export async function handleHistory(interaction: ButtonInteraction) {
-  const ctx = await loadForReview(interaction);
+  // Defer first — loadForReview + two DB queries can exceed 3 seconds.
+  await interaction.deferReply({ flags: 64 });
+  const ctx = await loadForReview(interaction, true);
   if (!ctx) return;
   const { clan, sub } = ctx;
-  await interaction.deferReply({ flags: 64 });
 
   const [subs, warns] = await Promise.all([
     recentForUser(clan.guildId, sub.userId, 8),

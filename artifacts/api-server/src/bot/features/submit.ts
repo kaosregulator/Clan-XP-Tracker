@@ -124,15 +124,16 @@ function parseAlts(raw: string | null | undefined): number {
 
 export async function handleSubmitModal(interaction: ModalSubmitInteraction) {
   // guildId comes from the modal id (DM flow) or the interaction (in-guild flow).
+  // Determine both synchronously so we can defer BEFORE any async DB work.
   const guildId = parseId(interaction.customId).arg ?? interaction.guildId ?? undefined;
   if (!guildId) return;
-  const clan = await getClan(guildId);
-  if (!clan) {
-    await interaction.reply({ content: "This server isn't set up yet." });
-    return;
-  }
   const inGuild = interaction.inGuild();
   await interaction.deferReply(inGuild ? { flags: 64 } : {});
+  const clan = await getClan(guildId);
+  if (!clan) {
+    await interaction.editReply({ content: "This server isn't set up yet." });
+    return;
+  }
 
   const displayName = interaction.inCachedGuild() ? interaction.member.displayName : undefined;
   const identity = identityFromUser(interaction.user, displayName);
