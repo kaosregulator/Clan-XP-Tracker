@@ -1,7 +1,12 @@
 import type { Interaction } from "discord.js";
 import { logger } from "../lib/logger";
 import { parseId, NS } from "./ui/ids";
-import { openSetup, handleSetupButton, handleSetupModal, handleSetupSelect } from "./features/setup";
+import {
+  openSetup,
+  handleSetupButton,
+  handleSetupModal,
+  handleSetupSelect,
+} from "./features/setup";
 import { sendMemberHub, handleXpButton } from "./features/hub";
 import { sendAdminHub, handleAdminButton } from "./features/adminHub";
 import {
@@ -18,7 +23,11 @@ import {
   handleSubmitAccountSelect,
 } from "./features/accounts";
 import { handleSubmitModal, handleRemindAck } from "./features/submit";
-import { handleTrackerRemind, handleTrackerRefresh, handleTrackerCheck } from "./features/tracker";
+import {
+  handleTrackerRemind,
+  handleTrackerRefresh,
+  handleTrackerCheck,
+} from "./features/tracker";
 import {
   handleApprove,
   handleRejectButton,
@@ -28,9 +37,17 @@ import {
   handleWarnModal,
   handleHistory,
 } from "./features/review";
+import {
+  handleXpAdminButton,
+  handleXpAdminUserSelect,
+  handleXpAdminRoleSelect,
+  handleXpAdminWarnModal,
+} from "./features/xpAdmin";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
-export async function routeInteraction(interaction: Interaction): Promise<void> {
+export async function routeInteraction(
+  interaction: Interaction,
+): Promise<void> {
   try {
     if (interaction.isChatInputCommand()) {
       switch (interaction.commandName) {
@@ -65,12 +82,17 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleXpButton(interaction));
         case NS.admin:
           return void (await handleAdminButton(interaction));
+        case NS.xpadmin:
+          return void (await handleXpAdminButton(interaction));
         case NS.setup:
           return void (await handleSetupButton(interaction));
         case NS.tracker:
-          if (action === "remind") return void (await handleTrackerRemind(interaction));
-          if (action === "refresh") return void (await handleTrackerRefresh(interaction));
-          if (action === "check") return void (await handleTrackerCheck(interaction));
+          if (action === "remind")
+            return void (await handleTrackerRemind(interaction));
+          if (action === "refresh")
+            return void (await handleTrackerRefresh(interaction));
+          if (action === "check")
+            return void (await handleTrackerCheck(interaction));
           return;
         case NS.review:
           switch (action) {
@@ -98,32 +120,61 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.xp && action === "addAccountModal")
         return void (await handleAddAccountModal(interaction));
       if (ns === NS.review) {
-        if (action === "rejectModal") return void (await handleRejectModal(interaction));
-        if (action === "warnModal") return void (await handleWarnModal(interaction));
+        if (action === "rejectModal")
+          return void (await handleRejectModal(interaction));
+        if (action === "warnModal")
+          return void (await handleWarnModal(interaction));
       }
+      if (ns === NS.xpadmin && action === "warnModal")
+        return void (await handleXpAdminWarnModal(interaction));
+      return;
+    }
+
+    if (interaction.isUserSelectMenu()) {
+      const { ns } = parseId(interaction.customId);
+      if (ns === NS.xpadmin)
+        return void (await handleXpAdminUserSelect(interaction));
       return;
     }
 
     if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
+      if (ns === NS.xpadmin && interaction.isRoleSelectMenu())
+        return void (await handleXpAdminRoleSelect(interaction));
       return;
     }
 
     if (interaction.isStringSelectMenu()) {
       const { ns, action } = parseId(interaction.customId);
-      if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));
+      if (ns === NS.warn)
+        return void (await handleWarnRemoveSelect(interaction));
       if (ns === NS.xp) {
-        if (action === "removeAccount") return void (await handleRemoveAccountSelect(interaction));
-        if (action === "submitAccount") return void (await handleSubmitAccountSelect(interaction));
+        if (action === "removeAccount")
+          return void (await handleRemoveAccountSelect(interaction));
+        if (action === "submitAccount")
+          return void (await handleSubmitAccountSelect(interaction));
       }
       return;
     }
   } catch (err) {
-    logger.error({ err, customId: "customId" in interaction ? interaction.customId : undefined }, "Interaction failed");
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+    logger.error(
+      {
+        err,
+        customId: "customId" in interaction ? interaction.customId : undefined,
+      },
+      "Interaction failed",
+    );
+    if (
+      interaction.isRepliable() &&
+      !interaction.replied &&
+      !interaction.deferred
+    ) {
       await interaction
-        .reply({ content: "Something went wrong. Please try again.", flags: 64 })
+        .reply({
+          content: "Something went wrong. Please try again.",
+          flags: 64,
+        })
         .catch(() => {});
     }
   }

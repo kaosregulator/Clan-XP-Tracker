@@ -23,7 +23,9 @@ export async function handleProfile(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply();
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    await interaction.editReply(
+      notConfiguredMessage(isStaff(interaction.member, null)),
+    );
     return;
   }
 
@@ -31,12 +33,15 @@ export async function handleProfile(interaction: ChatInputCommandInteraction) {
   const hub = await buildMemberHub(clan, target);
   const recent = await recentForUser(clan.guildId, target.id, 6);
 
-  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<string, string>;
+  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<
+    string,
+    string
+  >;
   const history = recent.length
     ? recent
         .map(
           (s) =>
-            `${glyph[s.status] ?? "•"} **${s.activityDate}** — ${s.status}${s.accountLabel ? ` · ${s.accountLabel}` : ""} · ${formatInZone(s.submittedAt, clan)}`
+            `${glyph[s.status] ?? "•"} **${s.activityDate}** — ${s.status}${s.accountLabel ? ` · ${s.accountLabel}` : ""} · ${formatInZone(s.submittedAt, clan)}`,
         )
         .join("\n")
     : "_No submissions yet._";
@@ -46,27 +51,44 @@ export async function handleProfile(interaction: ChatInputCommandInteraction) {
     .setTitle(`Recent activity — ${target.displayName ?? target.username}`)
     .setDescription(history);
 
-  await interaction.editReply({ ...hub, embeds: [embed] });
+  await interaction.editReply({
+    ...hub,
+    embeds: [...(hub.embeds ?? []), embed],
+  });
 }
 
 /** /leaderboard — streak leaderboard as a canvas card. */
-export async function handleLeaderboard(interaction: ChatInputCommandInteraction) {
+export async function handleLeaderboard(
+  interaction: ChatInputCommandInteraction,
+) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply();
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    await interaction.editReply(
+      notConfiguredMessage(isStaff(interaction.member, null)),
+    );
     return;
   }
 
   const rows = await streakLeaderboard(clan.guildId, 10);
-  const png = await renderOffThread("leaderboardCard", {
-    communityName: clan.clanName,
-    activityName: clan.activityName || "XP",
-    subtitle: "Ranked by current streak",
-    rows: rows.map((r) => ({ name: r.displayName, streak: r.currentStreak, approved: r.approvedCount })),
-  });
-  await interaction.editReply({ files: [new AttachmentBuilder(png, { name: "leaderboard.png" })] });
+  const medals = ["🥇", "🥈", "🥉"];
+  const body = rows.length
+    ? rows
+        .map(
+          (r, i) =>
+            `${medals[i] ?? `**${i + 1}.**`} **${r.displayName}** — 🔥 ${r.currentStreak} · ${r.approvedCount} approved`,
+        )
+        .join("\n")
+    : "No activity yet.";
+  const embed = new EmbedBuilder()
+    .setColor(0xfaa61a)
+    .setAuthor({
+      name: `${clan.clanName} • ${clan.activityName || "XP"} Tracker`,
+    })
+    .setTitle("🏆 Streak Leaderboard")
+    .setDescription(body);
+  await interaction.editReply({ embeds: [embed] });
 }
 
 /** /warnings [user] — view active warnings; staff can remove via a menu. */
@@ -75,7 +97,9 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    await interaction.editReply(
+      notConfiguredMessage(isStaff(interaction.member, null)),
+    );
     return;
   }
 
@@ -89,13 +113,19 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   const warns = await listActive(clan.guildId, target.id);
   const embed = new EmbedBuilder()
     .setColor(warns.length ? 0xed4245 : 0x3ba55d)
-    .setAuthor({ name: `Warnings — ${target.username}`, iconURL: target.displayAvatarURL() })
+    .setAuthor({
+      name: `Warnings — ${target.username}`,
+      iconURL: target.displayAvatarURL(),
+    })
     .setDescription(
       warns.length
         ? warns
-            .map((w) => `**#${w.id}** · ${formatInZone(w.issuedAt, clan)}\n> ${w.reason}\n_by ${w.issuedByUsername}_`)
+            .map(
+              (w) =>
+                `**#${w.id}** · ${formatInZone(w.issuedAt, clan)}\n> ${w.reason}\n_by ${w.issuedByUsername}_`,
+            )
             .join("\n\n")
-        : "✅ No active warnings."
+        : "✅ No active warnings.",
     );
 
   const components: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
@@ -107,10 +137,12 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
         warns.slice(0, 25).map((w) => ({
           label: `#${w.id} — ${w.reason.slice(0, 80)}`,
           value: String(w.id),
-        }))
+        })),
       );
     components.push(
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(menu)
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        menu,
+      ),
     );
   }
 
@@ -120,7 +152,10 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
 /** /help — a quick how-it-works canvas for members and staff. */
 export async function handleHelp(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) {
-    await interaction.reply({ content: "This command only works inside a server.", flags: 64 });
+    await interaction.reply({
+      content: "This command only works inside a server.",
+      flags: 64,
+    });
     return;
   }
   await interaction.deferReply({ flags: 64 });
@@ -159,7 +194,9 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
     activityName: activity,
     sections,
   });
-  await interaction.editReply({ files: [new AttachmentBuilder(png, { name: "help.png" })] });
+  await interaction.editReply({
+    files: [new AttachmentBuilder(png, { name: "help.png" })],
+  });
 }
 
 /** /report [period] — staff weekly/monthly activity report card. */
@@ -168,7 +205,9 @@ export async function handleReport(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply();
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    await interaction.editReply(
+      notConfiguredMessage(isStaff(interaction.member, null)),
+    );
     return;
   }
   if (!isStaff(interaction.member, clan)) {
@@ -195,11 +234,15 @@ export async function handleReport(interaction: ChatInputCommandInteraction) {
     top: report.top,
   });
 
-  await interaction.editReply({ files: [new AttachmentBuilder(png, { name: "report.png" })] });
+  await interaction.editReply({
+    files: [new AttachmentBuilder(png, { name: "report.png" })],
+  });
 }
 
 /** Handle removal selection from /warnings. */
-export async function handleWarnRemoveSelect(interaction: StringSelectMenuInteraction) {
+export async function handleWarnRemoveSelect(
+  interaction: StringSelectMenuInteraction,
+) {
   if (!interaction.inCachedGuild()) return;
   // Defer first — getClan + removeWarning (DB writes + role sync) can exceed 3 seconds.
   await interaction.deferReply({ flags: 64 });
@@ -217,6 +260,8 @@ export async function handleWarnRemoveSelect(interaction: StringSelectMenuIntera
     moderatorUsername: interaction.user.username,
   });
   await interaction.editReply({
-    content: removed ? `✅ Removed warning #${warningId}.` : "That warning was already removed.",
+    content: removed
+      ? `✅ Removed warning #${warningId}.`
+      : "That warning was already removed.",
   });
 }

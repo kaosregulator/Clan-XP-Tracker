@@ -16,10 +16,17 @@ import {
 } from "discord.js";
 import type { Clan } from "@workspace/db";
 import { getClan, identityFromUser, ensureMember } from "../services/config";
-import { ensureAccounts, listAccounts, addAccount, removeAccount, accountStatesToday } from "../services/accounts";
+import {
+  ensureAccounts,
+  listAccounts,
+  addAccount,
+  removeAccount,
+  accountStatesToday,
+} from "../services/accounts";
 import { createSubmission } from "../services/submissions";
 import { recomputeMemberStats } from "../services/members";
 import { scheduleTrackerRefresh } from "./tracker";
+import { scheduleDashboardRefresh } from "./dashboard";
 import {
   XP_ADD_ACCOUNT,
   XP_ADD_ACCOUNT_MODAL,
@@ -29,21 +36,32 @@ import {
 
 const STATE_GLYPH = { done: "✅", pending: "⏳", missing: "⬜" } as const;
 
-async function accountsPayload(clan: Clan, userId: string): Promise<BaseMessageOptions> {
+async function accountsPayload(
+  clan: Clan,
+  userId: string,
+): Promise<BaseMessageOptions> {
   const states = await accountStatesToday(clan, userId);
   const lines = states
-    .map((s) => `${STATE_GLYPH[s.state]} **${s.account.label}**${s.account.isMain ? " · main" : ""}`)
+    .map(
+      (s) =>
+        `${STATE_GLYPH[s.state]} **${s.account.label}**${s.account.isMain ? " · main" : ""}`,
+    )
     .join("\n");
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle("👥 My Accounts")
-    .setDescription(`Track each account you manage. Today's status:\n\n${lines}`)
+    .setDescription(
+      `Track each account you manage. Today's status:\n\n${lines}`,
+    )
     .setFooter({ text: "Each account needs its own screenshot each day." });
 
   const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(XP_ADD_ACCOUNT).setStyle(ButtonStyle.Success).setLabel("Add account")
+      new ButtonBuilder()
+        .setCustomId(XP_ADD_ACCOUNT)
+        .setStyle(ButtonStyle.Success)
+        .setLabel("Add account"),
     ),
   ];
 
@@ -54,22 +72,32 @@ async function accountsPayload(clan: Clan, userId: string): Promise<BaseMessageO
         new StringSelectMenuBuilder()
           .setCustomId(XP_REMOVE_ACCOUNT)
           .setPlaceholder("Remove an alt account…")
-          .addOptions(removable.map((s) => ({ label: s.account.label, value: String(s.account.id) })))
-      )
+          .addOptions(
+            removable.map((s) => ({
+              label: s.account.label,
+              value: String(s.account.id),
+            })),
+          ),
+      ),
     );
   }
 
   return { embeds: [embed], components: rows };
 }
 
-export async function handleAccountsButton(interaction: ButtonInteraction, clan: Clan) {
+export async function handleAccountsButton(
+  interaction: ButtonInteraction,
+  clan: Clan,
+) {
   await interaction.deferReply({ flags: 64 });
   await ensureAccounts(clan.guildId, interaction.user.id);
   await interaction.editReply(await accountsPayload(clan, interaction.user.id));
 }
 
 export async function handleAddAccountButton(interaction: ButtonInteraction) {
-  const modal = new ModalBuilder().setCustomId(XP_ADD_ACCOUNT_MODAL).setTitle("Add an account");
+  const modal = new ModalBuilder()
+    .setCustomId(XP_ADD_ACCOUNT_MODAL)
+    .setTitle("Add an account");
   modal.addComponents(
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
       new TextInputBuilder()
@@ -78,17 +106,22 @@ export async function handleAddAccountButton(interaction: ButtonInteraction) {
         .setStyle(TextInputStyle.Short)
         .setPlaceholder("e.g. Alt 1, Guardian, Recruiter")
         .setRequired(true)
-        .setMaxLength(40)
-    )
+        .setMaxLength(40),
+    ),
   );
   await interaction.showModal(modal);
 }
 
-export async function handleAddAccountModal(interaction: ModalSubmitInteraction) {
+export async function handleAddAccountModal(
+  interaction: ModalSubmitInteraction,
+) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
-  if (!clan) { await interaction.editReply({ content: "⚠️ Clan not configured." }); return; }
+  if (!clan) {
+    await interaction.editReply({ content: "⚠️ Clan not configured." });
+    return;
+  }
   const label = interaction.fields.getTextInputValue("label");
   const result = await addAccount(clan, interaction.user.id, label);
   if (!result.ok) {
@@ -98,7 +131,9 @@ export async function handleAddAccountModal(interaction: ModalSubmitInteraction)
   await interaction.editReply(await accountsPayload(clan, interaction.user.id));
 }
 
-export async function handleRemoveAccountSelect(interaction: StringSelectMenuInteraction) {
+export async function handleRemoveAccountSelect(
+  interaction: StringSelectMenuInteraction,
+) {
   if (!interaction.inCachedGuild()) return;
   const clan = await getClan(interaction.guildId);
   if (!clan) return;
@@ -112,7 +147,9 @@ export async function handleRemoveAccountSelect(interaction: StringSelectMenuInt
  * Choosing one opens a pending submission tagged to that account and prompts
  * the member to post their screenshot (linked by handleSubmissionMessage).
  */
-export async function handleSubmitAccountSelect(interaction: StringSelectMenuInteraction) {
+export async function handleSubmitAccountSelect(
+  interaction: StringSelectMenuInteraction,
+) {
   if (!interaction.inCachedGuild()) return;
   const clan = await getClan(interaction.guildId);
   if (!clan) return;
@@ -121,11 +158,18 @@ export async function handleSubmitAccountSelect(interaction: StringSelectMenuInt
   const accounts = await listAccounts(clan.guildId, interaction.user.id);
   const account = accounts.find((a) => a.id === accountId);
   if (!account) {
-    await interaction.update({ content: "That account no longer exists.", embeds: [], components: [] });
+    await interaction.update({
+      content: "That account no longer exists.",
+      embeds: [],
+      components: [],
+    });
     return;
   }
 
-  const identity = identityFromUser(interaction.user, interaction.member.displayName);
+  const identity = identityFromUser(
+    interaction.user,
+    interaction.member.displayName,
+  );
   await ensureMember(clan.guildId, identity);
   await createSubmission({
     clan,
@@ -137,6 +181,7 @@ export async function handleSubmitAccountSelect(interaction: StringSelectMenuInt
   if (clan.autoApprove) {
     await recomputeMemberStats(clan, identity.userId);
     scheduleTrackerRefresh(interaction.client, clan);
+    scheduleDashboardRefresh(interaction.client, clan);
   }
 
   const proofNote = clan.submissionChannelId
@@ -152,7 +197,10 @@ export async function handleSubmitAccountSelect(interaction: StringSelectMenuInt
 }
 
 /** Build the account-picker shown by the Submit button (alt accounts enabled). */
-export async function submitAccountPicker(clan: Clan, userId: string): Promise<BaseMessageOptions> {
+export async function submitAccountPicker(
+  clan: Clan,
+  userId: string,
+): Promise<BaseMessageOptions> {
   const states = await accountStatesToday(clan, userId);
   const menu = new StringSelectMenuBuilder()
     .setCustomId(XP_SUBMIT_ACCOUNT)
@@ -160,12 +208,21 @@ export async function submitAccountPicker(clan: Clan, userId: string): Promise<B
     .addOptions(
       states.slice(0, 25).map((s) => ({
         label: s.account.label,
-        description: s.state === "done" ? "already complete today" : s.state === "pending" ? "in review" : "not submitted",
+        description:
+          s.state === "done"
+            ? "already complete today"
+            : s.state === "pending"
+              ? "in review"
+              : "not submitted",
         value: String(s.account.id),
-      }))
+      })),
     );
   return {
     content: `📸 **Submit ${clan.activityName || "XP"}** — pick the account:`,
-    components: [new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(menu)],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        menu,
+      ),
+    ],
   };
 }
