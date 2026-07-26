@@ -1,5 +1,9 @@
 modules = ["nodejs-20", "web", "postgresql-16", "python-base-3.13"]
 
+# A Discord bot holds a persistent gateway WebSocket and must run 24/7.
+# "autoscale" spins the container down when there is no inbound web traffic,
+# which drops the bot offline until the next website hit. A Reserved VM ("gce")
+# stays always-on, keeping the bot connected.
 [deployment]
 router = "application"
 deploymentTarget = "gce"
