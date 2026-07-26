@@ -236,11 +236,16 @@ export async function handleXpButton(interaction: ButtonInteraction) {
   // before fetching the clan and beat the 3-second Discord window.
   const { action } = parseId(interaction.customId);
 
-  // Defer early for actions that need it. "submit", "vacation", "accounts" and
-  // "addAccount" respond via modal or immediate reply so we must NOT defer them.
+  // Defer early for all non-modal actions before the getClan DB call.
+  // "submit" and "addAccount" show a modal so they must NOT defer.
   if (action === "refresh") {
     await interaction.deferUpdate();
-  } else if (action === "progress" || action === "history") {
+  } else if (
+    action === "progress" ||
+    action === "history" ||
+    action === "vacation" ||
+    action === "accounts"
+  ) {
     await interaction.deferReply({ flags: 64 });
   }
 
@@ -301,9 +306,7 @@ export async function handleXpButton(interaction: ButtonInteraction) {
 /** Vacation button — records a negative "can't do it today" mark. */
 async function handleVacation(interaction: ButtonInteraction, clan: Clan) {
   if (!interaction.inCachedGuild()) return;
-  // Defer first — recordVacation + postVacationCard are async and can exceed
-  // Discord's 3-second acknowledgement window on a cold DB connection.
-  await interaction.deferReply({ flags: 64 });
+  // Interaction is already deferred by handleXpButton before getClan.
   const identity = identityFromUser(
     interaction.user,
     interaction.member.displayName,

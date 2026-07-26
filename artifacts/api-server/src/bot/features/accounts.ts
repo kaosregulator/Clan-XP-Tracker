@@ -89,7 +89,7 @@ export async function handleAccountsButton(
   interaction: ButtonInteraction,
   clan: Clan,
 ) {
-  await interaction.deferReply({ flags: 64 });
+  // Interaction is already deferred by handleXpButton before getClan.
   await ensureAccounts(clan.guildId, interaction.user.id);
   await interaction.editReply(await accountsPayload(clan, interaction.user.id));
 }
@@ -135,11 +135,13 @@ export async function handleRemoveAccountSelect(
   interaction: StringSelectMenuInteraction,
 ) {
   if (!interaction.inCachedGuild()) return;
+  // Defer before DB work — getClan + removeAccount + accountsPayload exceed 3s on cold connections.
+  await interaction.deferUpdate();
   const clan = await getClan(interaction.guildId);
   if (!clan) return;
   const accountId = Number(interaction.values[0]);
   await removeAccount(clan.guildId, interaction.user.id, accountId);
-  await interaction.update(await accountsPayload(clan, interaction.user.id));
+  await interaction.editReply(await accountsPayload(clan, interaction.user.id));
 }
 
 /**
@@ -151,6 +153,8 @@ export async function handleSubmitAccountSelect(
   interaction: StringSelectMenuInteraction,
 ) {
   if (!interaction.inCachedGuild()) return;
+  // Defer before DB work — getClan + listAccounts + createSubmission chain exceeds 3s on cold connections.
+  await interaction.deferUpdate();
   const clan = await getClan(interaction.guildId);
   if (!clan) return;
 
@@ -158,7 +162,7 @@ export async function handleSubmitAccountSelect(
   const accounts = await listAccounts(clan.guildId, interaction.user.id);
   const account = accounts.find((a) => a.id === accountId);
   if (!account) {
-    await interaction.update({
+    await interaction.editReply({
       content: "That account no longer exists.",
       embeds: [],
       components: [],
@@ -187,7 +191,7 @@ export async function handleSubmitAccountSelect(
   const proofNote = clan.submissionChannelId
     ? ` Optionally post your screenshot in <#${clan.submissionChannelId}> to attach it.`
     : "";
-  await interaction.update({
+  await interaction.editReply({
     content: clan.autoApprove
       ? `✅ **${clan.activityName || "XP"} recorded for ${account.label}.**${proofNote}`
       : `📸 **Submitting for ${account.label}.** Post your screenshot in <#${clan.submissionChannelId}> to complete it.`,
