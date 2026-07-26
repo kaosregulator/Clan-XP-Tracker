@@ -398,13 +398,19 @@ function scheduleModal(clan: Clan) {
 
 /* ------------------------------------------------------------- handlers */
 
+/**
+ * Verify the invoker is staff. Pass deferred=true when the caller has already
+ * called deferReply/deferUpdate so errors use editReply instead of reply.
+ */
 async function guard(
-  interaction: ButtonInteraction | ModalSubmitInteraction | ChannelSelectMenuInteraction | RoleSelectMenuInteraction
+  interaction: ButtonInteraction | ModalSubmitInteraction | ChannelSelectMenuInteraction | RoleSelectMenuInteraction,
+  deferred = false
 ): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
   if (!isStaff(interaction.member, clan)) {
-    await interaction.reply({ content: "Only staff can change setup.", flags: 64 });
+    const msg = { content: "Only staff can change setup.", flags: 64 };
+    if (deferred) await interaction.editReply(msg); else await interaction.reply(msg);
     return null;
   }
   return clan;
@@ -417,43 +423,68 @@ export async function openSetup(interaction: ChatInputCommandInteraction) {
     await interaction.reply({ content: "You need the Manage Server permission to run setup.", flags: 64 });
     return;
   }
+  // Defer first — ensureClan hits the DB and can exceed the 3-second window on
+  // a cold Postgres connection (especially right after a fresh deploy).
+  await interaction.deferReply({ flags: 64 });
   const clan = await ensureClan(interaction.guildId, interaction.guild.name);
-  await interaction.reply({ ...setupMainPayload(clan), flags: 64 });
+  await interaction.editReply({ ...setupMainPayload(clan) });
 }
 
 export async function handleSetupButton(interaction: ButtonInteraction) {
-  const clan = await guard(interaction);
+  const { action } = parseId(interaction.customId); // sync — must come first
+
+  // Modal-showing actions MUST call showModal as the very first response —
+  // Discord does not allow deferring before a modal. getClan is cached so the
+  // DB round-trip is fast in normal operation.
+  if (action === "identity" || action === "game" || action === "schedule" || action === "capacity") {
+    const clan = await guard(interaction);
+    if (!clan) return;
+    if (action === "identity") return interaction.showModal(identityModal(clan));
+    if (action === "game") return interaction.showModal(gameModal(clan));
+    if (action === "schedule") return interaction.showModal(scheduleModal(clan));
+    if (action === "capacity") return interaction.showModal(capacityModal(clan));
+    return;
+  }
+
+  // createChannels defers internally; finish uses reply/update internally.
+  // Guard with no pre-defer — relies on cache being warm.
+  if (action === "createChannels" || action === "finish") {
+    const clan = await guard(interaction);
+    if (!clan) return;
+    if (action === "createChannels") return autoCreateChannels(interaction, clan);
+    if (action === "finish") return finishSetup(interaction, clan);
+    return;
+  }
+
+  // All remaining actions (channels, roles, dashboards, back) update the
+  // existing message. Defer first so the 3-second window never expires on a
+  // cold DB connection.
+  await interaction.deferUpdate();
+  const clan = await guard(interaction, true);
   if (!clan) return;
-  const { action } = parseId(interaction.customId);
 
   switch (action) {
-    case "identity":
-      return interaction.showModal(identityModal(clan));
-    case "game":
-      return interaction.showModal(gameModal(clan));
-    case "schedule":
-      return interaction.showModal(scheduleModal(clan));
-    case "capacity":
-      return interaction.showModal(capacityModal(clan));
     case "channels":
-      return interaction.update(channelsPayload(clan));
+      return void (await interaction.editReply(channelsPayload(clan)));
     case "roles":
-      return interaction.update(rolesPayload(clan));
+      return void (await interaction.editReply(rolesPayload(clan)));
     case "dashboards":
-      return interaction.update(dashboardsPayload(clan));
+      return void (await interaction.editReply(dashboardsPayload(clan)));
     case "back":
-      return interaction.update(setupMainPayload(clan));
-    case "createChannels":
-      return autoCreateChannels(interaction, clan);
-    case "finish":
-      return finishSetup(interaction, clan);
+      return void (await interaction.editReply(setupMainPayload(clan)));
     default:
       return;
   }
 }
 
 export async function handleSetupModal(interaction: ModalSubmitInteraction) {
-  const clan = await guard(interaction);
+  // Defer before any DB work. isFromMessage() is a synchronous check.
+  if (interaction.isFromMessage()) {
+    await interaction.deferUpdate();
+  } else {
+    await interaction.deferReply({ flags: 64 });
+  }
+  const clan = await guard(interaction, true);
   if (!clan) return;
   const { action } = parseId(interaction.customId);
   const f = (k: string) => interaction.fields.getTextInputValue(k);
@@ -508,18 +539,16 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
   }
 
   const updated = (await updateClan(clan.guildId, patch)) ?? clan;
-  // Modals opened from the wizard message can update it in place; otherwise reply.
-  if (interaction.isFromMessage()) {
-    await interaction.update(setupMainPayload(updated));
-  } else {
-    await interaction.reply({ ...setupMainPayload(updated), flags: 64 });
-  }
+  // Interaction is already deferred — always use editReply regardless of source.
+  await interaction.editReply(setupMainPayload(updated));
 }
 
 export async function handleSetupSelect(
   interaction: ChannelSelectMenuInteraction | RoleSelectMenuInteraction
 ) {
-  const clan = await guard(interaction);
+  // Defer before DB work — channel/role saves + a follow-up getClan can exceed 3 seconds.
+  await interaction.deferUpdate();
+  const clan = await guard(interaction, true);
   if (!clan) return;
   const { action } = parseId(interaction.customId);
 
@@ -539,7 +568,7 @@ export async function handleSetupSelect(
     if (key) await updateClan(clan.guildId, { [key]: channelId });
     const fresh = (await getClan(clan.guildId)) ?? clan;
     const dashActions = ["staffDash", "clanDash", "patriotDash", "leaderboardDash"];
-    await interaction.update(dashActions.includes(action) ? dashboardsPayload(fresh) : channelsPayload(fresh));
+    await interaction.editReply(dashActions.includes(action) ? dashboardsPayload(fresh) : channelsPayload(fresh));
     return;
   }
 
@@ -549,7 +578,7 @@ export async function handleSetupSelect(
     if (action === "warnRoles") await updateClan(clan.guildId, { warningRoleIds: roleIds });
     if (action === "requiredRole") await updateClan(clan.guildId, { requiredRoleId: roleIds[0] ?? null });
     const fresh = (await getClan(clan.guildId)) ?? clan;
-    await interaction.update(rolesPayload(fresh));
+    await interaction.editReply(rolesPayload(fresh));
   }
 }
 
