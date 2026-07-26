@@ -1,6 +1,6 @@
 import { db, xpSubmissionsTable } from "@workspace/db";
 import type { Clan, XpSubmission } from "@workspace/db";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, ne } from "drizzle-orm";
 import { activityDate } from "./time";
 import type { MemberIdentity } from "./config";
 
@@ -21,7 +21,9 @@ export interface CreateSubmissionInput {
 }
 
 /** Create a submission for the current activity day (pending by default). */
-export async function createSubmission(input: CreateSubmissionInput): Promise<XpSubmission> {
+export async function createSubmission(
+  input: CreateSubmissionInput,
+): Promise<XpSubmission> {
   const status = input.status ?? "pending";
   const approved = status === "approved";
   const contributions = Math.max(1, input.contributions ?? 1);
@@ -42,7 +44,9 @@ export async function createSubmission(input: CreateSubmissionInput): Promise<Xp
       overflow: input.overflow ?? false,
       altAccountsCompleted: Math.max(0, contributions - 1),
       reviewedBy: approved ? (input.autoReviewer?.id ?? "auto") : null,
-      reviewedByUsername: approved ? (input.autoReviewer?.username ?? "Auto-approved") : null,
+      reviewedByUsername: approved
+        ? (input.autoReviewer?.username ?? "Auto-approved")
+        : null,
       reviewedAt: approved ? new Date() : null,
     })
     .returning();
@@ -51,20 +55,23 @@ export async function createSubmission(input: CreateSubmissionInput): Promise<Xp
 
 /** Back-compat helper — a pending submission for the review-queue flow. */
 export async function createPendingSubmission(
-  input: Omit<CreateSubmissionInput, "status" | "autoReviewer">
+  input: Omit<CreateSubmissionInput, "status" | "autoReviewer">,
 ): Promise<XpSubmission> {
   return createSubmission({ ...input, status: "pending" });
 }
 
 export async function getSubmission(id: number): Promise<XpSubmission | null> {
-  const [row] = await db.select().from(xpSubmissionsTable).where(eq(xpSubmissionsTable.id, id));
+  const [row] = await db
+    .select()
+    .from(xpSubmissionsTable)
+    .where(eq(xpSubmissionsTable.id, id));
   return row ?? null;
 }
 
 /** Latest pending submission for a user that has no proof attached yet. */
 export async function latestPendingAwaitingProof(
   guildId: string,
-  userId: string
+  userId: string,
 ): Promise<XpSubmission | null> {
   const rows = await db
     .select()
@@ -74,8 +81,8 @@ export async function latestPendingAwaitingProof(
         eq(xpSubmissionsTable.guildId, guildId),
         eq(xpSubmissionsTable.userId, userId),
         eq(xpSubmissionsTable.status, "pending"),
-        isNull(xpSubmissionsTable.deletedAt)
-      )
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
     )
     .orderBy(desc(xpSubmissionsTable.submittedAt))
     .limit(5);
@@ -89,7 +96,7 @@ export async function latestPendingAwaitingProof(
  */
 export async function latestTodayAwaitingProof(
   clan: Clan,
-  userId: string
+  userId: string,
 ): Promise<XpSubmission | null> {
   const rows = await db
     .select()
@@ -99,15 +106,18 @@ export async function latestTodayAwaitingProof(
         eq(xpSubmissionsTable.guildId, clan.guildId),
         eq(xpSubmissionsTable.userId, userId),
         eq(xpSubmissionsTable.activityDate, activityDate(clan)),
-        isNull(xpSubmissionsTable.deletedAt)
-      )
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
     )
     .orderBy(desc(xpSubmissionsTable.submittedAt))
     .limit(5);
   return rows.find((r) => r.proofImageUrls.length === 0) ?? null;
 }
 
-export async function setProof(id: number, urls: string[]): Promise<XpSubmission | null> {
+export async function setProof(
+  id: number,
+  urls: string[],
+): Promise<XpSubmission | null> {
   const [row] = await db
     .update(xpSubmissionsTable)
     .set({ proofImageUrls: urls })
@@ -116,7 +126,10 @@ export async function setProof(id: number, urls: string[]): Promise<XpSubmission
   return row ?? null;
 }
 
-export async function setReviewMessage(id: number, messageId: string): Promise<void> {
+export async function setReviewMessage(
+  id: number,
+  messageId: string,
+): Promise<void> {
   await db
     .update(xpSubmissionsTable)
     .set({ reviewMessageId: messageId })
@@ -132,7 +145,7 @@ export interface ReviewInput {
 export async function setStatus(
   id: number,
   status: "approved" | "rejected",
-  review: ReviewInput
+  review: ReviewInput,
 ): Promise<XpSubmission | null> {
   const [row] = await db
     .update(xpSubmissionsTable)
@@ -156,7 +169,7 @@ export async function setStatus(
 export async function hasSubmissionToday(
   clan: Clan,
   userId: string,
-  accountId: number | null = null
+  accountId: number | null = null,
 ): Promise<boolean> {
   const today = activityDate(clan);
   const rows = await db
@@ -170,18 +183,40 @@ export async function hasSubmissionToday(
         eq(xpSubmissionsTable.guildId, clan.guildId),
         eq(xpSubmissionsTable.userId, userId),
         eq(xpSubmissionsTable.activityDate, today),
-        isNull(xpSubmissionsTable.deletedAt)
-      )
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
     );
   return rows.some(
-    (r) => r.status !== "rejected" && (accountId === null || r.accountId === accountId)
+    (r) =>
+      r.status !== "rejected" &&
+      (accountId === null || r.accountId === accountId),
   );
+}
+
+/** Set of user ids with a non-rejected submission for the current activity day. */
+export async function submittedTodayIds(clan: Clan): Promise<Set<string>> {
+  const today = activityDate(clan);
+  const rows = await db
+    .select({ userId: xpSubmissionsTable.userId })
+    .from(xpSubmissionsTable)
+    .where(
+      and(
+        eq(xpSubmissionsTable.guildId, clan.guildId),
+        eq(xpSubmissionsTable.activityDate, today),
+        ne(xpSubmissionsTable.status, "rejected"),
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
+    );
+  return new Set(rows.map((r) => r.userId));
 }
 
 export type TodayState = "done" | "pending" | "missing";
 
 /** The member's completion state for the current activity day. */
-export async function todayStatus(clan: Clan, userId: string): Promise<TodayState> {
+export async function todayStatus(
+  clan: Clan,
+  userId: string,
+): Promise<TodayState> {
   const today = activityDate(clan);
   const rows = await db
     .select({ status: xpSubmissionsTable.status })
@@ -191,8 +226,8 @@ export async function todayStatus(clan: Clan, userId: string): Promise<TodayStat
         eq(xpSubmissionsTable.guildId, clan.guildId),
         eq(xpSubmissionsTable.userId, userId),
         eq(xpSubmissionsTable.activityDate, today),
-        isNull(xpSubmissionsTable.deletedAt)
-      )
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
     );
   if (rows.some((r) => r.status === "approved")) return "done";
   if (rows.some((r) => r.status === "pending")) return "pending";
@@ -202,7 +237,7 @@ export async function todayStatus(clan: Clan, userId: string): Promise<TodayStat
 export async function recentForUser(
   guildId: string,
   userId: string,
-  limit = 5
+  limit = 5,
 ): Promise<XpSubmission[]> {
   return db
     .select()
@@ -211,14 +246,17 @@ export async function recentForUser(
       and(
         eq(xpSubmissionsTable.guildId, guildId),
         eq(xpSubmissionsTable.userId, userId),
-        isNull(xpSubmissionsTable.deletedAt)
-      )
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
     )
     .orderBy(desc(xpSubmissionsTable.submittedAt))
     .limit(limit);
 }
 
-export async function pendingQueue(guildId: string, limit = 25): Promise<XpSubmission[]> {
+export async function pendingQueue(
+  guildId: string,
+  limit = 25,
+): Promise<XpSubmission[]> {
   return db
     .select()
     .from(xpSubmissionsTable)
@@ -226,8 +264,8 @@ export async function pendingQueue(guildId: string, limit = 25): Promise<XpSubmi
       and(
         eq(xpSubmissionsTable.guildId, guildId),
         eq(xpSubmissionsTable.status, "pending"),
-        isNull(xpSubmissionsTable.deletedAt)
-      )
+        isNull(xpSubmissionsTable.deletedAt),
+      ),
     )
     .orderBy(xpSubmissionsTable.submittedAt)
     .limit(limit);

@@ -6,11 +6,19 @@ import {
   type ButtonInteraction,
 } from "discord.js";
 import type { Clan } from "@workspace/db";
-import { todaySnapshot, missingMembers, streakLeaderboard } from "../services/stats";
+import {
+  todaySnapshot,
+  missingMembers,
+  streakLeaderboard,
+} from "../services/stats";
 import { pendingQueue } from "../services/submissions";
-import { activityDate, relative, nextReset, formatInZone } from "../services/time";
+import {
+  activityDate,
+  relative,
+  nextReset,
+  formatInZone,
+} from "../services/time";
 import { getClan, isStaff } from "../services/config";
-import { renderOffThread } from "../canvas/render-pool";
 import { adminHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./hub";
@@ -18,41 +26,84 @@ import { refreshDashboards } from "./dashboard";
 import { refreshTracker } from "./tracker";
 import { exportGuildData, exportGuildDataAsXlsx } from "../services/export";
 
-/** Build the /xpadmin staff operations hub (canvas image + buttons). */
+/**
+ * Build the /xpadmin staff operations hub (embed + buttons).
+ *
+ * An embed, not a canvas image — so it posts instantly without a PNG upload,
+ * exactly like the member hub.
+ */
 export async function buildAdminHub(clan: Clan): Promise<BaseMessageOptions> {
   const snap = await todaySnapshot(clan);
-  const png = await renderOffThread("adminHub", {
-    communityName: clan.clanName,
-    activityName: clan.activityName || "XP",
-    activityDate: activityDate(clan),
-    deadline: relative(nextReset(clan)),
-    totalMembers: snap.totalMembers,
-    completed: snap.completed,
-    pending: snap.pending,
-    missing: snap.missing,
-    pendingReviews: snap.pendingReviews,
-    warningsToday: snap.warningsToday,
-    remindersToday: snap.remindersToday,
-    topStreaks: snap.topStreaks,
-  });
+  const activity = clan.activityName || "XP";
+  const completedPct =
+    snap.totalMembers > 0
+      ? Math.round((snap.completed / snap.totalMembers) * 100)
+      : 0;
+
+  const topStreaks = snap.topStreaks.length
+    ? snap.topStreaks
+        .slice(0, 5)
+        .map(
+          (s, i) =>
+            `${["🥇", "🥈", "🥉"][i] ?? `**${i + 1}.**`} ${s.name} — 🔥 ${s.streak}`,
+        )
+        .join("\n")
+    : "No streaks yet.";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setAuthor({ name: `${clan.clanName} • Staff Hub` })
+    .setTitle(`${activity} operations — ${activityDate(clan)}`)
+    .setDescription(`Resets ${relative(nextReset(clan))}.`)
+    .addFields(
+      {
+        name: "✅ Completed",
+        value: `${snap.completed}/${snap.totalMembers} (${completedPct}%)`,
+        inline: true,
+      },
+      { name: "⏳ Pending", value: `${snap.pending}`, inline: true },
+      { name: "🔴 Missing", value: `${snap.missing}`, inline: true },
+      {
+        name: "📋 Review queue",
+        value: `${snap.pendingReviews}`,
+        inline: true,
+      },
+      {
+        name: "⚠️ Warnings today",
+        value: `${snap.warningsToday}`,
+        inline: true,
+      },
+      {
+        name: "🔔 Reminders today",
+        value: `${snap.remindersToday}`,
+        inline: true,
+      },
+      { name: "🏆 Top streaks", value: topStreaks },
+    );
 
   return {
-    files: [new AttachmentBuilder(png, { name: "admin.png" })],
+    embeds: [embed],
     components: adminHubComponents(),
   };
 }
 
 async function requireStaff(
-  interaction: ChatInputCommandInteraction | ButtonInteraction
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
 ): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.reply({ ...notConfiguredMessage(isStaff(interaction.member, null)), flags: 64 });
+    await interaction.reply({
+      ...notConfiguredMessage(isStaff(interaction.member, null)),
+      flags: 64,
+    });
     return null;
   }
   if (!isStaff(interaction.member, clan)) {
-    await interaction.reply({ content: "This hub is for staff only.", flags: 64 });
+    await interaction.reply({
+      content: "This hub is for staff only.",
+      flags: 64,
+    });
     return null;
   }
   return clan;
@@ -66,7 +117,9 @@ export async function sendAdminHub(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    await interaction.editReply(
+      notConfiguredMessage(isStaff(interaction.member, null)),
+    );
     return;
   }
   if (!isStaff(interaction.member, clan)) {
@@ -76,7 +129,11 @@ export async function sendAdminHub(interaction: ChatInputCommandInteraction) {
   await interaction.editReply(await buildAdminHub(clan));
 }
 
-function jumpLink(guildId: string, channelId: string | null, messageId: string | null): string | null {
+function jumpLink(
+  guildId: string,
+  channelId: string | null,
+  messageId: string | null,
+): string | null {
   if (!channelId || !messageId) return null;
   return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
 }
@@ -117,7 +174,11 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
     const c = (data.counts as Record<string, number>) ?? {};
     await interaction.editReply({
       content: `💾 **Backup** — ${c.members ?? 0} members · ${c.submissions ?? 0} submissions · ${c.warnings ?? 0} warnings. Opens directly in Excel or Google Sheets. Your live data always stays in the database; this is a copy you control.`,
-      files: [new AttachmentBuilder(xlsxBuf, { name: `xp-backup-${clan.guildId}-${stamp}.xlsx` })],
+      files: [
+        new AttachmentBuilder(xlsxBuf, {
+          name: `xp-backup-${clan.guildId}-${stamp}.xlsx`,
+        }),
+      ],
     });
     return;
   }
@@ -128,13 +189,16 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
     const set = [
       clan.trackerChannelId && `tracker → <#${clan.trackerChannelId}>`,
       clan.clanDashboardChannelId && `clan → <#${clan.clanDashboardChannelId}>`,
-      clan.staffDashboardChannelId && `staff → <#${clan.staffDashboardChannelId}>`,
-      clan.altAccountsEnabled && clan.patriotDashboardChannelId && `patriot → <#${clan.patriotDashboardChannelId}>`,
+      clan.staffDashboardChannelId &&
+        `staff → <#${clan.staffDashboardChannelId}>`,
+      clan.altAccountsEnabled &&
+        clan.patriotDashboardChannelId &&
+        `patriot → <#${clan.patriotDashboardChannelId}>`,
     ].filter(Boolean);
     await interaction.editReply(
       set.length
         ? `📊 Posted/updated: ${set.join(" · ")}`
-        : "No dashboard channels are set yet. Add them in **/setup → Dashboards** (and a Tracker channel)."
+        : "No dashboard channels are set yet. Add them in **/setup → Dashboards** (and a Tracker channel).",
     );
     return;
   }
@@ -144,14 +208,23 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
     const body = pending.length
       ? pending
           .map((s) => {
-            const link = jumpLink(clan.guildId, clan.reviewChannelId, s.reviewMessageId);
+            const link = jumpLink(
+              clan.guildId,
+              clan.reviewChannelId,
+              s.reviewMessageId,
+            );
             const label = `**#${s.id}** <@${s.userId}> · ${s.activityDate} · ${formatInZone(s.submittedAt, clan)}`;
             return link ? `${label} — [open](${link})` : label;
           })
           .join("\n")
       : "🎉 The review queue is empty.";
     await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(0xfaa61a).setTitle("Review queue").setDescription(body)],
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xfaa61a)
+          .setTitle("Review queue")
+          .setDescription(body),
+      ],
     });
     return;
   }
@@ -177,11 +250,19 @@ export async function handleAdminButton(interaction: ButtonInteraction) {
     const medals = ["🥇", "🥈", "🥉"];
     const body = rows.length
       ? rows
-          .map((r, i) => `${medals[i] ?? `**${i + 1}.**`} <@${r.userId}> — 🔥 **${r.currentStreak}** · ${r.approvedCount} approved`)
+          .map(
+            (r, i) =>
+              `${medals[i] ?? `**${i + 1}.**`} <@${r.userId}> — 🔥 **${r.currentStreak}** · ${r.approvedCount} approved`,
+          )
           .join("\n")
       : "No activity yet.";
     await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor(0xfaa61a).setTitle("Streak leaderboard").setDescription(body)],
+      embeds: [
+        new EmbedBuilder()
+          .setColor(0xfaa61a)
+          .setTitle("Streak leaderboard")
+          .setDescription(body),
+      ],
     });
     return;
   }

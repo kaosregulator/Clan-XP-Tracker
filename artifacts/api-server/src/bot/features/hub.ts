@@ -1,5 +1,4 @@
 import {
-  AttachmentBuilder,
   EmbedBuilder,
   type BaseMessageOptions,
   type User,
@@ -7,12 +6,16 @@ import {
   type ButtonInteraction,
 } from "discord.js";
 import type { Clan } from "@workspace/db";
-import { ensureMember, identityFromUser, getMember, getClan, isStaff } from "../services/config";
+import {
+  ensureMember,
+  identityFromUser,
+  getMember,
+  getClan,
+  isStaff,
+} from "../services/config";
 import { todayStatus, recentForUser } from "../services/submissions";
 import { relative, formatInZone } from "../services/time";
 import { onVacationToday, recordVacation } from "../services/vacations";
-import { type DayState, type AccountRow } from "../canvas/cards/memberHub";
-import { renderOffThread } from "../canvas/render-pool";
 import { memberHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { handleSubmitButton } from "./submit";
@@ -21,15 +24,74 @@ import { postVacationCard } from "./xpcard";
 import { accountStatesToday } from "../services/accounts";
 import { handleAccountsButton, handleAddAccountButton } from "./accounts";
 
+type DayState = "done" | "pending" | "missing" | "vacation";
+interface AccountRow {
+  label: string;
+  state: DayState;
+}
+
+const STATUS_META: Record<
+  DayState,
+  { label: string; color: number; dot: string; sub: string }
+> = {
+  done: {
+    label: "Complete",
+    color: 0x57f287,
+    dot: "🟢",
+    sub: "You're done for today.",
+  },
+  pending: {
+    label: "In Review",
+    color: 0xfaa61a,
+    dot: "🟡",
+    sub: "Waiting on staff approval.",
+  },
+  missing: {
+    label: "Not Submitted",
+    color: 0xed4245,
+    dot: "🔴",
+    sub: "Submit before today's reset.",
+  },
+  vacation: {
+    label: "On Vacation",
+    color: 0x22d3ee,
+    dot: "🔵",
+    sub: "Marked as away today.",
+  },
+};
+const ACCOUNT_DOT: Record<DayState, string> = {
+  done: "🟢",
+  pending: "🟡",
+  missing: "🔴",
+  vacation: "🔵",
+};
+
+/** Compact unicode progress bar, value 0..1. */
+function progressBar(value: number, size = 14): string {
+  const v = Math.max(0, Math.min(1, value));
+  const filled = Math.round(v * size);
+  return "▰".repeat(filled) + "▱".repeat(size - filled);
+}
+
 /**
- * Build the full /xp member hub message (canvas image + buttons) for a user.
+ * Build the full /xp member hub message (embed + buttons) for a user.
+ *
+ * Rendered as a rich embed rather than a canvas image: no file upload, no
+ * off-thread render, and the avatar is a thumbnail URL Discord fetches itself —
+ * so the hub appears near-instantly instead of after a multi-second PNG upload.
+ *
  * Ephemeral by default so the hub feels personal and doesn't clutter channels.
+ * Pass `staff: true` to append the admin-action rows (the "admin profile").
  */
-export async function buildMemberHub(clan: Clan, user: User, displayName?: string): Promise<BaseMessageOptions> {
+export async function buildMemberHub(
+  clan: Clan,
+  user: User,
+  displayName?: string,
+  opts: { staff?: boolean } = {},
+): Promise<BaseMessageOptions> {
   const identity = identityFromUser(user, displayName);
 
-  // Run all independent DB fetches in parallel. Avatar download is handled
-  // by the render worker thread — no need to fetch it here.
+  // Run all independent DB fetches in parallel.
   const [member, rawStatus, altStates] = await Promise.all([
     ensureMember(clan.guildId, identity),
     todayStatus(clan, user.id),
@@ -40,37 +102,73 @@ export async function buildMemberHub(clan: Clan, user: User, displayName?: strin
 
   // onVacationToday is only needed when status is "missing"; check it after.
   let status: DayState = rawStatus;
-  if (status === "missing" && (await onVacationToday(clan, user.id))) status = "vacation";
+  if (status === "missing" && (await onVacationToday(clan, user.id)))
+    status = "vacation";
 
   const reviewed = member.approvedCount + member.rejectedCount;
   const approvalRate = reviewed > 0 ? member.approvedCount / reviewed : 0;
 
   let accounts: AccountRow[] | undefined;
   if (clan.altAccountsEnabled && altStates.length > 1) {
-    accounts = altStates.map((s) => ({ label: s.account.label, state: s.state }));
+    accounts = altStates.map((s) => ({
+      label: s.account.label,
+      state: s.state as DayState,
+    }));
   }
 
-  const png = await renderOffThread("memberHub", {
-    communityName: clan.clanName,
-    activityName: clan.activityName || "XP",
-    gameName: clan.gameName || "Roblox",
-    displayName: identity.displayName,
-    avatarUrl: identity.avatarUrl,
-    dailyGoal: clan.dailyGoal,
-    status,
-    currentStreak: member.currentStreak,
-    longestStreak: member.longestStreak,
-    warnings: member.warningsCount,
-    approvalRate,
-    totalApproved: member.approvedCount,
-    lastActivity: member.lastApprovedAt ? relative(member.lastApprovedAt) : "never",
-    vacations: member.vacationCount,
-    accounts,
-  });
+  const activity = clan.activityName || "XP";
+  const meta = STATUS_META[status];
+  const goalPct = status === "done" ? 1 : status === "pending" ? 0.6 : 0.05;
+  const goalLine =
+    clan.dailyGoal > 0
+      ? `**Daily ${activity} goal:** ${clan.dailyGoal.toLocaleString()}`
+      : `**Daily goal:** submit once a day`;
+
+  const embed = new EmbedBuilder()
+    .setColor(meta.color)
+    .setAuthor({ name: `${clan.clanName} • ${activity} Tracker` })
+    .setTitle(`${meta.dot} ${identity.displayName} — ${meta.label}`)
+    .setDescription(`${meta.sub}\n${goalLine}\n${progressBar(goalPct)}`)
+    .addFields(
+      {
+        name: "🔥 Current Streak",
+        value: `${member.currentStreak}`,
+        inline: true,
+      },
+      {
+        name: "🏆 Longest Streak",
+        value: `${member.longestStreak}`,
+        inline: true,
+      },
+      {
+        name: "✅ Approval",
+        value: `${Math.round(approvalRate * 100)}%`,
+        inline: true,
+      },
+      { name: "📈 Approved", value: `${member.approvedCount}`, inline: true },
+      { name: "⚠️ Warnings", value: `${member.warningsCount}`, inline: true },
+      { name: "🏝️ Vacations", value: `${member.vacationCount}`, inline: true },
+    )
+    .setFooter({
+      text: `Last activity: ${member.lastApprovedAt ? relative(member.lastApprovedAt) : "never"}`,
+    });
+
+  if (identity.avatarUrl) embed.setThumbnail(identity.avatarUrl);
+
+  if (accounts && accounts.length) {
+    embed.addFields({
+      name: "Accounts today",
+      value: accounts
+        .slice(0, 12)
+        .map((a) => `${ACCOUNT_DOT[a.state]} ${a.label}`)
+        .join("\n")
+        .slice(0, 1024),
+    });
+  }
 
   return {
-    files: [new AttachmentBuilder(png, { name: "hub.png" })],
-    components: memberHubComponents(clan),
+    embeds: [embed],
+    components: memberHubComponents(clan, opts.staff ?? false),
   };
 }
 
@@ -89,16 +187,22 @@ export async function refreshedMember(clan: Clan, userId: string) {
 
 async function historyEmbed(clan: Clan, user: User): Promise<EmbedBuilder> {
   const recent = await recentForUser(clan.guildId, user.id, 6);
-  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<string, string>;
+  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<
+    string,
+    string
+  >;
   const body = recent.length
     ? recent
         .map(
           (s) =>
-            `${glyph[s.status] ?? "•"} **${s.activityDate}** — ${s.status} · ${formatInZone(s.submittedAt, clan)}`
+            `${glyph[s.status] ?? "•"} **${s.activityDate}** — ${s.status} · ${formatInZone(s.submittedAt, clan)}`,
         )
         .join("\n")
     : "_No submissions yet. Post a screenshot in the submission channel to get started._";
-  return new EmbedBuilder().setColor(0x5865f2).setTitle("Your recent activity").setDescription(body);
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle("Your recent activity")
+    .setDescription(body);
 }
 
 /** /xp — open the member hub (ephemeral). */
@@ -109,10 +213,18 @@ export async function sendMemberHub(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isStaff(interaction.member, null)));
+    await interaction.editReply(
+      notConfiguredMessage(isStaff(interaction.member, null)),
+    );
     return;
   }
-  const payload = await buildMemberHub(clan, interaction.user, interaction.member.displayName);
+  const staff = isStaff(interaction.member, clan);
+  const payload = await buildMemberHub(
+    clan,
+    interaction.user,
+    interaction.member.displayName,
+    { staff },
+  );
   await interaction.editReply(payload);
 }
 
@@ -151,16 +263,28 @@ export async function handleXpButton(interaction: ButtonInteraction) {
     case "addAccount":
       return handleAddAccountButton(interaction);
     case "refresh": {
-      const payload = await buildMemberHub(clan, interaction.user, interaction.member.displayName);
+      const staff = isStaff(interaction.member, clan);
+      const payload = await buildMemberHub(
+        clan,
+        interaction.user,
+        interaction.member.displayName,
+        { staff },
+      );
       await interaction.editReply(payload);
       return;
     }
     case "progress": {
+      const staff = isStaff(interaction.member, clan);
       const [payload, embed] = await Promise.all([
-        buildMemberHub(clan, interaction.user, interaction.member.displayName),
+        buildMemberHub(clan, interaction.user, interaction.member.displayName, {
+          staff,
+        }),
         historyEmbed(clan, interaction.user),
       ]);
-      await interaction.editReply({ ...payload, embeds: [embed] });
+      await interaction.editReply({
+        ...payload,
+        embeds: [...(payload.embeds ?? []), embed],
+      });
       return;
     }
     case "history": {
@@ -179,7 +303,10 @@ async function handleVacation(interaction: ButtonInteraction, clan: Clan) {
   // Defer first — recordVacation + postVacationCard are async and can exceed
   // Discord's 3-second acknowledgement window on a cold DB connection.
   await interaction.deferReply({ flags: 64 });
-  const identity = identityFromUser(interaction.user, interaction.member.displayName);
+  const identity = identityFromUser(
+    interaction.user,
+    interaction.member.displayName,
+  );
   const { recorded } = await recordVacation(clan, identity);
   if (recorded) {
     await postVacationCard(interaction.client, clan, identity); // visible vacation card

@@ -6,6 +6,7 @@
 export const NS = {
   xp: "xp", // member hub
   admin: "adm", // staff hub
+  xpadmin: "xpadm", // staff actions surfaced on the /xp member hub
   review: "rev", // review queue card
   setup: "setup", // setup wizard
   warn: "warn", // warnings management
@@ -35,9 +36,11 @@ export const XP_REFRESH = id(NS.xp, "refresh");
 export const XP_SUBMIT_MODAL = id(NS.xp, "submitModal");
 export const XP_VACATION = id(NS.xp, "vacation");
 // Reminder DM buttons carry the guild id so they work from a DM (no guild ctx).
-export const remindSubmit = (guildId: string) => id(NS.xp, "remindSubmit", guildId);
+export const remindSubmit = (guildId: string) =>
+  id(NS.xp, "remindSubmit", guildId);
 export const remindDone = (guildId: string) => id(NS.xp, "remindDone", guildId);
-export const submitModalForGuild = (guildId: string) => id(NS.xp, "submitModal", guildId);
+export const submitModalForGuild = (guildId: string) =>
+  id(NS.xp, "submitModal", guildId);
 export const XP_ACCOUNTS = id(NS.xp, "accounts");
 export const XP_ADD_ACCOUNT = id(NS.xp, "addAccount");
 export const XP_ADD_ACCOUNT_MODAL = id(NS.xp, "addAccountModal");
@@ -46,6 +49,16 @@ export const XP_SUBMIT_ACCOUNT = id(NS.xp, "submitAccount");
 
 // Submission modal
 export const MODAL_SUBMIT = id(NS.xp, "submitModal");
+
+// Admin profile — staff actions shown on the /xp member hub.
+export const XPADMIN_WARN = id(NS.xpadmin, "warn");
+export const XPADMIN_REMIND = id(NS.xpadmin, "remind");
+export const XPADMIN_REMIND_ROLE = id(NS.xpadmin, "remindRole");
+export const XPADMIN_WARN_PICK = id(NS.xpadmin, "warnPick");
+export const XPADMIN_REMIND_PICK = id(NS.xpadmin, "remindPick");
+export const XPADMIN_REMIND_ROLE_PICK = id(NS.xpadmin, "remindRolePick");
+export const xpAdminWarnModal = (userId: string) =>
+  id(NS.xpadmin, "warnModal", userId);
 
 // Admin hub
 export const ADMIN_QUEUE = id(NS.admin, "queue");
@@ -61,8 +74,10 @@ export const reviewReject = (subId: number) => id(NS.review, "reject", subId);
 export const reviewRemind = (subId: number) => id(NS.review, "remind", subId);
 export const reviewWarn = (subId: number) => id(NS.review, "warn", subId);
 export const reviewHistory = (subId: number) => id(NS.review, "history", subId);
-export const reviewRejectModal = (subId: number) => id(NS.review, "rejectModal", subId);
-export const reviewWarnModal = (subId: number) => id(NS.review, "warnModal", subId);
+export const reviewRejectModal = (subId: number) =>
+  id(NS.review, "rejectModal", subId);
+export const reviewWarnModal = (subId: number) =>
+  id(NS.review, "warnModal", subId);
 
 // Setup wizard sections
 export const SETUP_IDENTITY = id(NS.setup, "identity");
@@ -97,4 +112,5 @@ export const TRACKER_REFRESH = id(NS.tracker, "refresh");
 export const TRACKER_CHECK = id(NS.tracker, "check");
 
 // Warnings management. Arg carries the target user id.
-export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
+export const warnRemoveSelect = (userId: string) =>
+  id(NS.warn, "remove", userId);
