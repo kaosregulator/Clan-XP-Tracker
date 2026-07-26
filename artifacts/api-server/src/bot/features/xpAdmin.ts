@@ -58,7 +58,9 @@ async function staffGuard(
 export async function handleXpAdminButton(
   interaction: ButtonInteraction,
 ): Promise<void> {
-  const clan = await staffGuard(interaction);
+  // Defer first — staffGuard hits the DB and can exceed the 3-second window.
+  await interaction.deferReply({ flags: 64 });
+  const clan = await staffGuard(interaction, true);
   if (!clan) return;
   const { action } = parseId(interaction.customId);
 
@@ -68,12 +70,11 @@ export async function handleXpAdminButton(
       .setPlaceholder("Select a member to warn…")
       .setMinValues(1)
       .setMaxValues(1);
-    await interaction.reply({
+    await interaction.editReply({
       content: "⚠️ **Warn a member** — pick who to warn, then enter a reason.",
       components: [
         new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(menu),
       ],
-      flags: 64,
     });
     return;
   }
@@ -84,13 +85,12 @@ export async function handleXpAdminButton(
       .setPlaceholder("Select member(s) to remind…")
       .setMinValues(1)
       .setMaxValues(10);
-    await interaction.reply({
+    await interaction.editReply({
       content:
         "🔔 **Remind members** — pick up to 10 members to DM a friendly reminder.",
       components: [
         new ActionRowBuilder<UserSelectMenuBuilder>().addComponents(menu),
       ],
-      flags: 64,
     });
     return;
   }
@@ -101,13 +101,12 @@ export async function handleXpAdminButton(
       .setPlaceholder("Select a role to remind…")
       .setMinValues(1)
       .setMaxValues(1);
-    await interaction.reply({
+    await interaction.editReply({
       content:
         "👥 **Remind a role** — everyone in the role who hasn't submitted today (and hasn't been reminded yet) gets a DM.",
       components: [
         new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(menu),
       ],
-      flags: 64,
     });
     return;
   }
