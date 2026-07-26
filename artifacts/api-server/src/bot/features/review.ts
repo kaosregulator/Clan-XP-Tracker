@@ -19,6 +19,8 @@ import {
   recentForUser,
 } from "../services/submissions";
 import { recomputeMemberStats } from "../services/members";
+import { scheduleTrackerRefresh } from "./tracker";
+import { scheduleDashboardRefresh } from "./dashboard";
 import { sendReminder } from "../services/reminders";
 import { issueWarning, listActive } from "../services/warnings";
 import { logAction, sendLog } from "../services/logging";
@@ -26,32 +28,55 @@ import { formatInZone } from "../services/time";
 import { reviewCardComponents } from "../ui/components";
 import { reviewRejectModal, reviewWarnModal, parseId } from "../ui/ids";
 
-const STATUS_COLOR = { pending: 0xfaa61a, approved: 0x3ba55d, rejected: 0xed4245 } as const;
-const STATUS_LABEL = { pending: "⏳ Pending", approved: "✅ Approved", rejected: "⛔ Rejected" } as const;
+const STATUS_COLOR = {
+  pending: 0xfaa61a,
+  approved: 0x3ba55d,
+  rejected: 0xed4245,
+} as const;
+const STATUS_LABEL = {
+  pending: "⏳ Pending",
+  approved: "✅ Approved",
+  rejected: "⛔ Rejected",
+} as const;
 
 /** Build the moderation card embed for a submission. */
 export function buildReviewEmbed(clan: Clan, sub: XpSubmission): EmbedBuilder {
   const status = sub.status as keyof typeof STATUS_COLOR;
   const embed = new EmbedBuilder()
     .setColor(STATUS_COLOR[status] ?? STATUS_COLOR.pending)
-    .setAuthor({ name: `${sub.username} • ${clan.activityName || "XP"} submission`, iconURL: sub.avatarUrl ?? undefined })
+    .setAuthor({
+      name: `${sub.username} • ${clan.activityName || "XP"} submission`,
+      iconURL: sub.avatarUrl ?? undefined,
+    })
     .setTitle(STATUS_LABEL[status] ?? STATUS_LABEL.pending)
     .addFields(
       { name: "Member", value: `<@${sub.userId}>`, inline: true },
       { name: "Account", value: sub.accountLabel || "Main", inline: true },
-      { name: "For", value: sub.activityDate, inline: true }
+      { name: "For", value: sub.activityDate, inline: true },
     )
-    .setFooter({ text: `Submission #${sub.id} • ${formatInZone(sub.submittedAt, clan)}` });
+    .setFooter({
+      text: `Submission #${sub.id} • ${formatInZone(sub.submittedAt, clan)}`,
+    });
 
-  if (sub.notes) embed.addFields({ name: "Note", value: sub.notes.slice(0, 1024) });
+  if (sub.notes)
+    embed.addFields({ name: "Note", value: sub.notes.slice(0, 1024) });
   if (sub.extracted) {
-    const { provider, confidence, ...fields } = sub.extracted as Record<string, unknown>;
+    const { provider, confidence, ...fields } = sub.extracted as Record<
+      string,
+      unknown
+    >;
     const detected = Object.entries(fields)
       .map(([k, v]) => `${k}: **${String(v)}**`)
       .join(" · ");
     if (detected) {
-      const conf = typeof confidence === "number" ? ` (${Math.round(confidence * 100)}%)` : "";
-      embed.addFields({ name: `Detected${conf}`, value: detected.slice(0, 1024) });
+      const conf =
+        typeof confidence === "number"
+          ? ` (${Math.round(confidence * 100)}%)`
+          : "";
+      embed.addFields({
+        name: `Detected${conf}`,
+        value: detected.slice(0, 1024),
+      });
     }
   }
   if (sub.proofImageUrls[0]) embed.setImage(sub.proofImageUrls[0]);
@@ -65,10 +90,17 @@ export function buildReviewEmbed(clan: Clan, sub: XpSubmission): EmbedBuilder {
 }
 
 /** Post a fresh review card into the review channel and remember its message id. */
-export async function postReviewCard(client: Client, clan: Clan, sub: XpSubmission): Promise<void> {
+export async function postReviewCard(
+  client: Client,
+  clan: Clan,
+  sub: XpSubmission,
+): Promise<void> {
   const channelId = clan.reviewChannelId;
   if (!channelId) {
-    logger.warn({ guild: clan.guildId }, "No review channel configured; skipping review card");
+    logger.warn(
+      { guild: clan.guildId },
+      "No review channel configured; skipping review card",
+    );
     return;
   }
   try {
@@ -93,31 +125,43 @@ export async function postReviewCard(client: Client, clan: Clan, sub: XpSubmissi
  */
 async function loadForReview(
   interaction: ButtonInteraction | ModalSubmitInteraction,
-  deferred = false
+  deferred = false,
 ): Promise<{ clan: Clan; sub: XpSubmission } | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
   if (!clan) return null;
   if (!isStaff(interaction.member, clan)) {
-    const msg = { content: "You don't have permission to review submissions.", flags: 64 };
-    if (deferred) await interaction.editReply(msg); else await interaction.reply(msg);
+    const msg = {
+      content: "You don't have permission to review submissions.",
+      flags: 64,
+    };
+    if (deferred) await interaction.editReply(msg);
+    else await interaction.reply(msg);
     return null;
   }
   const { arg } = parseId(interaction.customId);
   const sub = arg ? await getSubmission(Number(arg)) : null;
   if (!sub) {
     const msg = { content: "That submission no longer exists." };
-    if (deferred) await interaction.editReply(msg); else await interaction.reply({ ...msg, flags: 64 });
+    if (deferred) await interaction.editReply(msg);
+    else await interaction.reply({ ...msg, flags: 64 });
     return null;
   }
   return { clan, sub };
 }
 
-async function refreshCard(interaction: ButtonInteraction | ModalSubmitInteraction, clan: Clan, subId: number) {
+async function refreshCard(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  clan: Clan,
+  subId: number,
+) {
   const fresh = await getSubmission(subId);
   if (!fresh || !interaction.message) return;
   await interaction.message
-    .edit({ embeds: [buildReviewEmbed(clan, fresh)], components: reviewCardComponents(fresh) })
+    .edit({
+      embeds: [buildReviewEmbed(clan, fresh)],
+      components: reviewCardComponents(fresh),
+    })
     .catch(() => {});
 }
 
@@ -140,6 +184,8 @@ export async function handleApprove(interaction: ButtonInteraction) {
   });
   await recomputeMemberStats(clan, sub.userId);
   await refreshCard(interaction, clan, sub.id);
+  scheduleTrackerRefresh(interaction.client, clan);
+  scheduleDashboardRefresh(interaction.client, clan);
 
   await logAction(clan.guildId, {
     action: "submission_approved",
@@ -149,12 +195,20 @@ export async function handleApprove(interaction: ButtonInteraction) {
     moderatorUsername: interaction.user.username,
     details: { submissionId: sub.id },
   });
-  await sendLog(interaction.client, clan, buildReviewEmbed(clan, (await getSubmission(sub.id))!));
+  await sendLog(
+    interaction.client,
+    clan,
+    buildReviewEmbed(clan, (await getSubmission(sub.id))!),
+  );
 
   if (clan.dmOnApprove) {
-    const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
+    const user = await interaction.client.users
+      .fetch(sub.userId)
+      .catch(() => null);
     await user
-      ?.send(`✅ Your ${clan.activityName || "XP"} submission in **${clan.clanName}** was approved. Nice work!`)
+      ?.send(
+        `✅ Your ${clan.activityName || "XP"} submission in **${clan.clanName}** was approved. Nice work!`,
+      )
       .catch(() => {});
   }
 }
@@ -165,7 +219,9 @@ export async function handleRejectButton(interaction: ButtonInteraction) {
   const ctx = await loadForReview(interaction, false);
   if (!ctx) return;
   const { sub } = ctx;
-  const modal = new ModalBuilder().setCustomId(reviewRejectModal(sub.id)).setTitle("Reject submission");
+  const modal = new ModalBuilder()
+    .setCustomId(reviewRejectModal(sub.id))
+    .setTitle("Reject submission");
   modal.addComponents(
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
       new TextInputBuilder()
@@ -173,8 +229,8 @@ export async function handleRejectButton(interaction: ButtonInteraction) {
         .setLabel("Reason (shared with the member)")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false)
-        .setPlaceholder("e.g. Screenshot unclear — please resubmit.")
-    )
+        .setPlaceholder("e.g. Screenshot unclear — please resubmit."),
+    ),
   );
   await interaction.showModal(modal);
 }
@@ -198,6 +254,8 @@ export async function handleRejectModal(interaction: ModalSubmitInteraction) {
   });
   await recomputeMemberStats(clan, sub.userId);
   await refreshCard(interaction, clan, sub.id);
+  scheduleTrackerRefresh(interaction.client, clan);
+  scheduleDashboardRefresh(interaction.client, clan);
 
   await logAction(clan.guildId, {
     action: "submission_rejected",
@@ -208,12 +266,14 @@ export async function handleRejectModal(interaction: ModalSubmitInteraction) {
     details: { submissionId: sub.id, reason },
   });
 
-  const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
+  const user = await interaction.client.users
+    .fetch(sub.userId)
+    .catch(() => null);
   await user
     ?.send(
       `⛔ Your ${clan.activityName || "XP"} submission in **${clan.clanName}** was rejected.` +
         (reason ? `\n> ${reason}` : "") +
-        `\nYou can submit again with a clearer screenshot.`
+        `\nYou can submit again with a clearer screenshot.`,
     )
     .catch(() => {});
 }
@@ -224,7 +284,9 @@ export async function handleRemind(interaction: ButtonInteraction) {
   const ctx = await loadForReview(interaction, true);
   if (!ctx) return;
   const { clan, sub } = ctx;
-  const user = await interaction.client.users.fetch(sub.userId).catch(() => null);
+  const user = await interaction.client.users
+    .fetch(sub.userId)
+    .catch(() => null);
   if (!user) {
     await interaction.editReply({ content: "Could not find that user." });
     return;
@@ -248,7 +310,9 @@ export async function handleWarnButton(interaction: ButtonInteraction) {
   const ctx = await loadForReview(interaction, false);
   if (!ctx) return;
   const { sub } = ctx;
-  const modal = new ModalBuilder().setCustomId(reviewWarnModal(sub.id)).setTitle("Warn member");
+  const modal = new ModalBuilder()
+    .setCustomId(reviewWarnModal(sub.id))
+    .setTitle("Warn member");
   modal.addComponents(
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
       new TextInputBuilder()
@@ -256,8 +320,8 @@ export async function handleWarnButton(interaction: ButtonInteraction) {
         .setLabel("Warning reason")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
-        .setPlaceholder("Why is this member being warned?")
-    )
+        .setPlaceholder("Why is this member being warned?"),
+    ),
   );
   await interaction.showModal(modal);
 }
@@ -271,7 +335,9 @@ export async function handleWarnModal(interaction: ModalSubmitInteraction) {
   const { clan, sub } = ctx;
   const reason = interaction.fields.getTextInputValue("reason");
 
-  const target = await interaction.client.users.fetch(sub.userId).catch(() => null);
+  const target = await interaction.client.users
+    .fetch(sub.userId)
+    .catch(() => null);
   if (!target) {
     await interaction.editReply({ content: "Could not find that user." });
     return;
@@ -285,7 +351,9 @@ export async function handleWarnModal(interaction: ModalSubmitInteraction) {
     moderatorUsername: interaction.user.username,
     reason,
   });
-  await interaction.editReply(`⚠️ Warned <@${sub.userId}> (now ${activeCount} active warning(s)).`);
+  await interaction.editReply(
+    `⚠️ Warned <@${sub.userId}> (now ${activeCount} active warning(s)).`,
+  );
 }
 
 export async function handleHistory(interaction: ButtonInteraction) {
@@ -300,19 +368,36 @@ export async function handleHistory(interaction: ButtonInteraction) {
     listActive(clan.guildId, sub.userId),
   ]);
 
-  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<string, string>;
+  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<
+    string,
+    string
+  >;
   const lines = subs.length
     ? subs
-        .map((s) => `${glyph[s.status] ?? "•"} ${s.activityDate} — ${s.status}${s.accountLabel ? ` (${s.accountLabel})` : ""}`)
+        .map(
+          (s) =>
+            `${glyph[s.status] ?? "•"} ${s.activityDate} — ${s.status}${s.accountLabel ? ` (${s.accountLabel})` : ""}`,
+        )
         .join("\n")
     : "No submissions yet.";
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setAuthor({ name: `${sub.username} — history`, iconURL: sub.avatarUrl ?? undefined })
+    .setAuthor({
+      name: `${sub.username} — history`,
+      iconURL: sub.avatarUrl ?? undefined,
+    })
     .addFields(
       { name: "Recent submissions", value: lines },
-      { name: "Active warnings", value: warns.length ? warns.map((w) => `• ${w.reason}`).join("\n").slice(0, 1024) : "None" }
+      {
+        name: "Active warnings",
+        value: warns.length
+          ? warns
+              .map((w) => `• ${w.reason}`)
+              .join("\n")
+              .slice(0, 1024)
+          : "None",
+      },
     );
   await interaction.editReply({ embeds: [embed] });
 }

@@ -20,6 +20,7 @@ import { memberHubComponents } from "../ui/components";
 import { parseId } from "../ui/ids";
 import { handleSubmitButton } from "./submit";
 import { scheduleTrackerRefresh } from "./tracker";
+import { scheduleDashboardRefresh } from "./dashboard";
 import { postVacationCard } from "./xpcard";
 import { accountStatesToday } from "../services/accounts";
 import { handleAccountsButton, handleAddAccountButton } from "./accounts";
@@ -311,6 +312,7 @@ async function handleVacation(interaction: ButtonInteraction, clan: Clan) {
   if (recorded) {
     await postVacationCard(interaction.client, clan, identity); // visible vacation card
     scheduleTrackerRefresh(interaction.client, clan);
+    scheduleDashboardRefresh(interaction.client, clan);
   }
   await interaction.editReply({
     content: recorded

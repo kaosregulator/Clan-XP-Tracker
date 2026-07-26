@@ -25,6 +25,9 @@ export const clansTable = pgTable("clans", {
   // Identity
   clanName: text("clan_name").notNull(),
   clanLogoUrl: text("clan_logo_url"),
+  // Optional in-game clan rank (e.g. "#3" or "Diamond"). Shown on the clan and
+  // admin dashboards only when set ("rank if enabled").
+  clanRank: text("clan_rank"),
 
   // Game / activity configuration (Roblox-first defaults, fully configurable)
   activityName: text("activity_name").notNull().default("XP"),
