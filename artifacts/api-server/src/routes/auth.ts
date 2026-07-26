@@ -127,7 +127,19 @@ router.get("/auth/callback", async (req, res) => {
     req.session.userId = discordUser.id;
     delete req.session.oauthState;
 
-    res.redirect("/auth/callback");
+    // Persist the authenticated session BEFORE redirecting. Same race as the
+    // /auth/discord handler: without an explicit save, express-session writes
+    // the row asynchronously and the browser's follow-up /api/auth/me can beat
+    // it — returning 401, so the guilds page bounces the user back to login and
+    // they "never reach the dashboard".
+    req.session.save((err) => {
+      if (err) {
+        logger.error({ err }, "Failed to save authenticated session");
+        res.redirect("/?error=session_error");
+        return;
+      }
+      res.redirect("/auth/callback");
+    });
   } catch (err) {
     logger.error({ err }, "OAuth callback error");
     res.redirect("/?error=server_error");
