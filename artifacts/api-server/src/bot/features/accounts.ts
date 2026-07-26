@@ -63,8 +63,9 @@ async function accountsPayload(clan: Clan, userId: string): Promise<BaseMessageO
 }
 
 export async function handleAccountsButton(interaction: ButtonInteraction, clan: Clan) {
+  await interaction.deferReply({ flags: 64 });
   await ensureAccounts(clan.guildId, interaction.user.id);
-  await interaction.reply({ ...(await accountsPayload(clan, interaction.user.id)), flags: 64 });
+  await interaction.editReply(await accountsPayload(clan, interaction.user.id));
 }
 
 export async function handleAddAccountButton(interaction: ButtonInteraction) {
@@ -85,15 +86,16 @@ export async function handleAddAccountButton(interaction: ButtonInteraction) {
 
 export async function handleAddAccountModal(interaction: ModalSubmitInteraction) {
   if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
-  if (!clan) return;
+  if (!clan) { await interaction.editReply({ content: "⚠️ Clan not configured." }); return; }
   const label = interaction.fields.getTextInputValue("label");
   const result = await addAccount(clan, interaction.user.id, label);
   if (!result.ok) {
-    await interaction.reply({ content: `⚠️ ${result.reason}`, flags: 64 });
+    await interaction.editReply({ content: `⚠️ ${result.reason}` });
     return;
   }
-  await interaction.reply({ ...(await accountsPayload(clan, interaction.user.id)), flags: 64 });
+  await interaction.editReply(await accountsPayload(clan, interaction.user.id));
 }
 
 export async function handleRemoveAccountSelect(interaction: StringSelectMenuInteraction) {
