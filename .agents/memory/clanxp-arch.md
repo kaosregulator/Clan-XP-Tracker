@@ -15,3 +15,17 @@ description: Key non-obvious constraints for the discord bot, API server, and Re
 - `CurrentUser` has no `displayName` — use `username`
 
 **Why:** These were all discovered by running typecheck against the generated Orval types.
+
+## XP management model (post-refactor)
+
+- The bot is officer-managed: **members never submit XP**. All progress writes
+  go through `bot/services/progress.ts` — never write `clan_members.weekly*`
+  columns directly, or goal/status/eligibility rules drift.
+- A member row whose `week_key` is stale reads as **zero progress this week**.
+  This is deliberate: a missed weekly reset cannot carry numbers forward.
+- The bot no longer uses the `MessageContent`/`GuildMessages` intents.
+- `xp_submissions`, `tracked_accounts` and `vacations` are legacy tables kept
+  only so the web dashboard keeps compiling — the bot never writes them.
+- `isStaff` is an alias of `isOfficer`; use `isAdmin` for config changes.
+- Canvas fonts have **no emoji coverage** — emoji in canvas text render as
+  tofu boxes. Emoji are fine in embeds/messages, never in a card.

@@ -2,199 +2,115 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
-import type { Clan, XpSubmission } from "@workspace/db";
 import {
-  XP_SUBMIT,
-  XP_PROGRESS,
-  XP_HISTORY,
-  XP_ACCOUNTS,
-  XP_VACATION,
-  ADMIN_QUEUE,
-  ADMIN_MISSING,
-  ADMIN_LEADERBOARD,
-  ADMIN_REFRESH,
-  ADMIN_DASHBOARDS,
-  ADMIN_EXPORT,
-  XPADMIN_WARN,
-  XPADMIN_REMIND,
-  XPADMIN_REMIND_ROLE,
-  reviewApprove,
-  reviewReject,
-  reviewRemind,
-  reviewWarn,
-  reviewHistory,
+  REVIEW_REMIND,
+  REVIEW_WARN,
+  REVIEW_EXPORT,
+  REVIEW_REFRESH,
+  REVIEW_RESET_WEEK,
+  DASH_REFRESH,
+  DASH_FILTER,
+  dashPage,
 } from "./ids";
 
-type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
+export type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
 
-function row(...buttons: ButtonBuilder[]): Row {
+export function row(...components: MessageActionRowComponentBuilder[]): Row {
   return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    ...buttons,
+    ...components,
   );
 }
 
-const DEFAULT_GAME_URL = "https://www.roblox.com";
-
 /**
- * Buttons for the /xp member hub.
- *
- * When `staff` is true (the invoker is clan staff), two extra rows of admin
- * actions are appended — the "admin profile" surfaced right on the hub so
- * officers can warn/remind and jump into staff views without a second command.
+ * Action rows under the weekly review card — the officer's one-stop panel:
+ * remind everyone behind, escalate to warnings, export, refresh, reset.
  */
-export function memberHubComponents(clan: Clan, staff = false): Row[] {
-  const launch = new ButtonBuilder()
-    .setStyle(ButtonStyle.Link)
-    .setLabel(`Open ${clan.gameName || "Game"}`)
-    .setURL(clan.gameUrl || DEFAULT_GAME_URL);
-
-  // Row 1: the actions. Row 2: navigation.
-  const primary = [
-    launch,
-    new ButtonBuilder()
-      .setCustomId(XP_SUBMIT)
-      .setStyle(ButtonStyle.Success)
-      .setLabel(`Submit ${clan.activityName || "XP"}`),
-    new ButtonBuilder()
-      .setCustomId(XP_VACATION)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("Vacation"),
-  ];
-  const secondary = [
-    new ButtonBuilder()
-      .setCustomId(XP_PROGRESS)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("My Progress"),
-    new ButtonBuilder()
-      .setCustomId(XP_HISTORY)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("History"),
-  ];
-  if (clan.altAccountsEnabled) {
-    secondary.push(
-      new ButtonBuilder()
-        .setCustomId(XP_ACCOUNTS)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("My Accounts"),
-    );
-  }
-
-  const rows = [row(...primary), row(...secondary)];
-  if (staff) rows.push(...staffHubRows());
-  return rows;
-}
-
-/** The staff-only action rows appended to the member hub for admins. */
-function staffHubRows(): Row[] {
+export function reviewComponents(opts: {
+  remindable: number;
+  warnable: number;
+}): Row[] {
   return [
     row(
       new ButtonBuilder()
-        .setCustomId(XPADMIN_WARN)
+        .setCustomId(REVIEW_REMIND)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel(`Send Reminders (${opts.remindable})`)
+        .setDisabled(opts.remindable === 0),
+      new ButtonBuilder()
+        .setCustomId(REVIEW_WARN)
         .setStyle(ButtonStyle.Danger)
-        .setLabel("Warn Member"),
+        .setLabel(`Issue Warnings (${opts.warnable})`)
+        .setDisabled(opts.warnable === 0),
       new ButtonBuilder()
-        .setCustomId(XPADMIN_REMIND)
+        .setCustomId(REVIEW_EXPORT)
         .setStyle(ButtonStyle.Secondary)
-        .setLabel("Remind Member"),
+        .setLabel("Export Report"),
       new ButtonBuilder()
-        .setCustomId(XPADMIN_REMIND_ROLE)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Remind Role"),
-    ),
-    row(
-      new ButtonBuilder()
-        .setCustomId(ADMIN_QUEUE)
-        .setStyle(ButtonStyle.Primary)
-        .setLabel("Review Queue"),
-      new ButtonBuilder()
-        .setCustomId(ADMIN_MISSING)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Missing Today"),
-      new ButtonBuilder()
-        .setCustomId(ADMIN_LEADERBOARD)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Leaderboard"),
-    ),
-  ];
-}
-
-/** Buttons for the /xpadmin staff hub. */
-export function adminHubComponents(): Row[] {
-  return [
-    row(
-      new ButtonBuilder()
-        .setCustomId(ADMIN_QUEUE)
-        .setStyle(ButtonStyle.Primary)
-        .setLabel("Review Queue"),
-      new ButtonBuilder()
-        .setCustomId(ADMIN_MISSING)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Missing Today"),
-      new ButtonBuilder()
-        .setCustomId(ADMIN_LEADERBOARD)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Leaderboard"),
-      new ButtonBuilder()
-        .setCustomId(ADMIN_DASHBOARDS)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Post Dashboards"),
-      new ButtonBuilder()
-        .setCustomId(ADMIN_REFRESH)
+        .setCustomId(REVIEW_REFRESH)
         .setStyle(ButtonStyle.Secondary)
         .setLabel("Refresh"),
     ),
     row(
       new ButtonBuilder()
-        .setCustomId(ADMIN_EXPORT)
+        .setCustomId(REVIEW_RESET_WEEK)
         .setStyle(ButtonStyle.Secondary)
-        .setLabel("Export Data (backup)"),
+        .setLabel("Reset Week (archive)"),
     ),
   ];
 }
 
-/** Buttons for a review-queue moderation card. */
-export function reviewCardComponents(submission: XpSubmission): Row[] {
-  const decided = submission.status !== "pending";
-  const primary = row(
-    new ButtonBuilder()
-      .setCustomId(reviewApprove(submission.id))
-      .setStyle(ButtonStyle.Success)
-      .setLabel("Approve")
-      .setDisabled(decided),
-    new ButtonBuilder()
-      .setCustomId(reviewReject(submission.id))
-      .setStyle(ButtonStyle.Danger)
-      .setLabel("Reject")
-      .setDisabled(decided),
-    new ButtonBuilder()
-      .setCustomId(reviewRemind(submission.id))
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("Remind"),
-    new ButtonBuilder()
-      .setCustomId(reviewWarn(submission.id))
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("Warn"),
-  );
+export const DASH_FILTERS = [
+  { value: "attention", label: "Needs attention", emoji: "🔴" },
+  { value: "reminded", label: "Reminded this week", emoji: "🔔" },
+  { value: "warned", label: "Warned this week", emoji: "⚠️" },
+  { value: "exempt", label: "Exempt", emoji: "🛡️" },
+  { value: "leave", label: "On leave", emoji: "🌙" },
+] as const;
 
-  const secondary = row(
-    new ButtonBuilder()
-      .setCustomId(reviewHistory(submission.id))
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel("User History"),
-  );
+export type DashFilter = (typeof DASH_FILTERS)[number]["value"];
 
-  // Link straight to the screenshot when we have one ("View Screenshot").
-  const proof = submission.proofImageUrls[0];
-  if (proof) {
-    secondary.addComponents(
+/** Filter + pagination rows for the warning dashboard. */
+export function dashboardComponents(opts: {
+  filter: DashFilter;
+  page: number;
+  pageCount: number;
+}): Row[] {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(DASH_FILTER)
+    .setPlaceholder("Filter members…")
+    .addOptions(
+      DASH_FILTERS.map((f) => ({
+        value: f.value,
+        label: f.label,
+        emoji: f.emoji,
+        default: f.value === opts.filter,
+      })),
+    );
+  const rows: Row[] = [row(select)];
+  const nav: ButtonBuilder[] = [];
+  if (opts.pageCount > 1) {
+    nav.push(
       new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel("View Screenshot")
-        .setURL(proof),
+        .setCustomId(dashPage(opts.filter, opts.page - 1))
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("◀ Prev")
+        .setDisabled(opts.page <= 0),
+      new ButtonBuilder()
+        .setCustomId(dashPage(opts.filter, opts.page + 1))
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("Next ▶")
+        .setDisabled(opts.page >= opts.pageCount - 1),
     );
   }
-
-  return [primary, secondary];
+  nav.push(
+    new ButtonBuilder()
+      .setCustomId(DASH_REFRESH)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel("Refresh"),
+  );
+  rows.push(row(...nav));
+  return rows;
 }

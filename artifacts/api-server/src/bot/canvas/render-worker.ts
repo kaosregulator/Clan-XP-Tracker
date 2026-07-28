@@ -13,15 +13,8 @@
  *                  { id: number; error: string }       (failure)
  */
 import { parentPort } from "node:worker_threads";
-import { renderAdminHub } from "./cards/adminHub";
-import { renderClanDashboard } from "./cards/clanDashboard";
 import { renderHelpCard } from "./cards/helpCard";
-import { renderLeaderboardCard } from "./cards/leaderboardCard";
-import { renderMemberHub } from "./cards/memberHub";
-import { renderPatriotDashboard } from "./cards/patriotDashboard";
-import { renderReportCard } from "./cards/reportCard";
-import { renderTrackerCard } from "./cards/trackerCard";
-import { fetchAvatar } from "./theme";
+import { renderWeeklyReview } from "./cards/weeklyReviewCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -48,26 +41,10 @@ parentPort.on("message", (msg: { id: number; fn: string; params: Record<string, 
 async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer> {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   switch (fn) {
-    case "memberHub": {
-      // avatarUrl is a plain string — the worker fetches the image itself so
-      // no non-serializable Image object crosses the thread boundary.
-      const avatar = await fetchAvatar((p.avatarUrl as string | null) ?? null);
-      return renderMemberHub({ ...(p as any), avatar });
-    }
-    case "adminHub":
-      return renderAdminHub(p as any);
-    case "clanDashboard":
-      return renderClanDashboard(p as any);
+    case "weeklyReview":
+      return renderWeeklyReview(p as any);
     case "helpCard":
       return renderHelpCard(p as any);
-    case "leaderboardCard":
-      return renderLeaderboardCard(p as any);
-    case "patriotDashboard":
-      return renderPatriotDashboard(p as any);
-    case "reportCard":
-      return renderReportCard(p as any);
-    case "trackerCard":
-      return renderTrackerCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

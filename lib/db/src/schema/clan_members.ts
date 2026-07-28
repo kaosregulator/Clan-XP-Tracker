@@ -3,6 +3,7 @@ import {
   text,
   serial,
   integer,
+  boolean,
   timestamp,
   unique,
 } from "drizzle-orm/pg-core";
@@ -52,6 +53,29 @@ export const clanMembersTable = pgTable(
     xpMonthly: integer("xp_monthly").notNull().default(0),
     xpAllTime: integer("xp_all_time").notNull().default(0),
     altXpAllTime: integer("alt_xp_all_time").notNull().default(0),
+
+    /* --------------------------------------------------------------------
+     * Weekly XP management (officer-managed model). weekKey identifies which
+     * tracking week the live fields below belong to — the progress engine
+     * lazily treats a stale weekKey as zero progress for the current week.
+     * ------------------------------------------------------------------ */
+    weekKey: text("week_key"),
+    weeklyProgress: integer("weekly_progress").notNull().default(0),
+    // Per-member goal override (null = use the clan's weeklyGoal).
+    weeklyGoalOverride: integer("weekly_goal_override"),
+    weeklyCompletedAt: timestamp("weekly_completed_at", { withTimezone: true }),
+    // Reminders/warnings issued within the current week (reset weekly).
+    weekReminders: integer("week_reminders").notNull().default(0),
+    weekWarnings: integer("week_warnings").notNull().default(0),
+    // Flags managed by officers. Exempt/leave members are skipped by
+    // reminders, warnings and completion-rate math.
+    exempt: boolean("exempt").notNull().default(false),
+    onLeave: boolean("on_leave").notNull().default(false),
+    notes: text("notes"),
+    // Who last touched this member's progress.
+    lastUpdatedBy: text("last_updated_by"),
+    lastUpdatedByUsername: text("last_updated_by_username"),
+    progressUpdatedAt: timestamp("progress_updated_at", { withTimezone: true }),
 
     joinedAt: timestamp("joined_at", { withTimezone: true })
       .notNull()

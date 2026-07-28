@@ -1,31 +1,29 @@
 import type { Client, TextBasedChannel } from "discord.js";
 import type { Clan } from "@workspace/db";
-import PQueue from "p-queue";
+import dayjs from "dayjs";
 import { logger } from "../lib/logger";
 import { activeClans } from "./services/config";
-import { localHm, minutesUntilReset } from "./services/time";
-import { missingMembers, todaySnapshot } from "./services/stats";
-import { pendingQueue } from "./services/submissions";
-import { sendReminder, reminderSentToday } from "./services/reminders";
-import { refreshDashboards } from "./features/dashboard";
-import { refreshTracker } from "./features/tracker";
+import { localHm, weekKey } from "./services/time";
+import {
+  listTracked,
+  snapshotFrom,
+  reminderTargets,
+  warningTargets,
+  rollWeek,
+} from "./services/progress";
+import { sendBulkReminders } from "./services/reminders";
 
 const TICK_MS = 60_000;
-const MAX_DMS_PER_WINDOW = 40;
-const REVIEW_AGE_MINUTES = 180; // ping staff when the oldest pending is older than this
-const DASHBOARD_EVERY_MS = 5 * 60_000;
 
-// In-memory de-dupe. The scheduler is single-process; on restart we may re-fire
-// a window at most once, which is acceptable for friendly reminders.
+// In-memory de-dupe of fired windows. The scheduler is single-process; on
+// restart a window may re-fire at most once, which the per-member 20-hour
+// reminder guard absorbs.
 const firedWindows = new Set<string>();
-const staffNotified = new Map<string, number>();
-let lastDashboardRun = 0;
 
-function throttle(key: string, everyMs: number): boolean {
-  const now = Date.now();
-  const last = staffNotified.get(key) ?? 0;
-  if (now - last < everyMs) return false;
-  staffNotified.set(key, now);
+function fireOnce(key: string): boolean {
+  if (firedWindows.has(key)) return false;
+  firedWindows.add(key);
+  if (firedWindows.size > 5000) firedWindows.clear();
   return true;
 }
 
@@ -33,75 +31,78 @@ async function sendToChannel(client: Client, channelId: string | null, content: 
   if (!channelId) return;
   try {
     const channel = (await client.channels.fetch(channelId)) as TextBasedChannel | null;
-    if (channel && "send" in channel) await channel.send({ content, allowedMentions: { parse: ["roles"] } });
+    if (channel && "send" in channel) {
+      await channel.send({ content, allowedMentions: { parse: ["roles"] } });
+    }
   } catch (err) {
     logger.warn({ err, channelId }, "Scheduler failed to send channel message");
   }
 }
 
-function staffMention(clan: Clan): string {
-  return clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ");
+function officerMention(clan: Clan): string {
+  return [...clan.staffRoleIds, ...clan.adminRoleIds].map((r) => `<@&${r}>`).join(" ");
 }
 
-/** Fire auto reminder DMs to members still missing at a configured window. */
-async function runReminderWindow(client: Client, clan: Clan, hhmm: string, dateKey: string) {
-  const key = `${clan.guildId}:${dateKey}:${hhmm}`;
-  if (firedWindows.has(key)) return;
-  firedWindows.add(key);
-  if (firedWindows.size > 5000) firedWindows.clear();
+/** Scheduled reminders to everyone still short of the weekly goal. */
+async function runReminderWindow(client: Client, clan: Clan) {
+  const members = await listTracked(clan);
+  const targets = reminderTargets(clan, members);
+  if (!targets.length) return;
 
-  const missing = await missingMembers(clan, MAX_DMS_PER_WINDOW);
-
-  // Rate-limited queue: max 3 DMs in-flight, max 3 per second — stays well
-  // inside Discord's DM rate limits even when many members are missing.
-  const queue = new PQueue({ concurrency: 3, intervalCap: 3, interval: 1000 });
-  let sent = 0;
-  for (const m of missing) {
-    queue.add(async () => {
-      if (await reminderSentToday(clan, m.userId)) return;
-      const user = await client.users.fetch(m.userId).catch(() => null);
-      if (!user) return;
-      await sendReminder({ clan, target: user, auto: true });
-      sent++;
-    });
+  const res = await sendBulkReminders({
+    client,
+    clan,
+    targets,
+    auto: true,
+    skipIfRemindedToday: true,
+  });
+  if (res.sent > 0) {
+    logger.info({ guild: clan.guildId, sent: res.sent }, "Auto weekly reminders sent");
   }
-  await queue.onIdle();
-  if (sent > 0) logger.info({ guild: clan.guildId, hhmm, sent }, "Auto reminders sent");
 }
 
-/** Notify staff when the review queue is aging or many members are missing near reset. */
-async function runStaffMonitoring(client: Client, clan: Clan) {
-  const staffChannel = clan.reviewChannelId ?? clan.staffDashboardChannelId ?? clan.logChannelId;
-  if (!staffChannel) return;
+/**
+ * Close the week: post the final summary to the officers, then archive and
+ * reset. Runs at the week boundary when autoWeeklyReset is on.
+ */
+async function runWeeklyReset(client: Client, clan: Clan) {
+  const members = await listTracked(clan);
+  const snap = snapshotFrom(clan, members);
+  const channel = clan.warningChannelId ?? clan.logChannelId ?? clan.reminderChannelId;
 
-  // Aging review queue
-  const pending = await pendingQueue(clan.guildId, 1);
-  const oldest = pending[0];
-  if (oldest) {
-    const ageMin = (Date.now() - oldest.submittedAt.getTime()) / 60000;
-    if (ageMin >= REVIEW_AGE_MINUTES && throttle(`${clan.guildId}:queue`, 60 * 60_000)) {
-      const snap = await todaySnapshot(clan);
-      await sendToChannel(
-        client,
-        staffChannel,
-        `${staffMention(clan)} ⏳ **${snap.pendingReviews}** submission(s) are waiting for review — the oldest is over ${Math.floor(ageMin / 60)}h old.`
-      );
-    }
+  if (channel) {
+    const pct = Math.round(snap.completionRate * 100);
+    await sendToChannel(
+      client,
+      channel,
+      `${officerMention(clan)} 📅 **Week closed** — ${snap.completed}/${snap.active} members hit the ${clan.activityName} goal (**${pct}%**). ` +
+        `${snap.notStarted} never started · ${snap.warningsThisWeek} warning(s) issued this week.\n` +
+        `Run \`/xp review\` for the full breakdown — progress has been archived and reset.`
+    );
   }
 
-  // Many members still missing close to reset
-  const minsLeft = minutesUntilReset(clan);
-  if (minsLeft > 0 && minsLeft <= 60) {
-    const snap = await todaySnapshot(clan);
-    const threshold = Math.max(3, Math.ceil(snap.totalMembers * 0.25));
-    if (snap.missing >= threshold && throttle(`${clan.guildId}:missing`, 3 * 60 * 60_000)) {
-      await sendToChannel(
-        client,
-        staffChannel,
-        `${staffMention(clan)} ⚠️ **${snap.missing}** member(s) still haven't submitted and reset is in ~${minsLeft}m.`
-      );
-    }
-  }
+  const res = await rollWeek(clan);
+  logger.info({ guild: clan.guildId, archived: res.archived }, "Weekly reset completed");
+}
+
+/** Nudge officers when many members are behind and the week is nearly over. */
+async function runOfficerMonitoring(client: Client, clan: Clan, dateKey: string) {
+  const channel = clan.warningChannelId ?? clan.logChannelId;
+  if (!channel) return;
+
+  const members = await listTracked(clan);
+  const snap = snapshotFrom(clan, members);
+  const warnable = warningTargets(clan, members).length;
+  if (!warnable) return;
+
+  if (!fireOnce(`${clan.guildId}:${dateKey}:escalation`)) return;
+  await sendToChannel(
+    client,
+    channel,
+    `${officerMention(clan)} ⚠️ **${warnable}** member(s) are warning-eligible ` +
+      `(${clan.warningThreshold}+ reminders, still short of the ${clan.activityName} goal). ` +
+      `${snap.completed}/${snap.active} complete. Run \`/xp review\` to issue warnings in bulk.`
+  );
 }
 
 async function tick(client: Client) {
@@ -113,24 +114,37 @@ async function tick(client: Client) {
     return;
   }
 
-  const dueForDashboards = Date.now() - lastDashboardRun >= DASHBOARD_EVERY_MS;
-  if (dueForDashboards) lastDashboardRun = Date.now();
-
   for (const clan of clans) {
     try {
       const hhmm = localHm(clan);
       const dateKey = new Date().toISOString().slice(0, 10);
-      // Only the FIRST configured reminder time fires automatically; any extra
-      // times are for staff to trigger manually via the Remind button. The
-      // master switch (remindersEnabled) can turn auto reminders off entirely.
-      const autoTime = clan.reminderTimes[0];
-      if (clan.remindersEnabled && autoTime && autoTime === hhmm) {
-        await runReminderWindow(client, clan, hhmm, dateKey);
+      const nowDay = dayjs().tz(clan.timezone || "UTC").day();
+
+      // Weekly reset fires first: at reset time on the week-start day, the
+      // previous week is closed before any reminder for the new week goes out.
+      if (
+        clan.autoWeeklyReset &&
+        hhmm === clan.resetTime &&
+        nowDay === clan.weekStartDay &&
+        fireOnce(`${clan.guildId}:${dateKey}:reset`)
+      ) {
+        await runWeeklyReset(client, clan);
+        continue;
       }
-      await runStaffMonitoring(client, clan);
-      if (dueForDashboards) {
-        await refreshDashboards(client, clan).catch(() => {});
-        await refreshTracker(client, clan).catch(() => {});
+
+      const reminderTime = clan.reminderTimes[0];
+      if (
+        clan.remindersEnabled &&
+        reminderTime === hhmm &&
+        clan.reminderDays.includes(nowDay) &&
+        fireOnce(`${clan.guildId}:${dateKey}:${hhmm}:remind`)
+      ) {
+        await runReminderWindow(client, clan);
+      }
+
+      // Once a day, an hour after the reminder window, flag escalations.
+      if (reminderTime && hhmm === bumpHour(reminderTime)) {
+        await runOfficerMonitoring(client, clan, dateKey);
       }
     } catch (err) {
       logger.error({ err, guild: clan.guildId }, "Scheduler tick failed for clan");
@@ -138,10 +152,22 @@ async function tick(client: Client) {
   }
 }
 
-/** Start the periodic scheduler. Safe no-op if called without a client. */
+/** "18:00" -> "19:00" (wraps at midnight). */
+function bumpHour(hhmm: string): string {
+  const [h = "0", m = "00"] = hhmm.split(":");
+  const hour = (parseInt(h, 10) + 1) % 24;
+  return `${String(hour).padStart(2, "0")}:${m}`;
+}
+
+/** Start the periodic scheduler. */
 export function startScheduler(client: Client) {
-  logger.info("Activity scheduler started");
-  // Kick off shortly after boot, then every minute.
+  logger.info("Weekly XP scheduler started");
   setTimeout(() => void tick(client), 10_000);
   setInterval(() => void tick(client), TICK_MS);
 }
+
+/** Exposed for tests / manual triggers. */
+export { runWeeklyReset, runReminderWindow };
+
+// weekKey is re-exported so callers logging scheduler state share one source.
+export { weekKey };

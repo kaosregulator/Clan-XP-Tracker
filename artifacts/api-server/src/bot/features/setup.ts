@@ -8,6 +8,7 @@ import {
   ButtonStyle,
   ChannelSelectMenuBuilder,
   RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
   ChannelType,
   PermissionFlagsBits,
   type BaseMessageOptions,
@@ -16,104 +17,137 @@ import {
   type ModalSubmitInteraction,
   type ChannelSelectMenuInteraction,
   type RoleSelectMenuInteraction,
+  type StringSelectMenuInteraction,
   type ModalActionRowComponentBuilder,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
 import type { Clan } from "@workspace/db";
-import { logger } from "../../lib/logger";
-import { ensureClan, updateClan, isStaff, getClan } from "../services/config";
-import { parseHm } from "../services/time";
-import { refreshDashboards } from "./dashboard";
-import { refreshTracker } from "./tracker";
+import { ensureClan, updateClan, isAdmin, getClan } from "../services/config";
+import { parseHm, weekRangeLabel, weekKey } from "../services/time";
 import {
-  SETUP_IDENTITY,
-  SETUP_GAME,
+  SETUP_GOAL,
+  SETUP_GOAL_MODAL,
+  SETUP_MODE,
   SETUP_SCHEDULE,
-  SETUP_CAPACITY,
-  SETUP_CAPACITY_MODAL,
+  SETUP_SCHEDULE_MODAL,
   SETUP_CHANNELS,
   SETUP_ROLES,
-  SETUP_CREATE_CHANNELS,
-  SETUP_FINISH,
+  SETUP_NOTIFY,
   SETUP_BACK,
-  SETUP_IDENTITY_MODAL,
-  SETUP_GAME_MODAL,
-  SETUP_SCHEDULE_MODAL,
-  SETUP_SUB_CHANNEL,
-  SETUP_REVIEW_CHANNEL,
+  SETUP_FINISH,
+  SETUP_REMINDER_CHANNEL,
+  SETUP_WARNING_CHANNEL,
   SETUP_LOG_CHANNEL,
-  SETUP_STAFF_ROLES,
-  SETUP_WARN_ROLES,
-  SETUP_DASHBOARDS,
-  SETUP_STAFF_DASH,
-  SETUP_CLAN_DASH,
-  SETUP_PATRIOT_DASH,
-  SETUP_TRACKER_CHANNEL,
-  SETUP_LEADERBOARD_DASH,
-  SETUP_REQUIRED_ROLE,
+  SETUP_OFFICER_ROLES,
+  SETUP_ADMIN_ROLES,
+  SETUP_EXEMPT_ROLES,
+  SETUP_LEAVE_ROLES,
+  setupToggle,
   parseId,
 } from "../ui/ids";
 
-/* ------------------------------------------------------------- rendering */
+/**
+ * The configuration hub. Replaces the old static setup embeds: one compact
+ * summary plus focused panels (goal, mode, schedule, channels, roles,
+ * notifications) reached by buttons, each editing the same message in place.
+ */
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+export const TRACKING_MODES = [
+  {
+    value: "exact",
+    label: "Exact progress",
+    description: "Numeric progress toward a goal — e.g. 4200 / 5000 XP",
+    emoji: "📊",
+  },
+  {
+    value: "complete",
+    label: "Complete / Not complete",
+    description: "A simple done-or-not flag each week",
+    emoji: "✅",
+  },
+  {
+    value: "custom",
+    label: "Custom goal",
+    description: "Small countable goals — e.g. 8 / 10 activities",
+    emoji: "🎯",
+  },
+] as const;
+
+function modeLabel(clan: Clan): string {
+  return TRACKING_MODES.find((m) => m.value === clan.trackingMode)?.label ?? "Exact progress";
+}
+
+function goalLine(clan: Clan): string {
+  if (clan.trackingMode === "complete") {
+    return `Complete the weekly **${clan.activityName}** requirement`;
+  }
+  return `**${clan.weeklyGoal.toLocaleString()} ${clan.activityName}** per week`;
+}
 
 function check(v: unknown): string {
   return v ? "✅" : "⬜";
 }
 
+/* ------------------------------------------------------------- main panel */
+
 function summaryEmbed(clan: Clan): EmbedBuilder {
-  const channels = clan.submissionChannelId && clan.reviewChannelId;
   return new EmbedBuilder()
     .setColor(clan.setupComplete ? 0x3ba55d : 0x5865f2)
-    .setTitle(`🧩 Setup — ${clan.clanName}`)
+    .setTitle(`⚙️ Configuration — ${clan.clanName}`)
     .setDescription(
-      "Configure your tracker below. Use the buttons for details and the menus to pick channels & roles.",
+      `Officers verify XP in **${clan.gameName}** and update the bot. Members never submit anything.\n` +
+        `Current week: **${weekRangeLabel(weekKey(clan))}**`
     )
     .addFields(
       {
-        name: `${check(clan.clanName)} Identity & Goal`,
-        value:
-          `Community **${clan.clanName}** · Activity **${clan.activityName}** · Daily goal **${clan.dailyGoal || "—"}**` +
-          `\nClan cap: **${clan.clanDailyLimit > 0 ? `${clan.clanDailyLimit.toLocaleString()} ${clan.activityName}` : "none"}** @ **${clan.contributionValue.toLocaleString()}/contribution**` +
-          `\nAlt accounts: **${clan.altAccountsEnabled ? (clan.maxAltAccounts ? `max ${clan.maxAltAccounts}` : "unlimited") : "off"}** · Submissions: **${clan.autoApprove ? "auto-approved" : "staff review"}**`,
-        inline: false,
-      },
-      {
-        name: `${check(clan.gameUrl)} Game Link`,
-        value: `**${clan.gameName}** → ${clan.gameUrl ? `<${clan.gameUrl}>` : "_not set_"}`,
+        name: `${check(clan.weeklyGoal || clan.trackingMode === "complete")} Weekly Requirement`,
+        value: `${goalLine(clan)}\nTracking mode: **${modeLabel(clan)}**`,
         inline: false,
       },
       {
         name: `${check(true)} Schedule`,
         value:
-          `Timezone **${clan.timezone}** · Reset **${clan.resetTime}**` +
-          `\nAuto reminders: **${clan.remindersEnabled ? (clan.reminderTimes[0] ? `on @ ${clan.reminderTimes[0]}` : "on (no time set)") : "OFF (safety)"}**` +
-          `${clan.reminderTimes.length > 1 ? ` · manual: ${clan.reminderTimes.slice(1).join(", ")}` : ""}`,
+          `Week starts **${DAY_NAMES[clan.weekStartDay] ?? "Monday"}** at **${clan.resetTime}** (${clan.timezone})\n` +
+          `Auto reset: **${clan.autoWeeklyReset ? "on" : "off"}** · Archive history: **${clan.archiveWeeks ? "on" : "off"}**\n` +
+          `Reminders: **${clan.remindersEnabled ? "on" : "OFF"}**` +
+          (clan.remindersEnabled
+            ? ` — ${clan.reminderDays.map((d) => DAY_NAMES[d]?.slice(0, 3)).filter(Boolean).join(", ") || "no days set"} at ${clan.reminderTimes[0] ?? "not set"}`
+            : ""),
         inline: false,
       },
       {
-        name: `${check(channels)} Channels`,
+        name: `${check(clan.warningThreshold)} Enforcement`,
+        value:
+          `Warning after **${clan.warningThreshold}** reminder(s) without hitting the goal\n` +
+          `Leadership review at **${clan.escalationThreshold}** active warning(s)`,
+        inline: false,
+      },
+      {
+        name: `${check(clan.reminderChannelId || clan.logChannelId)} Channels`,
         value: [
-          `Submissions: ${clan.submissionChannelId ? `<#${clan.submissionChannelId}>` : "_not set_"}`,
-          `Review: ${clan.reviewChannelId ? `<#${clan.reviewChannelId}>` : "_not set_"}`,
+          `Reminders: ${clan.reminderChannelId ? `<#${clan.reminderChannelId}>` : "_DM only_"}`,
+          `Warnings: ${clan.warningChannelId ? `<#${clan.warningChannelId}>` : "_not set_"}`,
           `Logs: ${clan.logChannelId ? `<#${clan.logChannelId}>` : "_not set_"}`,
-          `Tracker: ${clan.trackerChannelId ? `<#${clan.trackerChannelId}>` : "_not set_"}`,
         ].join("\n"),
         inline: false,
       },
       {
-        name: `${check(clan.staffRoleIds.length)} Roles`,
+        name: `${check(clan.staffRoleIds.length || clan.adminRoleIds.length)} Roles`,
         value: [
-          `Staff: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_admins only_"}`,
-          `Warning: ${clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
-          `Required: ${clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "_everyone tracked_"}`,
+          `Officers: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
+          `Admins: ${clan.adminRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
+          `Exempt: ${clan.exemptRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
+          `On leave: ${clan.leaveRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
         ].join("\n"),
         inline: false,
-      },
+      }
     )
     .setFooter({
       text: clan.setupComplete
-        ? "Setup complete — you can tweak anything anytime."
-        : "Set at least the submission & review channels, then press Finish.",
+        ? "Everything is live — tweak any section anytime."
+        : "Set a weekly goal and officer roles, then press Finish.",
     });
 }
 
@@ -122,19 +156,15 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
     new ButtonBuilder().setCustomId(cid).setLabel(label).setStyle(style);
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(SETUP_IDENTITY, "Identity & Goal"),
-      b(SETUP_GAME, "Game Link"),
-      b(SETUP_SCHEDULE, "Schedule"),
-      b(SETUP_CAPACITY, "Clan Capacity"),
+      b(SETUP_GOAL, "Weekly Goal", ButtonStyle.Primary),
+      b(SETUP_MODE, "Tracking Mode", ButtonStyle.Primary),
+      b(SETUP_SCHEDULE, "Schedule & Enforcement", ButtonStyle.Primary)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(SETUP_CHANNELS, "Channels", ButtonStyle.Primary),
-      b(SETUP_ROLES, "Roles", ButtonStyle.Primary),
-      b(SETUP_DASHBOARDS, "Dashboards", ButtonStyle.Primary),
-    ),
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(SETUP_CREATE_CHANNELS, "Auto-create channels"),
-      b(SETUP_FINISH, "Finish", ButtonStyle.Success),
+      b(SETUP_CHANNELS, "Channels"),
+      b(SETUP_ROLES, "Roles"),
+      b(SETUP_NOTIFY, "Notifications"),
+      b(SETUP_FINISH, "Finish", ButtonStyle.Success)
     ),
   ];
 }
@@ -145,11 +175,42 @@ export function setupMainPayload(clan: Clan): BaseMessageOptions {
 
 function backRow() {
   return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(SETUP_BACK)
-      .setLabel("← Back")
-      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
   );
+}
+
+/* ------------------------------------------------------------- sub panels */
+
+function modePayload(clan: Clan): BaseMessageOptions {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_MODE)
+    .setPlaceholder("Choose how progress is tracked…")
+    .addOptions(
+      TRACKING_MODES.map((m) => ({
+        value: m.value,
+        label: m.label,
+        description: m.description,
+        emoji: m.emoji,
+        default: m.value === clan.trackingMode,
+      }))
+    );
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("📊 Tracking Mode")
+        .setDescription(
+          "**Exact progress** — officers enter numbers, e.g. `4200 / 5000`.\n" +
+            "**Complete / Not complete** — a simple weekly checkmark.\n" +
+            "**Custom goal** — small countable targets, e.g. `8 / 10` activities.\n\n" +
+            `Currently: **${modeLabel(clan)}**`
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(select),
+      backRow(),
+    ],
+  };
 }
 
 function channelsPayload(clan: Clan): BaseMessageOptions {
@@ -159,9 +220,9 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
         .setCustomId(cid)
         .setPlaceholder(placeholder)
         .setChannelTypes(ChannelType.GuildText)
-        .setMinValues(1)
+        .setMinValues(0)
         .setMaxValues(1)
-        .setDefaultChannels(current ? [current] : []),
+        .setDefaultChannels(current ? [current] : [])
     );
   return {
     embeds: [
@@ -169,91 +230,29 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("📥 Channels")
         .setDescription(
-          "**Submissions** — where members post screenshots.\n**Review** — private staff queue.\n**Logs** — audit trail.\n**Tracker** — the live admin progress board.",
+          "**Reminders** — where progress nudges post (also the fallback when a member's DMs are closed).\n" +
+            "**Warnings** — where XP enforcement warnings are announced.\n" +
+            "**Logs** — the audit trail of every officer action."
         ),
     ],
     components: [
-      menu(SETUP_SUB_CHANNEL, "Submission channel", clan.submissionChannelId),
-      menu(SETUP_REVIEW_CHANNEL, "Review channel", clan.reviewChannelId),
+      menu(SETUP_REMINDER_CHANNEL, "Reminder channel", clan.reminderChannelId),
+      menu(SETUP_WARNING_CHANNEL, "Warning channel", clan.warningChannelId),
       menu(SETUP_LOG_CHANNEL, "Log channel", clan.logChannelId),
-      menu(
-        SETUP_TRACKER_CHANNEL,
-        "Admin tracker channel",
-        clan.trackerChannelId,
-      ),
-      backRow(),
-    ],
-  };
-}
-
-function dashboardsPayload(clan: Clan): BaseMessageOptions {
-  const menu = (cid: string, placeholder: string, current?: string | null) =>
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ChannelSelectMenuBuilder()
-        .setCustomId(cid)
-        .setPlaceholder(placeholder)
-        .setChannelTypes(ChannelType.GuildText)
-        .setMinValues(1)
-        .setMaxValues(1)
-        .setDefaultChannels(current ? [current] : []),
-    );
-  return {
-    embeds: [
-      new EmbedBuilder()
-        .setColor(0x5865f2)
-        .setTitle("📊 Dashboards")
-        .setDescription(
-          "Live embed boards that live in their channel and **edit the same message** as XP data changes (never repost).\n**Clan** — public totals, goals & top contributors.\n**Alt** — combined alt XP & alt share (optional).\n**Admin** — everything + pending, warnings, inactivity & recent activity.\n**Leaderboard** — public streak ranking (separate system).\n_(The admin Tracker channel is on the Channels page.)_",
-        ),
-    ],
-    components: [
-      menu(
-        SETUP_CLAN_DASH,
-        "Clan (public) dashboard channel",
-        clan.clanDashboardChannelId,
-      ),
-      menu(
-        SETUP_PATRIOT_DASH,
-        "Alt dashboard channel",
-        clan.patriotDashboardChannelId,
-      ),
-      menu(
-        SETUP_STAFF_DASH,
-        "Admin dashboard channel",
-        clan.staffDashboardChannelId,
-      ),
-      menu(
-        SETUP_LEADERBOARD_DASH,
-        "Leaderboard channel",
-        clan.leaderboardChannelId,
-      ),
       backRow(),
     ],
   };
 }
 
 function rolesPayload(clan: Clan): BaseMessageOptions {
-  const menu = (cid: string, placeholder: string, current: string[], max = 5) =>
+  const menu = (cid: string, placeholder: string, current: string[]) =>
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId(cid)
         .setPlaceholder(placeholder)
         .setMinValues(0)
-        .setMaxValues(max)
-        .setDefaultRoles(current),
-    );
-  const singleRole = (
-    cid: string,
-    placeholder: string,
-    current?: string | null,
-  ) =>
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new RoleSelectMenuBuilder()
-        .setCustomId(cid)
-        .setPlaceholder(placeholder)
-        .setMinValues(0)
-        .setMaxValues(1)
-        .setDefaultRoles(current ? [current] : []),
+        .setMaxValues(5)
+        .setDefaultRoles(current)
     );
   return {
     embeds: [
@@ -261,30 +260,69 @@ function rolesPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("🛡️ Roles")
         .setDescription(
-          "**Staff** — can review & use /xpadmin.\n**Warning** — auto-assigned on warn.\n**Required** — members who must submit (the tracker's denominator).",
+          "**Officers** — update progress, remind, warn, run the review.\n" +
+            "**Admins** — everything officers can do, plus configuration.\n" +
+            "**Exempt / On leave** — members holding these roles are skipped by reminders, warnings and completion-rate math."
         ),
     ],
     components: [
-      menu(SETUP_STAFF_ROLES, "Staff roles", clan.staffRoleIds),
-      menu(SETUP_WARN_ROLES, "Warning roles", clan.warningRoleIds),
-      singleRole(
-        SETUP_REQUIRED_ROLE,
-        "Required role (must submit)",
-        clan.requiredRoleId,
-      ),
+      menu(SETUP_OFFICER_ROLES, "Officer roles", clan.staffRoleIds),
+      menu(SETUP_ADMIN_ROLES, "Admin roles", clan.adminRoleIds),
+      menu(SETUP_EXEMPT_ROLES, "Exempt roles", clan.exemptRoleIds),
+      menu(SETUP_LEAVE_ROLES, "Leave roles", clan.leaveRoleIds),
       backRow(),
     ],
   };
 }
 
-/* --------------------------------------------------------------- modals */
+const TOGGLES = [
+  { key: "remindersEnabled", label: "Auto reminders" },
+  { key: "dmReminders", label: "DM reminders" },
+  { key: "pingReminders", label: "Ping in channel" },
+  { key: "dmOnWarn", label: "DM on warning" },
+  { key: "autoWeeklyReset", label: "Auto weekly reset" },
+  { key: "archiveWeeks", label: "Archive history" },
+] as const;
 
-function identityModal(clan: Clan) {
+type ToggleKey = (typeof TOGGLES)[number]["key"];
+
+function notifyPayload(clan: Clan): BaseMessageOptions {
+  const buttons = TOGGLES.map((t) =>
+    new ButtonBuilder()
+      .setCustomId(setupToggle(t.key))
+      .setLabel(`${clan[t.key] ? "✅" : "⬜"} ${t.label}`)
+      .setStyle(clan[t.key] ? ButtonStyle.Success : ButtonStyle.Secondary)
+  );
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("🔔 Notifications & Automation")
+        .setDescription(
+          "Tap any switch to toggle it.\n\n" +
+            "**Auto reminders** — the master switch for scheduled reminders.\n" +
+            "**DM reminders** — send nudges by direct message.\n" +
+            "**Ping in channel** — mention members in the reminder channel.\n" +
+            "**Auto weekly reset** — archive & reset progress at the week boundary.\n" +
+            "**Archive history** — keep per-member weekly snapshots for `/xp history`."
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...buttons.slice(0, 3)),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...buttons.slice(3)),
+      backRow(),
+    ],
+  };
+}
+
+/* ---------------------------------------------------------------- modals */
+
+function goalModal(clan: Clan) {
   const row = (input: TextInputBuilder) =>
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
   return new ModalBuilder()
-    .setCustomId(SETUP_IDENTITY_MODAL)
-    .setTitle("Identity & Goal")
+    .setCustomId(SETUP_GOAL_MODAL)
+    .setTitle("Weekly Requirement")
     .addComponents(
       row(
         new TextInputBuilder()
@@ -292,106 +330,43 @@ function identityModal(clan: Clan) {
           .setLabel("Community name")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.clanName)
-          .setRequired(true),
+          .setRequired(true)
       ),
       row(
         new TextInputBuilder()
           .setCustomId("activityName")
-          .setLabel("Activity name (XP, Attendance, Missions…)")
+          .setLabel("What you track (XP, Activities, Missions…)")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.activityName)
-          .setRequired(true),
+          .setRequired(true)
       ),
       row(
         new TextInputBuilder()
-          .setCustomId("dailyGoal")
-          .setLabel("Daily goal number (0 = just submit daily)")
+          .setCustomId("weeklyGoal")
+          .setLabel("Weekly goal number")
           .setStyle(TextInputStyle.Short)
-          .setValue(String(clan.dailyGoal))
-          .setRequired(false),
+          .setValue(String(clan.weeklyGoal))
+          .setPlaceholder("e.g. 5000 XP, or 10 activities")
+          .setRequired(true)
       ),
-      row(
-        new TextInputBuilder()
-          .setCustomId("altAccounts")
-          .setLabel("Alt accounts (blank=off, 0=unlimited, N=max)")
-          .setStyle(TextInputStyle.Short)
-          .setValue(
-            clan.altAccountsEnabled ? String(clan.maxAltAccounts ?? 0) : "",
-          )
-          .setRequired(false),
-      ),
-      row(
-        new TextInputBuilder()
-          .setCustomId("autoApprove")
-          .setLabel("Auto-approve? yes = instant, no = staff review")
-          .setStyle(TextInputStyle.Short)
-          .setValue(clan.autoApprove ? "yes" : "no")
-          .setRequired(false),
-      ),
-    );
-}
-
-function gameModal(clan: Clan) {
-  const row = (input: TextInputBuilder) =>
-    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
-  return new ModalBuilder()
-    .setCustomId(SETUP_GAME_MODAL)
-    .setTitle("Game Link")
-    .addComponents(
       row(
         new TextInputBuilder()
           .setCustomId("gameName")
           .setLabel("Game name")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.gameName)
-          .setRequired(true),
+          .setPlaceholder("e.g. Military Tycoon")
+          .setRequired(false)
       ),
       row(
         new TextInputBuilder()
           .setCustomId("gameUrl")
-          .setLabel("Game / clan link (the Open button opens this)")
+          .setLabel("Game link (optional)")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.gameUrl ?? "")
           .setPlaceholder("https://www.roblox.com/games/…")
-          .setRequired(false),
-      ),
-      row(
-        new TextInputBuilder()
-          .setCustomId("clanRank")
-          .setLabel("Clan rank (optional — shown on dashboards)")
-          .setStyle(TextInputStyle.Short)
-          .setValue(clan.clanRank ?? "")
-          .setPlaceholder("e.g. #3 or Diamond — leave blank to hide")
-          .setRequired(false),
-      ),
-    );
-}
-
-function capacityModal(clan: Clan) {
-  const row = (input: TextInputBuilder) =>
-    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
-  return new ModalBuilder()
-    .setCustomId(SETUP_CAPACITY_MODAL)
-    .setTitle("Clan Capacity")
-    .addComponents(
-      row(
-        new TextInputBuilder()
-          .setCustomId("clanDailyLimit")
-          .setLabel("Daily clan XP limit (0 = no cap)")
-          .setStyle(TextInputStyle.Short)
-          .setValue(String(clan.clanDailyLimit))
-          .setPlaceholder("e.g. 112500")
-          .setRequired(false),
-      ),
-      row(
-        new TextInputBuilder()
-          .setCustomId("contributionValue")
-          .setLabel("XP per contribution (each member & alt)")
-          .setStyle(TextInputStyle.Short)
-          .setValue(String(clan.contributionValue))
-          .setPlaceholder("e.g. 1500")
-          .setRequired(false),
-      ),
+          .setRequired(false)
+      )
     );
 }
 
@@ -400,7 +375,7 @@ function scheduleModal(clan: Clan) {
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
   return new ModalBuilder()
     .setCustomId(SETUP_SCHEDULE_MODAL)
-    .setTitle("Schedule")
+    .setTitle("Schedule & Enforcement")
     .addComponents(
       row(
         new TextInputBuilder()
@@ -408,62 +383,71 @@ function scheduleModal(clan: Clan) {
           .setLabel("Timezone (IANA, e.g. America/New_York)")
           .setStyle(TextInputStyle.Short)
           .setValue(clan.timezone)
-          .setRequired(true),
+          .setRequired(true)
       ),
       row(
         new TextInputBuilder()
-          .setCustomId("resetTime")
-          .setLabel("Daily reset time (HH:mm, 24h)")
+          .setCustomId("weekStart")
+          .setLabel("Week start day + reset time")
           .setStyle(TextInputStyle.Short)
-          .setValue(clan.resetTime)
-          .setRequired(true),
+          .setValue(`${DAY_NAMES[clan.weekStartDay] ?? "Monday"} ${clan.resetTime}`)
+          .setPlaceholder("Monday 00:00")
+          .setRequired(true)
       ),
       row(
         new TextInputBuilder()
-          .setCustomId("reminderTimes")
-          .setLabel("Reminder times (1st is auto, rest manual)")
+          .setCustomId("reminderDays")
+          .setLabel("Reminder days")
           .setStyle(TextInputStyle.Short)
-          .setValue(clan.reminderTimes.join(", "))
-          .setPlaceholder("22:00  (extra times = staff Remind button)")
-          .setRequired(false),
+          .setValue(
+            clan.reminderDays.map((d) => DAY_NAMES[d]?.slice(0, 3) ?? "").filter(Boolean).join(", ")
+          )
+          .setPlaceholder("Wed, Fri")
+          .setRequired(false)
       ),
       row(
         new TextInputBuilder()
-          .setCustomId("remindersEnabled")
-          .setLabel("Auto reminders on? (yes / no safety switch)")
+          .setCustomId("reminderTime")
+          .setLabel("Reminder time (HH:mm, 24h)")
           .setStyle(TextInputStyle.Short)
-          .setValue(clan.remindersEnabled ? "yes" : "no")
-          .setRequired(false),
+          .setValue(clan.reminderTimes[0] ?? "18:00")
+          .setRequired(false)
       ),
+      row(
+        new TextInputBuilder()
+          .setCustomId("thresholds")
+          .setLabel("Warn after N reminders, escalate at N warns")
+          .setStyle(TextInputStyle.Short)
+          .setValue(`${clan.warningThreshold}, ${clan.escalationThreshold}`)
+          .setPlaceholder("3, 2")
+          .setRequired(false)
+      )
     );
 }
 
-/* ------------------------------------------------------------- handlers */
+/* -------------------------------------------------------------- handlers */
 
-/**
- * Verify the invoker is staff. Pass deferred=true when the caller has already
- * called deferReply/deferUpdate so errors use editReply instead of reply.
- */
 async function guard(
   interaction:
     | ButtonInteraction
     | ModalSubmitInteraction
     | ChannelSelectMenuInteraction
-    | RoleSelectMenuInteraction,
-  deferred = false,
+    | RoleSelectMenuInteraction
+    | StringSelectMenuInteraction,
+  deferred = false
 ): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
-  if (!isStaff(interaction.member, clan)) {
-    const msg = { content: "Only staff can change setup.", flags: 64 };
-    if (deferred) await interaction.editReply(msg);
-    else await interaction.reply(msg);
+  if (!clan || !isAdmin(interaction.member, clan)) {
+    const content = "Only admins can change configuration.";
+    if (deferred) await interaction.editReply({ content });
+    else await interaction.reply({ content, flags: 64 });
     return null;
   }
   return clan;
 }
 
-/** Entry point for the /setup command. */
+/** Entry point for /setup. */
 export async function openSetup(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
@@ -474,153 +458,107 @@ export async function openSetup(interaction: ChatInputCommandInteraction) {
     return;
   }
   // Defer first — ensureClan hits the DB and can exceed the 3-second window on
-  // a cold Postgres connection (especially right after a fresh deploy).
+  // a cold Postgres connection.
   await interaction.deferReply({ flags: 64 });
   const clan = await ensureClan(interaction.guildId, interaction.guild.name);
-  await interaction.editReply({ ...setupMainPayload(clan) });
+  await interaction.editReply(setupMainPayload(clan));
 }
 
 export async function handleSetupButton(interaction: ButtonInteraction) {
-  const { action } = parseId(interaction.customId); // sync — must come first
+  const { action, arg } = parseId(interaction.customId);
 
-  // Modal-showing actions MUST call showModal as the very first response —
-  // Discord does not allow deferring before a modal. getClan is cached so the
-  // DB round-trip is fast in normal operation.
-  if (
-    action === "identity" ||
-    action === "game" ||
-    action === "schedule" ||
-    action === "capacity"
-  ) {
+  // Modals must be the first response — Discord forbids deferring beforehand.
+  if (action === "goal" || action === "schedule") {
     const clan = await guard(interaction);
     if (!clan) return;
-    if (action === "identity")
-      return interaction.showModal(identityModal(clan));
-    if (action === "game") return interaction.showModal(gameModal(clan));
-    if (action === "schedule")
-      return interaction.showModal(scheduleModal(clan));
-    if (action === "capacity")
-      return interaction.showModal(capacityModal(clan));
-    return;
+    return void (await interaction.showModal(
+      action === "goal" ? goalModal(clan) : scheduleModal(clan)
+    ));
   }
 
-  // createChannels defers internally; finish uses reply/update internally.
-  // Guard with no pre-defer — relies on cache being warm.
-  if (action === "createChannels" || action === "finish") {
-    const clan = await guard(interaction);
-    if (!clan) return;
-    if (action === "createChannels")
-      return autoCreateChannels(interaction, clan);
-    if (action === "finish") return finishSetup(interaction, clan);
-    return;
-  }
-
-  // All remaining actions (channels, roles, dashboards, back) update the
-  // existing message. Defer first so the 3-second window never expires on a
-  // cold DB connection.
   await interaction.deferUpdate();
   const clan = await guard(interaction, true);
   if (!clan) return;
 
   switch (action) {
+    case "mode":
+      return void (await interaction.editReply(modePayload(clan)));
     case "channels":
       return void (await interaction.editReply(channelsPayload(clan)));
     case "roles":
       return void (await interaction.editReply(rolesPayload(clan)));
-    case "dashboards":
-      return void (await interaction.editReply(dashboardsPayload(clan)));
+    case "notify":
+      return void (await interaction.editReply(notifyPayload(clan)));
     case "back":
       return void (await interaction.editReply(setupMainPayload(clan)));
-    default:
-      return;
+    case "toggle": {
+      const key = arg as ToggleKey | undefined;
+      if (!key || !TOGGLES.some((t) => t.key === key)) return;
+      const updated = (await updateClan(clan.guildId, { [key]: !clan[key] })) ?? clan;
+      return void (await interaction.editReply(notifyPayload(updated)));
+    }
+    case "finish": {
+      const updated = (await updateClan(clan.guildId, { setupComplete: true })) ?? clan;
+      return void (await interaction.editReply(setupMainPayload(updated)));
+    }
   }
 }
 
 export async function handleSetupModal(interaction: ModalSubmitInteraction) {
-  // Defer before any DB work. isFromMessage() is a synchronous check.
-  if (interaction.isFromMessage()) {
-    await interaction.deferUpdate();
-  } else {
-    await interaction.deferReply({ flags: 64 });
-  }
+  if (interaction.isFromMessage()) await interaction.deferUpdate();
+  else await interaction.deferReply({ flags: 64 });
   const clan = await guard(interaction, true);
   if (!clan) return;
   const { action } = parseId(interaction.customId);
   const f = (k: string) => interaction.fields.getTextInputValue(k);
+  const num = (s: string) => parseInt(s.replace(/[^0-9]/g, ""), 10);
+  const dayIndexOf = (s: string) => {
+    const key = s.trim().slice(0, 3).toLowerCase();
+    return key ? DAY_NAMES.findIndex((d) => d.toLowerCase().startsWith(key)) : -1;
+  };
 
-  let patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> =
-    {};
-  if (action === "identityModal") {
-    const goal = parseInt(f("dailyGoal").replace(/[^0-9]/g, ""), 10);
-    const altRaw = f("altAccounts").trim();
-    const altEnabled = altRaw !== "";
-    const altMax = altEnabled
-      ? parseInt(altRaw.replace(/[^0-9]/g, ""), 10) || 0
-      : 0;
-    const autoRaw = f("autoApprove").trim().toLowerCase();
-    const autoApprove = !(
-      autoRaw === "no" ||
-      autoRaw === "n" ||
-      autoRaw === "false" ||
-      autoRaw === "review"
-    );
+  let patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {};
+
+  if (action === "goalModal") {
+    const goal = num(f("weeklyGoal"));
+    const url = f("gameUrl").trim();
     patch = {
       clanName: f("clanName").trim() || clan.clanName,
       activityName: f("activityName").trim() || "XP",
-      dailyGoal: Number.isFinite(goal) ? goal : 0,
-      altAccountsEnabled: altEnabled,
-      maxAltAccounts: altEnabled && altMax > 0 ? altMax : null,
-      autoApprove,
-    };
-  } else if (action === "capacityModal") {
-    const limit = parseInt(f("clanDailyLimit").replace(/[^0-9]/g, ""), 10);
-    const value = parseInt(f("contributionValue").replace(/[^0-9]/g, ""), 10);
-    patch = {
-      clanDailyLimit: Number.isFinite(limit) ? limit : 0,
-      contributionValue: Number.isFinite(value) && value > 0 ? value : 1500,
-    };
-  } else if (action === "gameModal") {
-    const url = f("gameUrl").trim();
-    const rank = f("clanRank").trim();
-    patch = {
-      gameName: f("gameName").trim() || "Roblox",
-      gameUrl: url ? normalizeUrl(url) : null,
-      clanRank: rank || null,
+      weeklyGoal: Number.isFinite(goal) && goal > 0 ? goal : clan.weeklyGoal,
+      gameName: f("gameName").trim() || clan.gameName,
+      gameUrl: url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : null,
     };
   } else if (action === "scheduleModal") {
-    const reminders = f("reminderTimes")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map((s) => {
-        const { hour, minute } = parseHm(s);
-        return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-      });
-    const { hour, minute } = parseHm(f("resetTime"));
-    const remRaw = f("remindersEnabled").trim().toLowerCase();
-    const remindersEnabled = !(
-      remRaw === "no" ||
-      remRaw === "n" ||
-      remRaw === "off" ||
-      remRaw === "false"
-    );
+    const [dayPart = "", timePart = ""] = f("weekStart").trim().split(/\s+/);
+    const dayIdx = dayIndexOf(dayPart);
+    const { hour, minute } = parseHm(timePart || clan.resetTime);
+    const days = f("reminderDays").split(",").map(dayIndexOf).filter((i) => i >= 0);
+    const rt = parseHm(f("reminderTime") || clan.reminderTimes[0] || "18:00");
+    const [warnRaw = "", escRaw = ""] = f("thresholds").split(",");
+    const warnN = num(warnRaw);
+    const escN = num(escRaw);
     patch = {
       timezone: f("timezone").trim() || "UTC",
+      weekStartDay: dayIdx >= 0 ? dayIdx : clan.weekStartDay,
       resetTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-      reminderTimes: reminders,
-      remindersEnabled,
+      reminderDays: days.length ? days : clan.reminderDays,
+      reminderTimes: [`${String(rt.hour).padStart(2, "0")}:${String(rt.minute).padStart(2, "0")}`],
+      warningThreshold: Number.isFinite(warnN) && warnN > 0 ? warnN : clan.warningThreshold,
+      escalationThreshold: Number.isFinite(escN) && escN > 0 ? escN : clan.escalationThreshold,
     };
   }
 
   const updated = (await updateClan(clan.guildId, patch)) ?? clan;
-  // Interaction is already deferred — always use editReply regardless of source.
   await interaction.editReply(setupMainPayload(updated));
 }
 
 export async function handleSetupSelect(
-  interaction: ChannelSelectMenuInteraction | RoleSelectMenuInteraction,
+  interaction:
+    | ChannelSelectMenuInteraction
+    | RoleSelectMenuInteraction
+    | StringSelectMenuInteraction
 ) {
-  // Defer before DB work — channel/role saves + a follow-up getClan can exceed 3 seconds.
   await interaction.deferUpdate();
   const clan = await guard(interaction, true);
   if (!clan) return;
@@ -628,140 +566,35 @@ export async function handleSetupSelect(
 
   if (interaction.isChannelSelectMenu()) {
     const channelId = interaction.values[0] ?? null;
-    const map: Record<
-      string,
-      keyof typeof import("@workspace/db").clansTable.$inferInsert
-    > = {
-      subChannel: "submissionChannelId",
-      reviewChannel: "reviewChannelId",
+    const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
+      reminderChannel: "reminderChannelId",
+      warningChannel: "warningChannelId",
       logChannel: "logChannelId",
-      trackerChannel: "trackerChannelId",
-      staffDash: "staffDashboardChannelId",
-      clanDash: "clanDashboardChannelId",
-      patriotDash: "patriotDashboardChannelId",
-      leaderboardDash: "leaderboardChannelId",
     };
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: channelId });
-    const fresh = (await getClan(clan.guildId)) ?? clan;
-    const dashActions = [
-      "staffDash",
-      "clanDash",
-      "patriotDash",
-      "leaderboardDash",
-    ];
-    await interaction.editReply(
-      dashActions.includes(action)
-        ? dashboardsPayload(fresh)
-        : channelsPayload(fresh),
-    );
+    await interaction.editReply(channelsPayload((await getClan(clan.guildId)) ?? clan));
     return;
   }
 
   if (interaction.isRoleSelectMenu()) {
     const roleIds = [...interaction.values];
-    if (action === "staffRoles")
-      await updateClan(clan.guildId, { staffRoleIds: roleIds });
-    if (action === "warnRoles")
-      await updateClan(clan.guildId, { warningRoleIds: roleIds });
-    if (action === "requiredRole")
-      await updateClan(clan.guildId, { requiredRoleId: roleIds[0] ?? null });
-    const fresh = (await getClan(clan.guildId)) ?? clan;
-    await interaction.editReply(rolesPayload(fresh));
-  }
-}
-
-async function finishSetup(interaction: ButtonInteraction, clan: Clan) {
-  // A submission channel is always needed. A review channel is only needed
-  // when submissions require staff review (auto-approve doesn't use one).
-  if (!clan.submissionChannelId) {
-    await interaction.reply({
-      content:
-        "Please set at least a **Submission** channel first (Channels button).",
-      flags: 64,
-    });
+    const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
+      officerRoles: "staffRoleIds",
+      adminRoles: "adminRoleIds",
+      exemptRoles: "exemptRoleIds",
+      leaveRoles: "leaveRoleIds",
+      warnRoles: "warningRoleIds",
+    };
+    const key = map[action];
+    if (key) await updateClan(clan.guildId, { [key]: roleIds });
+    await interaction.editReply(rolesPayload((await getClan(clan.guildId)) ?? clan));
     return;
   }
-  if (!clan.autoApprove && !clan.reviewChannelId) {
-    await interaction.reply({
-      content:
-        "Staff review is on, so please also set a **Review** channel (Channels button) — or switch to auto-approve in Identity & Goal.",
-      flags: 64,
-    });
-    return;
+
+  if (interaction.isStringSelectMenu() && action === "mode") {
+    const mode = interaction.values[0] ?? "exact";
+    const updated = (await updateClan(clan.guildId, { trackingMode: mode })) ?? clan;
+    await interaction.editReply(modePayload(updated));
   }
-  const updated =
-    (await updateClan(clan.guildId, { setupComplete: true })) ?? clan;
-  await interaction.update(setupMainPayload(updated));
-  // Post the configured dashboards + tracker right away so they appear now
-  // instead of on the next scheduler cycle.
-  void refreshDashboards(interaction.client, updated);
-  void refreshTracker(interaction.client, updated);
-}
-
-async function autoCreateChannels(interaction: ButtonInteraction, clan: Clan) {
-  if (!interaction.inCachedGuild()) return;
-  const me = interaction.guild.members.me;
-  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
-    await interaction.reply({
-      content: "I need the **Manage Channels** permission to create channels.",
-      flags: 64,
-    });
-    return;
-  }
-  await interaction.deferReply({ flags: 64 });
-  try {
-    const category = await interaction.guild.channels.create({
-      name: `${clan.activityName || "XP"} Tracker`,
-      type: ChannelType.GuildCategory,
-    });
-    const staffOverwrites = clan.staffRoleIds.map((id) => ({
-      id,
-      allow: [PermissionFlagsBits.ViewChannel],
-    }));
-    const mk = (name: string, staffOnly = false) =>
-      interaction.guild.channels.create({
-        name,
-        type: ChannelType.GuildText,
-        parent: category.id,
-        permissionOverwrites: staffOnly
-          ? [
-              {
-                id: interaction.guild.roles.everyone.id,
-                deny: [PermissionFlagsBits.ViewChannel],
-              },
-              ...staffOverwrites,
-            ]
-          : undefined,
-      });
-
-    const submissions = await mk("submissions");
-    const review = await mk("review-queue", true);
-    const logs = await mk("logs", true);
-    const tracker = await mk("xp-tracker", true);
-
-    const updated =
-      (await updateClan(clan.guildId, {
-        submissionChannelId: submissions.id,
-        reviewChannelId: review.id,
-        logChannelId: logs.id,
-        trackerChannelId: tracker.id,
-      })) ?? clan;
-
-    await interaction.editReply({
-      content: `✅ Created ${submissions}, ${review}, ${logs} and ${tracker}. Reopen /setup to see the summary.`,
-    });
-    // Also refresh the original wizard message if possible.
-    await interaction.message?.edit(setupMainPayload(updated)).catch(() => {});
-  } catch (err) {
-    logger.error({ err }, "Failed to auto-create channels");
-    await interaction.editReply(
-      "Something went wrong creating channels. Check my permissions and try again.",
-    );
-  }
-}
-
-function normalizeUrl(url: string): string {
-  if (/^https?:\/\//i.test(url)) return url;
-  return `https://${url}`;
 }

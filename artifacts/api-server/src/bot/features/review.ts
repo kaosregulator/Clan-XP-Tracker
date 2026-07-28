@@ -1,403 +1,256 @@
 import {
-  EmbedBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
+  AttachmentBuilder,
   ActionRowBuilder,
-  type Client,
+  ButtonBuilder,
+  ButtonStyle,
+  type BaseMessageOptions,
+  type ChatInputCommandInteraction,
   type ButtonInteraction,
-  type ModalSubmitInteraction,
-  type ModalActionRowComponentBuilder,
+  type MessageActionRowComponentBuilder,
 } from "discord.js";
-import type { Clan, XpSubmission } from "@workspace/db";
-import { logger } from "../../lib/logger";
-import { getClan, isStaff } from "../services/config";
+import type { Clan } from "@workspace/db";
+import PQueue from "p-queue";
+import { getClan, isOfficer } from "../services/config";
 import {
-  getSubmission,
-  setStatus,
-  setReviewMessage,
-  recentForUser,
-} from "../services/submissions";
-import { recomputeMemberStats } from "../services/members";
-import { scheduleTrackerRefresh } from "./tracker";
-import { scheduleDashboardRefresh } from "./dashboard";
-import { sendReminder } from "../services/reminders";
-import { issueWarning, listActive } from "../services/warnings";
-import { logAction, sendLog } from "../services/logging";
-import { formatInZone } from "../services/time";
-import { reviewCardComponents } from "../ui/components";
-import { reviewRejectModal, reviewWarnModal, parseId } from "../ui/ids";
-
-const STATUS_COLOR = {
-  pending: 0xfaa61a,
-  approved: 0x3ba55d,
-  rejected: 0xed4245,
-} as const;
-const STATUS_LABEL = {
-  pending: "⏳ Pending",
-  approved: "✅ Approved",
-  rejected: "⛔ Rejected",
-} as const;
-
-/** Build the moderation card embed for a submission. */
-export function buildReviewEmbed(clan: Clan, sub: XpSubmission): EmbedBuilder {
-  const status = sub.status as keyof typeof STATUS_COLOR;
-  const embed = new EmbedBuilder()
-    .setColor(STATUS_COLOR[status] ?? STATUS_COLOR.pending)
-    .setAuthor({
-      name: `${sub.username} • ${clan.activityName || "XP"} submission`,
-      iconURL: sub.avatarUrl ?? undefined,
-    })
-    .setTitle(STATUS_LABEL[status] ?? STATUS_LABEL.pending)
-    .addFields(
-      { name: "Member", value: `<@${sub.userId}>`, inline: true },
-      { name: "Account", value: sub.accountLabel || "Main", inline: true },
-      { name: "For", value: sub.activityDate, inline: true },
-    )
-    .setFooter({
-      text: `Submission #${sub.id} • ${formatInZone(sub.submittedAt, clan)}`,
-    });
-
-  if (sub.notes)
-    embed.addFields({ name: "Note", value: sub.notes.slice(0, 1024) });
-  if (sub.extracted) {
-    const { provider, confidence, ...fields } = sub.extracted as Record<
-      string,
-      unknown
-    >;
-    const detected = Object.entries(fields)
-      .map(([k, v]) => `${k}: **${String(v)}**`)
-      .join(" · ");
-    if (detected) {
-      const conf =
-        typeof confidence === "number"
-          ? ` (${Math.round(confidence * 100)}%)`
-          : "";
-      embed.addFields({
-        name: `Detected${conf}`,
-        value: detected.slice(0, 1024),
-      });
-    }
-  }
-  if (sub.proofImageUrls[0]) embed.setImage(sub.proofImageUrls[0]);
-  if (sub.reviewedByUsername) {
-    embed.addFields({
-      name: sub.status === "approved" ? "Approved by" : "Reviewed by",
-      value: `${sub.reviewedByUsername}${sub.reviewNote ? ` — ${sub.reviewNote}` : ""}`,
-    });
-  }
-  return embed;
-}
-
-/** Post a fresh review card into the review channel and remember its message id. */
-export async function postReviewCard(
-  client: Client,
-  clan: Clan,
-  sub: XpSubmission,
-): Promise<void> {
-  const channelId = clan.reviewChannelId;
-  if (!channelId) {
-    logger.warn(
-      { guild: clan.guildId },
-      "No review channel configured; skipping review card",
-    );
-    return;
-  }
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel?.isTextBased() || !("send" in channel)) return;
-    const msg = await channel.send({
-      embeds: [buildReviewEmbed(clan, sub)],
-      components: reviewCardComponents(sub),
-    });
-    await setReviewMessage(sub.id, msg.id);
-  } catch (err) {
-    logger.error({ err }, "Failed to post review card");
-  }
-}
-
-/* --------------------------------------------------------------- guards */
+  listTracked,
+  snapshotFrom,
+  reminderTargets,
+  warningTargets,
+  syncRoleFlags,
+  rollWeek,
+  formatProgress,
+  effectiveGoal,
+  currentProgress,
+} from "../services/progress";
+import { sendBulkReminders } from "../services/reminders";
+import { issueWarning } from "../services/warnings";
+import { exportGuildDataAsXlsx } from "../services/export";
+import { memberIdsWithRoles } from "../services/roles";
+import { renderOffThread } from "../canvas/render-pool";
+import { weekRangeLabel, nextWeeklyReset, formatInZone } from "../services/time";
+import { reviewComponents } from "../ui/components";
+import { REVIEW_WARN_CONFIRM, REVIEW_RESET_CONFIRM, parseId } from "../ui/ids";
+import { notConfiguredMessage } from "./xp";
+import type { WeeklyReviewView } from "../canvas/cards/weeklyReviewCard";
 
 /**
- * Load clan + submission for a review interaction.
- * Pass deferred=true when the caller has already called deferReply/deferUpdate —
- * error replies will use editReply instead of reply so they don't double-ack.
+ * The weekly review — the officer's flagship view. A canvas summary of the
+ * whole clan's week with one-tap bulk actions underneath: Send Reminders,
+ * Issue Warnings, Export Report, Refresh, Reset Week.
  */
-async function loadForReview(
-  interaction: ButtonInteraction | ModalSubmitInteraction,
-  deferred = false,
-): Promise<{ clan: Clan; sub: XpSubmission } | null> {
+
+async function officerGuard(
+  interaction: ChatInputCommandInteraction | ButtonInteraction
+): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
-  if (!clan) return null;
-  if (!isStaff(interaction.member, clan)) {
-    const msg = {
-      content: "You don't have permission to review submissions.",
-      flags: 64,
-    };
-    if (deferred) await interaction.editReply(msg);
-    else await interaction.reply(msg);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
     return null;
   }
-  const { arg } = parseId(interaction.customId);
-  const sub = arg ? await getSubmission(Number(arg)) : null;
-  if (!sub) {
-    const msg = { content: "That submission no longer exists." };
-    if (deferred) await interaction.editReply(msg);
-    else await interaction.reply({ ...msg, flags: 64 });
+  if (!isOfficer(interaction.member, clan)) {
+    await interaction.editReply({ content: "The weekly review is officer-only." });
     return null;
   }
-  return { clan, sub };
+  return clan;
 }
 
-async function refreshCard(
-  interaction: ButtonInteraction | ModalSubmitInteraction,
-  clan: Clan,
-  subId: number,
-) {
-  const fresh = await getSubmission(subId);
-  if (!fresh || !interaction.message) return;
-  await interaction.message
-    .edit({
-      embeds: [buildReviewEmbed(clan, fresh)],
-      components: reviewCardComponents(fresh),
-    })
-    .catch(() => {});
-}
-
-/* --------------------------------------------------------------- actions */
-
-export async function handleApprove(interaction: ButtonInteraction) {
-  // Defer first so the 3-second Discord window never expires on DB lookups.
-  await interaction.deferUpdate();
-  const ctx = await loadForReview(interaction, true);
-  if (!ctx) return;
-  const { clan, sub } = ctx;
-  if (sub.status !== "pending") {
-    await interaction.followUp({ content: "Already reviewed.", flags: 64 });
-    return;
+/** Build the full review payload (canvas + action buttons). */
+export async function buildReviewPayload(
+  interaction: ChatInputCommandInteraction<"cached"> | ButtonInteraction<"cached">,
+  clan: Clan
+): Promise<BaseMessageOptions> {
+  // Mirror role-based exemptions/leave onto member flags before aggregating,
+  // so /setup role settings apply without per-member commands.
+  if (clan.exemptRoleIds.length || clan.leaveRoleIds.length) {
+    const [exemptIds, leaveIds] = await Promise.all([
+      memberIdsWithRoles(interaction.guild, clan.exemptRoleIds),
+      memberIdsWithRoles(interaction.guild, clan.leaveRoleIds),
+    ]);
+    await syncRoleFlags(clan, exemptIds, leaveIds);
   }
 
-  await setStatus(sub.id, "approved", {
-    moderatorId: interaction.user.id,
-    moderatorUsername: interaction.user.username,
-  });
-  await recomputeMemberStats(clan, sub.userId);
-  await refreshCard(interaction, clan, sub.id);
-  scheduleTrackerRefresh(interaction.client, clan);
-  scheduleDashboardRefresh(interaction.client, clan);
+  const members = await listTracked(clan);
+  const snap = snapshotFrom(clan, members);
+  const remindable = reminderTargets(clan, members).length;
+  const warnable = warningTargets(clan, members).length;
 
-  await logAction(clan.guildId, {
-    action: "submission_approved",
-    targetUserId: sub.userId,
-    targetUsername: sub.username,
-    moderatorId: interaction.user.id,
-    moderatorUsername: interaction.user.username,
-    details: { submissionId: sub.id },
-  });
-  await sendLog(
-    interaction.client,
-    clan,
-    buildReviewEmbed(clan, (await getSubmission(sub.id))!),
-  );
+  const goalLabel =
+    clan.trackingMode === "complete"
+      ? `Weekly ${clan.activityName} completion`
+      : `${clan.weeklyGoal.toLocaleString()} ${clan.activityName} weekly goal`;
 
-  if (clan.dmOnApprove) {
-    const user = await interaction.client.users
-      .fetch(sub.userId)
-      .catch(() => null);
-    await user
-      ?.send(
-        `✅ Your ${clan.activityName || "XP"} submission in **${clan.clanName}** was approved. Nice work!`,
-      )
-      .catch(() => {});
-  }
+  const view: WeeklyReviewView = {
+    communityName: clan.clanName,
+    activityName: clan.activityName,
+    rangeLabel: weekRangeLabel(snap.weekKey),
+    deadline: `resets ${formatInZone(nextWeeklyReset(clan), clan, "ddd HH:mm")}`,
+    goalLabel,
+    tracked: snap.tracked,
+    active: snap.active,
+    completed: snap.completed,
+    inProgress: snap.inProgress,
+    notStarted: snap.notStarted,
+    exempt: snap.exempt,
+    onLeave: snap.onLeave,
+    completionRate: snap.completionRate,
+    reminders: snap.remindersThisWeek,
+    warnings: snap.warningsThisWeek,
+  };
+
+  const png = await renderOffThread("weeklyReview", view);
+  return {
+    files: [new AttachmentBuilder(png, { name: "weekly-review.png" })],
+    components: reviewComponents({ remindable, warnable }),
+  };
 }
 
-export async function handleRejectButton(interaction: ButtonInteraction) {
-  // showModal is the first response — cannot defer before it.
-  // getClan is cached and getSubmission is a PK lookup; both are fast enough.
-  const ctx = await loadForReview(interaction, false);
-  if (!ctx) return;
-  const { sub } = ctx;
-  const modal = new ModalBuilder()
-    .setCustomId(reviewRejectModal(sub.id))
-    .setTitle("Reject submission");
-  modal.addComponents(
-    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("reason")
-        .setLabel("Reason (shared with the member)")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(false)
-        .setPlaceholder("e.g. Screenshot unclear — please resubmit."),
-    ),
-  );
-  await interaction.showModal(modal);
-}
-
-export async function handleRejectModal(interaction: ModalSubmitInteraction) {
-  // Defer first — status update + stats recompute + DM can exceed 3 seconds.
-  await interaction.deferUpdate();
-  const ctx = await loadForReview(interaction, true);
-  if (!ctx) return;
-  const { clan, sub } = ctx;
-  if (sub.status !== "pending") {
-    await interaction.followUp({ content: "Already reviewed.", flags: 64 });
-    return;
-  }
-  const reason = interaction.fields.getTextInputValue("reason") || null;
-
-  await setStatus(sub.id, "rejected", {
-    moderatorId: interaction.user.id,
-    moderatorUsername: interaction.user.username,
-    note: reason,
-  });
-  await recomputeMemberStats(clan, sub.userId);
-  await refreshCard(interaction, clan, sub.id);
-  scheduleTrackerRefresh(interaction.client, clan);
-  scheduleDashboardRefresh(interaction.client, clan);
-
-  await logAction(clan.guildId, {
-    action: "submission_rejected",
-    targetUserId: sub.userId,
-    targetUsername: sub.username,
-    moderatorId: interaction.user.id,
-    moderatorUsername: interaction.user.username,
-    details: { submissionId: sub.id, reason },
-  });
-
-  const user = await interaction.client.users
-    .fetch(sub.userId)
-    .catch(() => null);
-  await user
-    ?.send(
-      `⛔ Your ${clan.activityName || "XP"} submission in **${clan.clanName}** was rejected.` +
-        (reason ? `\n> ${reason}` : "") +
-        `\nYou can submit again with a clearer screenshot.`,
-    )
-    .catch(() => {});
-}
-
-export async function handleRemind(interaction: ButtonInteraction) {
-  // Defer first — user.fetch + sendReminder (DB + DM) can exceed 3 seconds.
-  await interaction.deferReply({ flags: 64 });
-  const ctx = await loadForReview(interaction, true);
-  if (!ctx) return;
-  const { clan, sub } = ctx;
-  const user = await interaction.client.users
-    .fetch(sub.userId)
-    .catch(() => null);
-  if (!user) {
-    await interaction.editReply({ content: "Could not find that user." });
-    return;
-  }
-  const { delivered } = await sendReminder({
-    clan,
-    target: user,
-    auto: false,
-    moderatorId: interaction.user.id,
-    moderatorUsername: interaction.user.username,
-  });
-  await interaction.editReply({
-    content: delivered
-      ? `👋 Friendly reminder sent to <@${sub.userId}>.`
-      : `Reminder logged, but <@${sub.userId}> has DMs closed.`,
-  });
-}
-
-export async function handleWarnButton(interaction: ButtonInteraction) {
-  // showModal is the first response — cannot defer before it.
-  const ctx = await loadForReview(interaction, false);
-  if (!ctx) return;
-  const { sub } = ctx;
-  const modal = new ModalBuilder()
-    .setCustomId(reviewWarnModal(sub.id))
-    .setTitle("Warn member");
-  modal.addComponents(
-    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("reason")
-        .setLabel("Warning reason")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setPlaceholder("Why is this member being warned?"),
-    ),
-  );
-  await interaction.showModal(modal);
-}
-
-export async function handleWarnModal(interaction: ModalSubmitInteraction) {
+/** /xp review entry point. */
+export async function openReview(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
-  // Defer first — issueWarning does DB writes + sends a DM.
-  await interaction.deferReply({ flags: 64 });
-  const ctx = await loadForReview(interaction, true);
-  if (!ctx) return;
-  const { clan, sub } = ctx;
-  const reason = interaction.fields.getTextInputValue("reason");
-
-  const target = await interaction.client.users
-    .fetch(sub.userId)
-    .catch(() => null);
-  if (!target) {
-    await interaction.editReply({ content: "Could not find that user." });
-    return;
-  }
-  const { activeCount } = await issueWarning({
-    client: interaction.client,
-    clan,
-    guild: interaction.guild,
-    target,
-    moderatorId: interaction.user.id,
-    moderatorUsername: interaction.user.username,
-    reason,
-  });
-  await interaction.editReply(
-    `⚠️ Warned <@${sub.userId}> (now ${activeCount} active warning(s)).`,
-  );
+  await interaction.deferReply();
+  const clan = await officerGuard(interaction);
+  if (!clan) return;
+  await interaction.editReply(await buildReviewPayload(interaction, clan));
 }
 
-export async function handleHistory(interaction: ButtonInteraction) {
-  // Defer first — loadForReview + two DB queries can exceed 3 seconds.
+/* --------------------------------------------------------------- buttons */
+
+export async function handleReviewButton(interaction: ButtonInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  const { action } = parseId(interaction.customId);
+
+  // Refresh edits the review message in place; everything else replies.
+  if (action === "refresh") {
+    await interaction.deferUpdate();
+    const clan = await officerGuard(interaction);
+    if (!clan) return;
+    await interaction.editReply(await buildReviewPayload(interaction, clan));
+    return;
+  }
+
   await interaction.deferReply({ flags: 64 });
-  const ctx = await loadForReview(interaction, true);
-  if (!ctx) return;
-  const { clan, sub } = ctx;
+  const clan = await officerGuard(interaction);
+  if (!clan) return;
 
-  const [subs, warns] = await Promise.all([
-    recentForUser(clan.guildId, sub.userId, 8),
-    listActive(clan.guildId, sub.userId),
-  ]);
+  switch (action) {
+    case "remind": {
+      const members = await listTracked(clan);
+      const targets = reminderTargets(clan, members);
+      if (!targets.length) {
+        await interaction.editReply({ content: "Everyone is complete, exempt or on leave — nobody to remind. 🎉" });
+        return;
+      }
+      const res = await sendBulkReminders({
+        client: interaction.client,
+        clan,
+        targets,
+        auto: false,
+        moderatorId: interaction.user.id,
+        moderatorUsername: interaction.user.username,
+        skipIfRemindedToday: true,
+      });
+      await interaction.editReply({
+        content: `🔔 Sent **${res.sent}** reminder(s)${res.skipped ? ` · skipped ${res.skipped} reminded in the last day` : ""}. Refresh the review to see updated counts.`,
+      });
+      return;
+    }
 
-  const glyph = { approved: "✅", rejected: "⛔", pending: "⏳" } as Record<
-    string,
-    string
-  >;
-  const lines = subs.length
-    ? subs
-        .map(
-          (s) =>
-            `${glyph[s.status] ?? "•"} ${s.activityDate} — ${s.status}${s.accountLabel ? ` (${s.accountLabel})` : ""}`,
-        )
-        .join("\n")
-    : "No submissions yet.";
+    case "warn": {
+      const members = await listTracked(clan);
+      const targets = warningTargets(clan, members);
+      if (!targets.length) {
+        await interaction.editReply({
+          content: `Nobody is warning-eligible yet — a member becomes eligible after **${clan.warningThreshold}** reminder(s) in a week without reaching the goal.`,
+        });
+        return;
+      }
+      const preview = targets
+        .slice(0, 15)
+        .map((m) => `• **${m.displayName}** — ${formatProgress(clan, m)} · ${m.weekReminders} reminder(s)`)
+        .join("\n");
+      const confirm = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(REVIEW_WARN_CONFIRM)
+          .setStyle(ButtonStyle.Danger)
+          .setLabel(`Confirm — warn ${targets.length} member(s)`)
+      );
+      await interaction.editReply({
+        content:
+          `⚠️ **XP warnings** will be issued to **${targets.length}** member(s) still short of the goal after ${clan.warningThreshold}+ reminders:\n\n` +
+          `${preview}${targets.length > 15 ? `\n…and ${targets.length - 15} more` : ""}`,
+        components: [confirm],
+      });
+      return;
+    }
 
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setAuthor({
-      name: `${sub.username} — history`,
-      iconURL: sub.avatarUrl ?? undefined,
-    })
-    .addFields(
-      { name: "Recent submissions", value: lines },
-      {
-        name: "Active warnings",
-        value: warns.length
-          ? warns
-              .map((w) => `• ${w.reason}`)
-              .join("\n")
-              .slice(0, 1024)
-          : "None",
-      },
-    );
-  await interaction.editReply({ embeds: [embed] });
+    case "warnConfirm": {
+      const members = await listTracked(clan);
+      const targets = warningTargets(clan, members);
+      const queue = new PQueue({ concurrency: 2, intervalCap: 2, interval: 1000 });
+      let issued = 0;
+      const escalate: string[] = [];
+      for (const m of targets) {
+        queue.add(async () => {
+          const user = await interaction.client.users.fetch(m.userId).catch(() => null);
+          if (!user) return;
+          const { activeCount } = await issueWarning({
+            client: interaction.client,
+            clan,
+            guild: interaction.guild,
+            target: user,
+            moderatorId: interaction.user.id,
+            moderatorUsername: interaction.user.username,
+            reason: `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, m).toLocaleString()} / ${effectiveGoal(clan, m).toLocaleString()}) after ${m.weekReminders} reminder(s).`,
+          });
+          issued++;
+          if (activeCount >= clan.escalationThreshold) escalate.push(`<@${m.userId}> (${activeCount})`);
+        });
+      }
+      await queue.onIdle();
+      await interaction.editReply({
+        content:
+          `⚠️ Issued **${issued}** XP warning(s).` +
+          (escalate.length
+            ? `\n🚨 **Leadership review** — at ${clan.escalationThreshold}+ active warnings: ${escalate.join(", ")}`
+            : ""),
+        components: [],
+      });
+      return;
+    }
+
+    case "export": {
+      const buffer = await exportGuildDataAsXlsx(clan);
+      const stamp = new Date().toISOString().slice(0, 10);
+      await interaction.editReply({
+        content: "📊 Weekly report + full history export:",
+        files: [new AttachmentBuilder(buffer, { name: `xp-report-${stamp}.xlsx` })],
+      });
+      return;
+    }
+
+    case "resetWeek": {
+      const confirm = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(REVIEW_RESET_CONFIRM)
+          .setStyle(ButtonStyle.Danger)
+          .setLabel("Confirm — archive & reset the week")
+      );
+      await interaction.editReply({
+        content:
+          `♻️ This archives every member's current week${clan.archiveWeeks ? " into history" : " (archiving is OFF in /setup)"} and resets progress to zero. Continue?`,
+        components: [confirm],
+      });
+      return;
+    }
+
+    case "resetConfirm": {
+      const res = await rollWeek(clan, { id: interaction.user.id, username: interaction.user.username });
+      await interaction.editReply({
+        content: `♻️ Week reset. Archived **${res.archived}** member record(s); the new week is **${weekRangeLabel(res.weekKey)}**.`,
+        components: [],
+      });
+      return;
+    }
+  }
 }

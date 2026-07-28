@@ -90,6 +90,57 @@ export const clansTable = pgTable("clans", {
   allowedRoleIds: text("allowed_role_ids").array().notNull().default([]),
   allowedUserIds: text("allowed_user_ids").array().notNull().default([]),
 
+  /* ----------------------------------------------------------------------
+   * Weekly XP management (officer-managed model).
+   *
+   * Members never submit XP. Officers verify progress in-game and update the
+   * bot; everything below configures how that weekly cycle behaves.
+   * -------------------------------------------------------------------- */
+
+  // How progress is tracked:
+  //   "exact"    — numeric progress toward weeklyGoal (4200 / 5000)
+  //   "complete" — a simple done / not-done flag per week
+  //   "custom"   — numeric progress toward a small custom goal (8 / 10)
+  trackingMode: text("tracking_mode").notNull().default("exact"),
+
+  // The weekly requirement everyone is measured against. Unit label comes
+  // from activityName ("XP", "Activities", ...). Per-member overrides live on
+  // clan_members.weeklyGoalOverride.
+  weeklyGoal: integer("weekly_goal").notNull().default(5000),
+
+  // Day the tracking week starts, 0 = Sunday … 6 = Saturday. The weekly reset
+  // fires at resetTime on this day in the clan timezone.
+  weekStartDay: integer("week_start_day").notNull().default(1),
+  // Automatically archive + reset progress at the week boundary.
+  autoWeeklyReset: boolean("auto_weekly_reset").notNull().default(true),
+  // Keep per-member weekly snapshots in xp_week_history on reset.
+  archiveWeeks: boolean("archive_weeks").notNull().default(true),
+
+  // Reminder schedule: days of week (0-6) reminders fire, at the first
+  // reminderTimes entry. remindersEnabled is the master switch.
+  reminderDays: integer("reminder_days").array().notNull().default([3, 5]),
+
+  // Escalation thresholds (XP enforcement, not moderation):
+  // after warningThreshold reminders in a week a warning is suggested; after
+  // escalationThreshold active warnings the member is flagged for leadership.
+  warningThreshold: integer("warning_threshold").notNull().default(3),
+  escalationThreshold: integer("escalation_threshold").notNull().default(2),
+
+  // Channels for the weekly workflow.
+  reminderChannelId: text("reminder_channel_id"),
+  warningChannelId: text("warning_channel_id"),
+
+  // Roles. staffRoleIds are the officer roles (kept name for compat);
+  // adminRoleIds may additionally change configuration. Members holding an
+  // exempt/leave role are skipped by reminders & warnings automatically.
+  adminRoleIds: text("admin_role_ids").array().notNull().default([]),
+  exemptRoleIds: text("exempt_role_ids").array().notNull().default([]),
+  leaveRoleIds: text("leave_role_ids").array().notNull().default([]),
+
+  // Delivery settings for reminders.
+  dmReminders: boolean("dm_reminders").notNull().default(true),
+  pingReminders: boolean("ping_reminders").notNull().default(false),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

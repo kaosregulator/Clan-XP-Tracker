@@ -2,7 +2,6 @@ import { Client, GatewayIntentBits, Events, Partials, REST, Routes } from "disco
 import { logger } from "../lib/logger";
 import { commands } from "./commands";
 import { routeInteraction } from "./router";
-import { handleSubmissionMessage } from "./features/submit";
 import { ensureFonts } from "./canvas/fonts";
 import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
@@ -73,12 +72,10 @@ export function startBot() {
   initRenderPool();
 
   client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent, // required to read screenshot attachments
-    ],
+    // Officers drive everything through slash commands and components, so the
+    // bot needs no message-content access. GuildMembers is required to resolve
+    // role membership for bulk actions and exempt/leave role sync.
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
     partials: [Partials.Channel],
   });
 
@@ -90,10 +87,6 @@ export function startBot() {
 
   client.on(Events.InteractionCreate, (interaction) => {
     void routeInteraction(interaction);
-  });
-
-  client.on(Events.MessageCreate, (message) => {
-    void handleSubmissionMessage(message);
   });
 
   client.login(DISCORD_BOT_TOKEN).catch((err) => {
