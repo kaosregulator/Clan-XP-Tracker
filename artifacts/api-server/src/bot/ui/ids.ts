@@ -4,13 +4,10 @@
  * between the component that emits an interaction and the handler that routes it.
  */
 export const NS = {
-  xp: "xp", // member hub
-  admin: "adm", // staff hub
-  xpadmin: "xpadm", // staff actions surfaced on the /xp member hub
-  review: "rev", // review queue card
-  setup: "setup", // setup wizard
+  review: "rev", // weekly review card actions
+  dash: "dash", // warning dashboard
+  setup: "setup", // configuration hub
   warn: "warn", // warnings management
-  tracker: "trk", // admin progress tracker embed
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -28,89 +25,43 @@ export function parseId(customId: string): ParsedId {
   return { ns, action, arg };
 }
 
-// Member hub
-export const XP_SUBMIT = id(NS.xp, "submit");
-export const XP_PROGRESS = id(NS.xp, "progress");
-export const XP_HISTORY = id(NS.xp, "history");
-export const XP_REFRESH = id(NS.xp, "refresh");
-export const XP_SUBMIT_MODAL = id(NS.xp, "submitModal");
-export const XP_VACATION = id(NS.xp, "vacation");
-// Reminder DM buttons carry the guild id so they work from a DM (no guild ctx).
-export const remindSubmit = (guildId: string) =>
-  id(NS.xp, "remindSubmit", guildId);
-export const remindDone = (guildId: string) => id(NS.xp, "remindDone", guildId);
-export const submitModalForGuild = (guildId: string) =>
-  id(NS.xp, "submitModal", guildId);
-export const XP_ACCOUNTS = id(NS.xp, "accounts");
-export const XP_ADD_ACCOUNT = id(NS.xp, "addAccount");
-export const XP_ADD_ACCOUNT_MODAL = id(NS.xp, "addAccountModal");
-export const XP_REMOVE_ACCOUNT = id(NS.xp, "removeAccount");
-export const XP_SUBMIT_ACCOUNT = id(NS.xp, "submitAccount");
+// Weekly review card
+export const REVIEW_REMIND = id(NS.review, "remind");
+export const REVIEW_WARN = id(NS.review, "warn");
+export const REVIEW_WARN_CONFIRM = id(NS.review, "warnConfirm");
+export const REVIEW_EXPORT = id(NS.review, "export");
+export const REVIEW_REFRESH = id(NS.review, "refresh");
+export const REVIEW_RESET_WEEK = id(NS.review, "resetWeek");
+export const REVIEW_RESET_CONFIRM = id(NS.review, "resetConfirm");
 
-// Submission modal
-export const MODAL_SUBMIT = id(NS.xp, "submitModal");
+// Warning dashboard
+export const DASH_REFRESH = id(NS.dash, "refresh");
+export const DASH_FILTER = id(NS.dash, "filter");
+export const dashPage = (filter: string, page: number) => id(NS.dash, "page", `${filter}-${page}`);
 
-// Admin profile — staff actions shown on the /xp member hub.
-export const XPADMIN_WARN = id(NS.xpadmin, "warn");
-export const XPADMIN_REMIND = id(NS.xpadmin, "remind");
-export const XPADMIN_REMIND_ROLE = id(NS.xpadmin, "remindRole");
-export const XPADMIN_WARN_PICK = id(NS.xpadmin, "warnPick");
-export const XPADMIN_REMIND_PICK = id(NS.xpadmin, "remindPick");
-export const XPADMIN_REMIND_ROLE_PICK = id(NS.xpadmin, "remindRolePick");
-export const xpAdminWarnModal = (userId: string) =>
-  id(NS.xpadmin, "warnModal", userId);
-
-// Admin hub
-export const ADMIN_QUEUE = id(NS.admin, "queue");
-export const ADMIN_MISSING = id(NS.admin, "missing");
-export const ADMIN_LEADERBOARD = id(NS.admin, "leaderboard");
-export const ADMIN_REFRESH = id(NS.admin, "refresh");
-export const ADMIN_DASHBOARDS = id(NS.admin, "dashboards");
-export const ADMIN_EXPORT = id(NS.admin, "export");
-
-// Review card actions take the submission id as arg
-export const reviewApprove = (subId: number) => id(NS.review, "approve", subId);
-export const reviewReject = (subId: number) => id(NS.review, "reject", subId);
-export const reviewRemind = (subId: number) => id(NS.review, "remind", subId);
-export const reviewWarn = (subId: number) => id(NS.review, "warn", subId);
-export const reviewHistory = (subId: number) => id(NS.review, "history", subId);
-export const reviewRejectModal = (subId: number) =>
-  id(NS.review, "rejectModal", subId);
-export const reviewWarnModal = (subId: number) =>
-  id(NS.review, "warnModal", subId);
-
-// Setup wizard sections
-export const SETUP_IDENTITY = id(NS.setup, "identity");
-export const SETUP_GAME = id(NS.setup, "game");
+// Configuration hub sections
+export const SETUP_GOAL = id(NS.setup, "goal");
+export const SETUP_GOAL_MODAL = id(NS.setup, "goalModal");
+export const SETUP_MODE = id(NS.setup, "mode");
 export const SETUP_SCHEDULE = id(NS.setup, "schedule");
-export const SETUP_CAPACITY = id(NS.setup, "capacity");
-export const SETUP_CAPACITY_MODAL = id(NS.setup, "capacityModal");
+export const SETUP_SCHEDULE_MODAL = id(NS.setup, "scheduleModal");
 export const SETUP_CHANNELS = id(NS.setup, "channels");
 export const SETUP_ROLES = id(NS.setup, "roles");
-export const SETUP_CREATE_CHANNELS = id(NS.setup, "createChannels");
-export const SETUP_FINISH = id(NS.setup, "finish");
-export const SETUP_IDENTITY_MODAL = id(NS.setup, "identityModal");
-export const SETUP_GAME_MODAL = id(NS.setup, "gameModal");
-export const SETUP_SCHEDULE_MODAL = id(NS.setup, "scheduleModal");
-export const SETUP_SUB_CHANNEL = id(NS.setup, "subChannel");
-export const SETUP_REVIEW_CHANNEL = id(NS.setup, "reviewChannel");
-export const SETUP_LOG_CHANNEL = id(NS.setup, "logChannel");
-export const SETUP_STAFF_ROLES = id(NS.setup, "staffRoles");
-export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
+export const SETUP_NOTIFY = id(NS.setup, "notify");
 export const SETUP_BACK = id(NS.setup, "back");
-export const SETUP_DASHBOARDS = id(NS.setup, "dashboards");
-export const SETUP_STAFF_DASH = id(NS.setup, "staffDash");
-export const SETUP_CLAN_DASH = id(NS.setup, "clanDash");
-export const SETUP_PATRIOT_DASH = id(NS.setup, "patriotDash");
-export const SETUP_TRACKER_CHANNEL = id(NS.setup, "trackerChannel");
-export const SETUP_LEADERBOARD_DASH = id(NS.setup, "leaderboardDash");
-export const SETUP_REQUIRED_ROLE = id(NS.setup, "requiredRole");
-
-// Admin tracker embed actions
-export const TRACKER_REMIND = id(NS.tracker, "remind");
-export const TRACKER_REFRESH = id(NS.tracker, "refresh");
-export const TRACKER_CHECK = id(NS.tracker, "check");
+export const SETUP_FINISH = id(NS.setup, "finish");
+// Channel selects
+export const SETUP_REMINDER_CHANNEL = id(NS.setup, "reminderChannel");
+export const SETUP_WARNING_CHANNEL = id(NS.setup, "warningChannel");
+export const SETUP_LOG_CHANNEL = id(NS.setup, "logChannel");
+// Role selects
+export const SETUP_OFFICER_ROLES = id(NS.setup, "officerRoles");
+export const SETUP_ADMIN_ROLES = id(NS.setup, "adminRoles");
+export const SETUP_EXEMPT_ROLES = id(NS.setup, "exemptRoles");
+export const SETUP_LEAVE_ROLES = id(NS.setup, "leaveRoles");
+export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
+// Notification toggles (arg = key)
+export const setupToggle = (key: string) => id(NS.setup, "toggle", key);
 
 // Warnings management. Arg carries the target user id.
-export const warnRemoveSelect = (userId: string) =>
-  id(NS.warn, "remove", userId);
+export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);

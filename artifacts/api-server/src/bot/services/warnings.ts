@@ -5,6 +5,7 @@ import { EmbedBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser } from "./config";
 import { logAction, sendLog } from "./logging";
+import { recordWeeklyWarning } from "./progress";
 
 export interface IssueWarningInput {
   client: Client;
@@ -45,6 +46,9 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     .set({ warningsCount: sql`${clanMembersTable.warningsCount} + 1` })
     .where(and(eq(clanMembersTable.guildId, guild.id), eq(clanMembersTable.userId, target.id)));
 
+  // XP-enforcement bookkeeping: count this warning against the current week.
+  await recordWeeklyWarning(clan, target.id);
+
   const activeCount = await countActive(guild.id, target.id);
 
   // Assign configured warning roles (best-effort).
@@ -79,6 +83,21 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       )
       .setTimestamp()
   );
+
+  // Post to the dedicated warning channel when one is configured.
+  if (clan.warningChannelId) {
+    try {
+      const channel = await client.channels.fetch(clan.warningChannelId);
+      if (channel?.isTextBased() && "send" in channel) {
+        await channel.send({
+          content: `⚠️ <@${target.id}> — ${input.reason} (warning ${activeCount})`,
+          allowedMentions: { users: [target.id] },
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, channel: clan.warningChannelId }, "Warning channel post failed");
+    }
+  }
 
   if (clan.dmOnWarn) {
     await target

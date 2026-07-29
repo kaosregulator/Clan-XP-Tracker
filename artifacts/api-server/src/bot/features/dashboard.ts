@@ -1,420 +1,171 @@
 import {
-  AttachmentBuilder,
   EmbedBuilder,
   type BaseMessageOptions,
-  type Client,
-  type TextBasedChannel,
+  type ChatInputCommandInteraction,
+  type ButtonInteraction,
+  type StringSelectMenuInteraction,
 } from "discord.js";
-import type { Clan, DashboardType, AuditLog } from "@workspace/db";
-import { logger } from "../../lib/logger";
+import { db, warningsTable, type Clan, type ClanMember } from "@workspace/db";
+import { eq, desc } from "drizzle-orm";
+import { getClan, isOfficer } from "../services/config";
 import {
-  todaySnapshot,
-  streakLeaderboard,
-  missingMembers,
-} from "../services/stats";
-import { nextReset, discordRelative } from "../services/time";
-import { clanCapacity } from "../services/contributions";
-import { patriotOverview } from "../services/accounts";
-import {
-  clanXpStats,
-  inactiveCount,
-  verificationQueueCount,
-  recentActivity,
-  type ClanXpStats,
-  type Contributor,
-} from "../services/dashboardStats";
-import { upsertDashboard, setDashboardMessage } from "../services/dashboards";
-import { renderOffThread } from "../canvas/render-pool";
+  listTracked,
+  statusOf,
+  formatProgress,
+  reminderTargets,
+  warningTargets,
+} from "../services/progress";
+import { weekKey, relative } from "../services/time";
+import { dashboardComponents, DASH_FILTERS, type DashFilter } from "../ui/components";
+import { parseId } from "../ui/ids";
+import { notConfiguredMessage } from "./xp";
 
-/* ------------------------------------------------------------------ helpers */
+/**
+ * The Warning Dashboard — the enforcement overview that replaces the old
+ * leaderboard. Who needs a reminder, who is warning-eligible, who is exempt
+ * or on leave, and the most recent warning activity.
+ */
 
-/** A compact unicode progress bar, value 0..1. */
-function bar(value: number, size = 10): string {
-  const v = Math.max(0, Math.min(1, value));
-  const filled = Math.round(v * size);
-  return "█".repeat(filled) + "░".repeat(size - filled);
-}
+const PAGE_SIZE = 12;
 
-function xp(n: number): string {
-  return n.toLocaleString();
-}
-
-/** "Name — 12,000 XP" contributor lines with medals. */
-function contributorLines(rows: Contributor[]): string {
-  if (!rows.length) return "_No contributions yet._";
-  const medals = ["🥇", "🥈", "🥉"];
-  return rows
-    .map(
-      (r, i) =>
-        `${medals[i] ?? `**${i + 1}.**`} **${r.name}** — ${xp(r.xp)} XP`,
-    )
-    .join("\n");
-}
-
-const ACTION_GLYPH: Record<string, string> = {
-  submission_approved: "✅",
-  submission_rejected: "⛔",
-  warning_issued: "⚠️",
-  warning_removed: "♻️",
-  reminder_sent: "🔔",
-};
-
-/** Turn an audit-log row into a one-line human summary. */
-function activityLine(clan: Clan, log: AuditLog): string {
-  const glyph = ACTION_GLYPH[log.action] ?? "•";
-  const who = log.targetUsername ? `**${log.targetUsername}**` : "";
-  const label =
-    {
-      submission_approved: `approved`,
-      submission_rejected: `rejected`,
-      warning_issued: `warned`,
-      warning_removed: `warning removed for`,
-      reminder_sent: `reminded`,
-    }[log.action] ?? log.action.replace(/_/g, " ");
-  return `${glyph} ${label} ${who} · ${discordRelative(log.createdAt)}`.trim();
-}
-
-/** Goal + capacity progress block shared by the clan & admin dashboards. */
-function goalBlock(
-  clan: Clan,
-  snap: Awaited<ReturnType<typeof todaySnapshot>>,
-  xpStats: ClanXpStats,
-  cap: Awaited<ReturnType<typeof clanCapacity>>,
-): string {
-  const todayGoal =
-    snap.totalMembers > 0 ? snap.completed / snap.totalMembers : 0;
-  const weekGoal =
-    snap.totalMembers > 0
-      ? xpStats.memberDaysWeek / (snap.totalMembers * 7)
-      : 0;
-  const lines = [
-    `**Weekly Goal**\n${bar(weekGoal)} ${Math.round(weekGoal * 100)}%`,
-    `**Today's Goal**\n${bar(todayGoal)} ${Math.round(todayGoal * 100)}%`,
-  ];
-  if (clan.clanDailyLimit > 0 && cap.contributionCap > 0) {
-    lines.push(
-      `**Clan Capacity**\n${bar(cap.pct / 100)} ${cap.contributions}/${cap.contributionCap}${cap.maxed ? " · MAXED" : ""}`,
-    );
+function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): ClanMember[] {
+  const wk = weekKey(clan);
+  switch (filter) {
+    case "attention": {
+      // Warning-eligible first, then fewest-progress first.
+      const targets = reminderTargets(clan, members);
+      const eligible = new Set(warningTargets(clan, members).map((m) => m.id));
+      return targets.sort((a, b) => {
+        const ea = eligible.has(a.id) ? 1 : 0;
+        const eb = eligible.has(b.id) ? 1 : 0;
+        if (ea !== eb) return eb - ea;
+        return (b.weekKey === wk ? b.weekReminders : 0) - (a.weekKey === wk ? a.weekReminders : 0);
+      });
+    }
+    case "reminded":
+      return members.filter((m) => m.weekKey === wk && m.weekReminders > 0);
+    case "warned":
+      return members.filter((m) => m.weekKey === wk && m.weekWarnings > 0);
+    case "exempt":
+      return members.filter((m) => m.exempt);
+    case "leave":
+      return members.filter((m) => m.onLeave);
   }
-  return lines.join("\n\n");
 }
 
-/* ------------------------------------------------------------- embed builders */
+function memberLine(clan: Clan, m: ClanMember, warnEligible: boolean): string {
+  const wk = weekKey(clan);
+  const reminders = m.weekKey === wk ? m.weekReminders : 0;
+  const warnings = m.weekKey === wk ? m.weekWarnings : 0;
+  const status = statusOf(clan, m);
+  const badge =
+    status === "exempt" ? "🛡️" : status === "leave" ? "🌙" : warnEligible ? "🚨" : reminders > 0 ? "🔔" : "▫️";
+  const bits = [`${badge} <@${m.userId}> — ${formatProgress(clan, m)}`];
+  if (reminders) bits.push(`${reminders} reminder(s)`);
+  if (warnings) bits.push(`⚠️ ${warnings} warning(s)`);
+  if (m.notes) bits.push(`📝`);
+  return bits.join(" · ");
+}
 
-/** Clan dashboard (public): totals, goals, top contributors, rank. */
-async function buildClanEmbed(clan: Clan): Promise<EmbedBuilder> {
-  const [snap, xpStats, cap] = await Promise.all([
-    todaySnapshot(clan),
-    clanXpStats(clan),
-    clanCapacity(clan),
-  ]);
-  const activity = clan.activityName || "XP";
+export async function buildDashboardPayload(
+  clan: Clan,
+  filter: DashFilter,
+  page: number
+): Promise<BaseMessageOptions> {
+  const members = await listTracked(clan);
+  const rows = filterMembers(clan, members, filter);
+  const eligible = new Set(warningTargets(clan, members).map((m) => m.id));
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const clamped = Math.min(Math.max(0, page), pageCount - 1);
+  const slice = rows.slice(clamped * PAGE_SIZE, clamped * PAGE_SIZE + PAGE_SIZE);
 
+  const recent = await db
+    .select()
+    .from(warningsTable)
+    .where(eq(warningsTable.guildId, clan.guildId))
+    .orderBy(desc(warningsTable.issuedAt))
+    .limit(5);
+
+  const filterMeta = DASH_FILTERS.find((f) => f.value === filter)!;
   const embed = new EmbedBuilder()
-    .setColor(0x57f287)
-    .setAuthor({ name: `${clan.clanName} • ${activity} Tracker` })
-    .setTitle("📊 Clan Dashboard")
+    .setColor(filter === "attention" && rows.length ? 0xed4245 : 0x5865f2)
+    .setTitle(`⚠️ Warning Dashboard — ${clan.clanName}`)
     .setDescription(
-      (clan.clanRank ? `🏅 **Clan Rank:** ${clan.clanRank}\n\n` : "") +
-        goalBlock(clan, snap, xpStats, cap),
+      `**${filterMeta.emoji} ${filterMeta.label}** · ${rows.length} member(s)` +
+        (pageCount > 1 ? ` · page ${clamped + 1}/${pageCount}` : "") +
+        "\n\n" +
+        (slice.length
+          ? slice.map((m) => memberLine(clan, m, eligible.has(m.id))).join("\n")
+          : "_Nobody matches this filter — nice and quiet._")
     )
-    .addFields(
-      {
-        name: `Total Clan ${activity}`,
-        value: xp(xpStats.totalXp),
-        inline: true,
-      },
-      { name: `${activity} Today`, value: xp(xpStats.todayXp), inline: true },
-      {
-        name: `${activity} This Week`,
-        value: xp(xpStats.weekXp),
-        inline: true,
-      },
-      {
-        name: "Active Members (7d)",
-        value: `${xpStats.activeMembers}/${snap.totalMembers}`,
-        inline: true,
-      },
-      {
-        name: "Completed Today",
-        value: `${snap.completed}/${snap.totalMembers}`,
-        inline: true,
-      },
-      { name: "Resets", value: discordRelative(nextReset(clan)), inline: true },
-      {
-        name: "🏆 Top Contributors",
-        value: contributorLines(xpStats.topContributors),
-      },
-    )
-    .setFooter({ text: "Live · last updated" })
-    .setTimestamp(new Date());
-
-  if (clan.clanLogoUrl) embed.setThumbnail(clan.clanLogoUrl);
-  return embed;
-}
-
-/** Alt dashboard: combined alt XP, alt share, top alt contributors. */
-async function buildAltEmbed(clan: Clan): Promise<EmbedBuilder> {
-  const xpStats = await clanXpStats(clan);
-  const activity = clan.activityName || "XP";
-
-  return new EmbedBuilder()
-    .setColor(0xa855f7)
-    .setAuthor({ name: `${clan.clanName} • Alt Accounts` })
-    .setTitle("👥 Alt Dashboard")
-    .setDescription(
-      `Alts contribute **${Math.round(xpStats.altPct * 100)}%** of all clan ${activity}.\n${bar(xpStats.altPct)} ${Math.round(xpStats.altPct * 100)}%`,
-    )
-    .addFields(
-      {
-        name: `Combined Alt ${activity}`,
-        value: xp(xpStats.altTotalXp),
-        inline: true,
-      },
-      {
-        name: `Alt ${activity} Today`,
-        value: xp(xpStats.altTodayXp),
-        inline: true,
-      },
-      {
-        name: `Total Clan ${activity}`,
-        value: xp(xpStats.totalXp),
-        inline: true,
-      },
-      {
-        name: "🏆 Top Alt Contributors",
-        value: contributorLines(xpStats.topAltContributors),
-      },
-    )
-    .setFooter({ text: "Live · last updated" })
-    .setTimestamp(new Date());
-}
-
-/** Admin dashboard: everything above + operational + moderation + activity log. */
-async function buildAdminEmbed(clan: Clan): Promise<EmbedBuilder> {
-  const [snap, xpStats, cap, patriots, inactive, verifQueue, missing, recent] =
-    await Promise.all([
-      todaySnapshot(clan),
-      clanXpStats(clan),
-      clanCapacity(clan),
-      clan.altAccountsEnabled ? patriotOverview(clan) : Promise.resolve(null),
-      inactiveCount(clan, 7),
-      verificationQueueCount(clan),
-      missingMembers(clan, 200),
-      recentActivity(clan, 6),
-    ]);
-  const activity = clan.activityName || "XP";
-
-  const embed = new EmbedBuilder()
-    .setColor(0x5865f2)
-    .setAuthor({ name: `${clan.clanName} • Staff` })
-    .setTitle("🛠️ Admin Dashboard")
-    .setDescription(
-      (clan.clanRank ? `🏅 **Clan Rank:** ${clan.clanRank}\n\n` : "") +
-        goalBlock(clan, snap, xpStats, cap),
-    )
-    .addFields(
-      // XP overview
-      { name: `Total ${activity}`, value: xp(xpStats.totalXp), inline: true },
-      { name: `${activity} Today`, value: xp(xpStats.todayXp), inline: true },
-      {
-        name: `${activity} This Week`,
-        value: xp(xpStats.weekXp),
-        inline: true,
-      },
-      // Participation
-      {
-        name: "Completed Today",
-        value: `${snap.completed}/${snap.totalMembers}`,
-        inline: true,
-      },
-      { name: "Active (7d)", value: `${xpStats.activeMembers}`, inline: true },
-      { name: "Inactive (7d+)", value: `${inactive}`, inline: true },
-      // Queue / moderation
-      {
-        name: "⏳ Pending Submissions",
-        value: `${snap.pendingReviews}`,
-        inline: true,
-      },
-      { name: "🔎 Verification Queue", value: `${verifQueue}`, inline: true },
-      {
-        name: "🔴 Late / Missed Today",
-        value: `${missing.length}`,
-        inline: true,
-      },
-      {
-        name: "⚠️ Warnings Today",
-        value: `${snap.warningsToday}`,
-        inline: true,
-      },
-      {
-        name: "🔔 Reminders Today",
-        value: `${snap.remindersToday}`,
-        inline: true,
-      },
-      {
-        name: "👥 Patriots / Alts",
-        value: patriots
-          ? `${patriots.members} · ${patriots.totalAccounts} accts`
-          : "off",
-        inline: true,
-      },
-    );
-
-  embed.addFields({
-    name: "🏆 Top Contributors",
-    value: contributorLines(xpStats.topContributors),
-  });
-  if (clan.altAccountsEnabled) {
-    embed.addFields({
-      name: "👥 Top Alt Contributors",
-      value: contributorLines(xpStats.topAltContributors),
+    .addFields({
+      name: "Recent warning activity",
+      value: recent.length
+        ? recent
+            .map(
+              (w) =>
+                `${w.removedAt ? "~~" : ""}⚠️ **${w.username}** — ${w.reason.slice(0, 60)} · ${relative(w.issuedAt)}${w.removedAt ? "~~ (removed)" : ""}`
+            )
+            .join("\n")
+        : "_No warnings issued yet._",
+    })
+    .setFooter({
+      text: `🚨 = warning-eligible (${clan.warningThreshold}+ reminders, goal not met) · reminders & warnings count per week`,
     });
+
+  return {
+    embeds: [embed],
+    components: dashboardComponents({ filter, page: clamped, pageCount }),
+  };
+}
+
+async function officerGuard(
+  interaction: ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction
+): Promise<Clan | null> {
+  if (!interaction.inCachedGuild()) return null;
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return null;
   }
-  embed.addFields({
-    name: "🧾 Recent Activity",
-    value: recent.length
-      ? recent
-          .map((r) => activityLine(clan, r))
-          .join("\n")
-          .slice(0, 1024)
-      : "_No recent activity._",
-  });
-
-  embed.setFooter({ text: "Live · last updated" }).setTimestamp(new Date());
-  return embed;
+  if (!isOfficer(interaction.member, clan)) {
+    await interaction.editReply({ content: "The warning dashboard is officer-only." });
+    return null;
+  }
+  return clan;
 }
 
-/* ------------------------------------------------------------- leaderboard */
-
-async function renderLeaderboardImage(clan: Clan): Promise<Buffer> {
-  const rows = await streakLeaderboard(clan.guildId, 10);
-  return renderOffThread("leaderboardCard", {
-    communityName: clan.clanName,
-    activityName: clan.activityName || "XP",
-    subtitle: "Ranked by current streak",
-    rows: rows.map((l) => ({
-      name: l.displayName,
-      streak: l.currentStreak,
-      approved: l.approvedCount,
-    })),
-  });
+/** /xp dashboard entry point. */
+export async function openDashboard(interaction: ChatInputCommandInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply();
+  const clan = await officerGuard(interaction);
+  if (!clan) return;
+  await interaction.editReply(await buildDashboardPayload(clan, "attention", 0));
 }
 
-/* --------------------------------------------------------------- in-place */
-
-/** Post or edit a single dashboard message in place (never reposts on refresh). */
-async function upsertDashboardMessage(
-  client: Client,
-  clan: Clan,
-  type: DashboardType,
-  channelId: string,
-  payload: BaseMessageOptions,
-) {
-  const record = await upsertDashboard(clan.guildId, type, channelId);
-  let channel: TextBasedChannel | null = null;
-  try {
-    channel = (await client.channels.fetch(
-      channelId,
-    )) as TextBasedChannel | null;
-  } catch {
+export async function handleDashButton(interaction: ButtonInteraction) {
+  await interaction.deferUpdate();
+  const clan = await officerGuard(interaction);
+  if (!clan) return;
+  const { action, arg } = parseId(interaction.customId);
+  if (action === "refresh") {
+    await interaction.editReply(await buildDashboardPayload(clan, "attention", 0));
     return;
   }
-  if (!channel || !("send" in channel)) return;
-
-  if (record.messageId) {
-    try {
-      const msg = await channel.messages.fetch(record.messageId);
-      // Clear any prior attachments so a legacy image dashboard becomes an embed.
-      await msg.edit({
-        embeds: [],
-        components: [],
-        ...payload,
-        attachments: [],
-      });
-      return;
-    } catch {
-      // message was deleted — fall through and post a new one
-    }
-  }
-  const msg = await channel.send(payload);
-  await setDashboardMessage(record.id, msg.id);
-}
-
-/** Refresh every configured dashboard for a clan. Best-effort per dashboard. */
-export async function refreshDashboards(
-  client: Client,
-  clan: Clan,
-): Promise<void> {
-  const jobs: {
-    type: DashboardType;
-    channelId: string | null;
-    build: () => Promise<BaseMessageOptions>;
-  }[] = [
-    {
-      type: "staff",
-      channelId: clan.staffDashboardChannelId,
-      build: async () => ({ embeds: [await buildAdminEmbed(clan)] }),
-    },
-    {
-      type: "clan",
-      channelId: clan.clanDashboardChannelId,
-      build: async () => ({ embeds: [await buildClanEmbed(clan)] }),
-    },
-    {
-      type: "leaderboard",
-      channelId: clan.leaderboardChannelId,
-      build: async () => ({
-        files: [
-          new AttachmentBuilder(await renderLeaderboardImage(clan), {
-            name: "leaderboard.png",
-          }),
-        ],
-      }),
-    },
-  ];
-  if (clan.altAccountsEnabled && clan.patriotDashboardChannelId) {
-    jobs.push({
-      type: "patriot",
-      channelId: clan.patriotDashboardChannelId,
-      build: async () => ({ embeds: [await buildAltEmbed(clan)] }),
-    });
-  }
-
-  for (const job of jobs) {
-    if (!job.channelId) continue;
-    try {
-      await upsertDashboardMessage(
-        client,
-        clan,
-        job.type,
-        job.channelId,
-        await job.build(),
-      );
-    } catch (err) {
-      logger.warn(
-        { err, guild: clan.guildId, type: job.type },
-        "Dashboard refresh failed",
-      );
-    }
+  if (action === "page" && arg) {
+    // arg is "<filter>-<page>"
+    const sep = arg.lastIndexOf("-");
+    const filter = (arg.slice(0, sep) || "attention") as DashFilter;
+    const page = parseInt(arg.slice(sep + 1), 10) || 0;
+    await interaction.editReply(await buildDashboardPayload(clan, filter, page));
   }
 }
 
-/* --------------------------------------------------------------- debounce */
-
-// Coalesce bursts of XP changes (many submissions at once) into one refresh so
-// the live dashboards update on data change without spamming Discord edits.
-const pendingRefresh = new Map<string, NodeJS.Timeout>();
-
-/** Fire-and-forget, debounced dashboard refresh after any XP-affecting change. */
-export function scheduleDashboardRefresh(client: Client, clan: Clan): void {
-  const existing = pendingRefresh.get(clan.guildId);
-  if (existing) clearTimeout(existing);
-  pendingRefresh.set(
-    clan.guildId,
-    setTimeout(() => {
-      pendingRefresh.delete(clan.guildId);
-      void refreshDashboards(client, clan);
-    }, 4000),
-  );
+export async function handleDashSelect(interaction: StringSelectMenuInteraction) {
+  await interaction.deferUpdate();
+  const clan = await officerGuard(interaction);
+  if (!clan) return;
+  const filter = (interaction.values[0] ?? "attention") as DashFilter;
+  await interaction.editReply(await buildDashboardPayload(clan, filter, 0));
 }

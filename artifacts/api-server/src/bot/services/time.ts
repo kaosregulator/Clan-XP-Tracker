@@ -69,6 +69,42 @@ export function currentDayStart(clan: Pick<Clan, "timezone" | "resetTime">, from
   return dayjs(nextReset(clan, from)).subtract(1, "day").toDate();
 }
 
+/* ----------------------------------------------------------- weekly cycle */
+
+type WeeklyClan = Pick<Clan, "timezone" | "resetTime" | "weekStartDay">;
+
+/**
+ * The current tracking week's key: the YYYY-MM-DD (clan timezone) the week
+ * started on. The week boundary is weekStartDay at resetTime, so all weekly
+ * progress/reset math shares one identifier.
+ */
+export function weekKey(clan: WeeklyClan, at: Date = new Date()): string {
+  const tz = safeZone(clan.timezone);
+  const { hour, minute } = parseHm(clan.resetTime);
+  // Shift back by the reset offset so "before reset time" still counts as the
+  // previous day, then walk back to the configured start day.
+  let d = dayjs(at).tz(tz).subtract(hour * 60 + minute, "minute").startOf("day");
+  const startDay = Math.min(6, Math.max(0, clan.weekStartDay ?? 1));
+  while (d.day() !== startDay) d = d.subtract(1, "day");
+  return d.format("YYYY-MM-DD");
+}
+
+/** The moment the next weekly reset fires. */
+export function nextWeeklyReset(clan: WeeklyClan, from: Date = new Date()): Date {
+  const tz = safeZone(clan.timezone);
+  const { hour, minute } = parseHm(clan.resetTime);
+  const startDay = Math.min(6, Math.max(0, clan.weekStartDay ?? 1));
+  let d = dayjs(from).tz(tz).hour(hour).minute(minute).second(0).millisecond(0);
+  while (d.day() !== startDay || !d.isAfter(dayjs(from).tz(tz))) d = d.add(1, "day");
+  return d.toDate();
+}
+
+/** Human range label for a week key, e.g. "Jul 21 – Jul 27". */
+export function weekRangeLabel(key: string): string {
+  const start = dayjs(key, "YYYY-MM-DD");
+  return `${start.format("MMM D")} – ${start.add(6, "day").format("MMM D")}`;
+}
+
 /** A Discord relative timestamp tag, e.g. <t:...:R>. */
 export function discordRelative(date: Date): string {
   return `<t:${Math.floor(date.getTime() / 1000)}:R>`;

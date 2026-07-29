@@ -7,64 +7,22 @@ import {
   handleSetupModal,
   handleSetupSelect,
 } from "./features/setup";
-import { sendMemberHub, handleXpButton } from "./features/hub";
-import { sendAdminHub, handleAdminButton } from "./features/adminHub";
-import {
-  handleProfile,
-  handleLeaderboard,
-  handleWarnings,
-  handleReport,
-  handleHelp,
-  handleWarnRemoveSelect,
-} from "./features/misc";
-import {
-  handleAddAccountModal,
-  handleRemoveAccountSelect,
-  handleSubmitAccountSelect,
-} from "./features/accounts";
-import { handleSubmitModal, handleRemindAck } from "./features/submit";
-import {
-  handleTrackerRemind,
-  handleTrackerRefresh,
-  handleTrackerCheck,
-} from "./features/tracker";
-import {
-  handleApprove,
-  handleRejectButton,
-  handleRejectModal,
-  handleRemind,
-  handleWarnButton,
-  handleWarnModal,
-  handleHistory,
-} from "./features/review";
-import {
-  handleXpAdminButton,
-  handleXpAdminUserSelect,
-  handleXpAdminRoleSelect,
-  handleXpAdminWarnModal,
-} from "./features/xpAdmin";
+import { handleXpCommand } from "./features/xp";
+import { handleReviewButton } from "./features/review";
+import { handleDashButton, handleDashSelect } from "./features/dashboard";
+import { handleWarnings, handleHelp, handleWarnRemoveSelect } from "./features/misc";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
-export async function routeInteraction(
-  interaction: Interaction,
-): Promise<void> {
+export async function routeInteraction(interaction: Interaction): Promise<void> {
   try {
     if (interaction.isChatInputCommand()) {
       switch (interaction.commandName) {
         case "setup":
           return void (await openSetup(interaction));
         case "xp":
-          return void (await sendMemberHub(interaction));
-        case "xpadmin":
-          return void (await sendAdminHub(interaction));
-        case "profile":
-          return void (await handleProfile(interaction));
-        case "leaderboard":
-          return void (await handleLeaderboard(interaction));
+          return void (await handleXpCommand(interaction));
         case "warnings":
           return void (await handleWarnings(interaction));
-        case "report":
-          return void (await handleReport(interaction));
         case "help":
           return void (await handleHelp(interaction));
       }
@@ -72,89 +30,35 @@ export async function routeInteraction(
     }
 
     if (interaction.isButton()) {
-      const { ns, action } = parseId(interaction.customId);
+      const { ns } = parseId(interaction.customId);
       switch (ns) {
-        case NS.xp:
-          // Reminder DM buttons work outside a guild — route them first.
-          if (action === "remindSubmit" || action === "remindDone") {
-            return void (await handleRemindAck(interaction));
-          }
-          return void (await handleXpButton(interaction));
-        case NS.admin:
-          return void (await handleAdminButton(interaction));
-        case NS.xpadmin:
-          return void (await handleXpAdminButton(interaction));
+        case NS.review:
+          return void (await handleReviewButton(interaction));
+        case NS.dash:
+          return void (await handleDashButton(interaction));
         case NS.setup:
           return void (await handleSetupButton(interaction));
-        case NS.tracker:
-          if (action === "remind")
-            return void (await handleTrackerRemind(interaction));
-          if (action === "refresh")
-            return void (await handleTrackerRefresh(interaction));
-          if (action === "check")
-            return void (await handleTrackerCheck(interaction));
-          return;
-        case NS.review:
-          switch (action) {
-            case "approve":
-              return void (await handleApprove(interaction));
-            case "reject":
-              return void (await handleRejectButton(interaction));
-            case "remind":
-              return void (await handleRemind(interaction));
-            case "warn":
-              return void (await handleWarnButton(interaction));
-            case "history":
-              return void (await handleHistory(interaction));
-          }
-          return;
       }
       return;
     }
 
     if (interaction.isModalSubmit()) {
-      const { ns, action } = parseId(interaction.customId);
-      if (ns === NS.setup) return void (await handleSetupModal(interaction));
-      if (ns === NS.xp && action === "submitModal")
-        return void (await handleSubmitModal(interaction));
-      if (ns === NS.xp && action === "addAccountModal")
-        return void (await handleAddAccountModal(interaction));
-      if (ns === NS.review) {
-        if (action === "rejectModal")
-          return void (await handleRejectModal(interaction));
-        if (action === "warnModal")
-          return void (await handleWarnModal(interaction));
-      }
-      if (ns === NS.xpadmin && action === "warnModal")
-        return void (await handleXpAdminWarnModal(interaction));
-      return;
-    }
-
-    if (interaction.isUserSelectMenu()) {
       const { ns } = parseId(interaction.customId);
-      if (ns === NS.xpadmin)
-        return void (await handleXpAdminUserSelect(interaction));
+      if (ns === NS.setup) return void (await handleSetupModal(interaction));
       return;
     }
 
     if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
-      if (ns === NS.xpadmin && interaction.isRoleSelectMenu())
-        return void (await handleXpAdminRoleSelect(interaction));
       return;
     }
 
     if (interaction.isStringSelectMenu()) {
-      const { ns, action } = parseId(interaction.customId);
-      if (ns === NS.warn)
-        return void (await handleWarnRemoveSelect(interaction));
-      if (ns === NS.xp) {
-        if (action === "removeAccount")
-          return void (await handleRemoveAccountSelect(interaction));
-        if (action === "submitAccount")
-          return void (await handleSubmitAccountSelect(interaction));
-      }
+      const { ns } = parseId(interaction.customId);
+      if (ns === NS.setup) return void (await handleSetupSelect(interaction));
+      if (ns === NS.dash) return void (await handleDashSelect(interaction));
+      if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));
       return;
     }
   } catch (err) {
@@ -163,18 +67,11 @@ export async function routeInteraction(
         err,
         customId: "customId" in interaction ? interaction.customId : undefined,
       },
-      "Interaction failed",
+      "Interaction failed"
     );
-    if (
-      interaction.isRepliable() &&
-      !interaction.replied &&
-      !interaction.deferred
-    ) {
+    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
       await interaction
-        .reply({
-          content: "Something went wrong. Please try again.",
-          flags: 64,
-        })
+        .reply({ content: "Something went wrong. Please try again.", flags: 64 })
         .catch(() => {});
     }
   }

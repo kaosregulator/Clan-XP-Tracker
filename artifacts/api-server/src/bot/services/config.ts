@@ -65,8 +65,12 @@ export async function updateClan(
   return row ?? null;
 }
 
-/** True when the member is clan staff — configured staff role, or a guild manager. */
-export function isStaff(member: GuildMember | null, clan: Clan | null): boolean {
+/**
+ * True when the member may manage XP — an officer role, an admin role, or a
+ * guild manager. Officers run the weekly workflow (update progress, remind,
+ * warn, review).
+ */
+export function isOfficer(member: GuildMember | null, clan: Clan | null): boolean {
   if (!member) return false;
   if (
     member.permissions.has(PermissionFlagsBits.Administrator) ||
@@ -75,8 +79,30 @@ export function isStaff(member: GuildMember | null, clan: Clan | null): boolean 
     return true;
   }
   if (!clan) return false;
-  return clan.staffRoleIds.some((roleId) => member.roles.cache.has(roleId));
+  return (
+    clan.staffRoleIds.some((roleId) => member.roles.cache.has(roleId)) ||
+    clan.adminRoleIds.some((roleId) => member.roles.cache.has(roleId))
+  );
 }
+
+/**
+ * True when the member may change configuration — a configured admin role or
+ * a guild manager. A stricter tier than isOfficer.
+ */
+export function isAdmin(member: GuildMember | null, clan: Clan | null): boolean {
+  if (!member) return false;
+  if (
+    member.permissions.has(PermissionFlagsBits.Administrator) ||
+    member.permissions.has(PermissionFlagsBits.ManageGuild)
+  ) {
+    return true;
+  }
+  if (!clan) return false;
+  return clan.adminRoleIds.some((roleId) => member.roles.cache.has(roleId));
+}
+
+/** Back-compat alias — existing call sites treat "staff" as officer-level. */
+export const isStaff = isOfficer;
 
 export interface MemberIdentity {
   userId: string;
