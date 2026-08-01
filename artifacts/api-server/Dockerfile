@@ -23,9 +23,9 @@ COPY lib/ lib/
 COPY artifacts/api-server/ artifacts/api-server/
 COPY artifacts/clan-xp-tracker/ artifacts/clan-xp-tracker/
 
-# Build workspace libs
-RUN pnpm --filter @workspace/api-zod run build || true
-RUN pnpm --filter @workspace/db run build || true
+# NOTE: @workspace/api-zod and @workspace/db have no build step — they are
+# consumed as TypeScript source and bundled directly into the API server by
+# esbuild, so there is nothing to compile or copy for them here.
 
 # Build frontend (static)
 RUN cd artifacts/clan-xp-tracker && PORT=8080 BASE_PATH=/ pnpm run build
@@ -51,11 +51,14 @@ COPY artifacts/api-server/package.json artifacts/api-server/
 # Install only production deps
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built artifacts
+# Copy built artifacts. The API server bundle is self-contained (api-zod and db
+# are compiled into it), so only the server bundle and the static frontend are
+# needed at runtime.
 COPY --from=builder /app/artifacts/api-server/dist artifacts/api-server/dist
 COPY --from=builder /app/artifacts/clan-xp-tracker/dist/public artifacts/clan-xp-tracker/dist/public
-COPY --from=builder /app/lib/api-zod/dist lib/api-zod/dist || true
-COPY --from=builder /app/lib/db/dist lib/db/dist || true
 
+# Railway injects its own PORT and overrides this; the default just keeps the
+# container bootable (and aligned with EXPOSE) if PORT is ever left unset.
+ENV PORT=8080
 EXPOSE 8080
 CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
