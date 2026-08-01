@@ -23,6 +23,12 @@ COPY lib/ lib/
 COPY artifacts/api-server/ artifacts/api-server/
 COPY artifacts/clan-xp-tracker/ artifacts/clan-xp-tracker/
 
+# Root TypeScript config. Every workspace tsconfig.json does
+# `extends: "../../tsconfig.base.json"`, and esbuild/vite resolve that while
+# transforming .ts/.tsx during the builds below. Without these files the
+# frontend build fails in loadTsconfigJsonForFile -> resolveExtends.
+COPY tsconfig.base.json tsconfig.json ./
+
 # NOTE: @workspace/api-zod and @workspace/db have no build step — they are
 # consumed as TypeScript source and bundled directly into the API server by
 # esbuild, so there is nothing to compile or copy for them here.
