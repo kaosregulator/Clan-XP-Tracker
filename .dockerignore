@@ -1,0 +1,33 @@
+# Build context excludes for the Railway/Docker build.
+# Docker only reads a .dockerignore from the build-context root (the repo root
+# on Railway), so this file — not artifacts/api-server/.dockerignore — is the
+# one that actually applies to the deploy build.
+
+# Dependencies and build output are recreated inside the image.
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+
+# VCS / CI / editor
+.git
+.github
+.vscode
+.idea
+
+# Local env files (never bake secrets into an image layer)
+.env
+.env.*
+
+# Logs and coverage
+*.log
+coverage
+.nyc_output
+
+# Replit-specific bits, unused on Railway
+.replit
+.replitignore
+**/.replit-artifact
+.cache
+.local
