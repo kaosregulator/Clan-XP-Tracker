@@ -1,11 +1,23 @@
 import { db, warningsTable, clanMembersTable } from "@workspace/db";
-import type { Clan, Warning } from "@workspace/db";
+import type { Clan, ClanMember, Warning } from "@workspace/db";
 import { eq, and, isNull, desc, sql } from "drizzle-orm";
+import PQueue from "p-queue";
 import { EmbedBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser } from "./config";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyWarning } from "./progress";
+
+/**
+ * Where a warning is delivered. Both default to the clan settings when
+ * omitted (channel post when a warn channel is set, DM when dmOnWarn is on),
+ * so callers that don't care keep the old behaviour. A slash command can pass
+ * explicit flags to let the officer pick channel, DM, or both.
+ */
+export interface WarnDelivery {
+  channel?: boolean;
+  dm?: boolean;
+}
 
 export interface IssueWarningInput {
   client: Client;
@@ -15,6 +27,7 @@ export interface IssueWarningInput {
   moderatorId: string;
   moderatorUsername: string;
   reason: string;
+  deliver?: WarnDelivery;
 }
 
 export interface IssueWarningResult {
@@ -84,13 +97,33 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       .setTimestamp()
   );
 
-  // Post to the dedicated warning channel when one is configured.
-  if (clan.warningChannelId) {
+  const deliverChannel = input.deliver?.channel ?? true;
+  const deliverDm = input.deliver?.dm ?? clan.dmOnWarn;
+
+  // Post to the dedicated warning channel when one is configured. The post
+  // pings the member and shows their avatar so it reads as a real callout.
+  if (deliverChannel && clan.warningChannelId) {
     try {
       const channel = await client.channels.fetch(clan.warningChannelId);
       if (channel?.isTextBased() && "send" in channel) {
+        const embed = new EmbedBuilder()
+          .setColor(0xed4245)
+          .setAuthor({
+            name: `XP Warning • ${target.username}`,
+            iconURL: target.displayAvatarURL(),
+          })
+          .setThumbnail(target.displayAvatarURL())
+          .setDescription(input.reason.slice(0, 4096))
+          .addFields({
+            name: "Active warnings",
+            value: `${activeCount}`,
+            inline: true,
+          })
+          .setFooter({ text: `Warned by ${input.moderatorUsername}` })
+          .setTimestamp();
         await channel.send({
-          content: `⚠️ <@${target.id}> — ${input.reason} (warning ${activeCount})`,
+          content: `⚠️ <@${target.id}>`,
+          embeds: [embed],
           allowedMentions: { users: [target.id] },
         });
       }
@@ -99,7 +132,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     }
   }
 
-  if (clan.dmOnWarn) {
+  if (deliverDm) {
     await target
       .send(
         `⚠️ You've received a warning in **${guild.name}**.\n> ${input.reason}\n\nYou now have **${activeCount}** active warning(s).`
@@ -108,6 +141,91 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   return { warning: warning!, activeCount };
+}
+
+export interface BulkWarnResult {
+  issued: number;
+  escalated: string[];
+}
+
+/**
+ * Warn many members with Discord-safe pacing. Mirrors sendBulkReminders so a
+ * role-wide `/xp role warn` behaves like the single-member `/xp warn`. Members
+ * whose account can't be fetched are skipped. Anyone who crosses the clan's
+ * escalation threshold is returned so the caller can flag them for leadership.
+ */
+export async function sendBulkWarnings(opts: {
+  client: Client;
+  clan: Clan;
+  guild: Guild;
+  targets: ClanMember[];
+  moderatorId: string;
+  moderatorUsername: string;
+  reason: (member: ClanMember) => string;
+  deliver?: WarnDelivery;
+}): Promise<BulkWarnResult> {
+  const { client, clan, guild, targets } = opts;
+  const queue = new PQueue({ concurrency: 2, intervalCap: 2, interval: 1000 });
+  let issued = 0;
+  const escalated: string[] = [];
+  for (const member of targets) {
+    queue.add(async () => {
+      const user = await client.users.fetch(member.userId).catch(() => null);
+      if (!user) return;
+      const { activeCount } = await issueWarning({
+        client,
+        clan,
+        guild,
+        target: user,
+        moderatorId: opts.moderatorId,
+        moderatorUsername: opts.moderatorUsername,
+        reason: opts.reason(member),
+        deliver: opts.deliver,
+      });
+      issued++;
+      if (activeCount >= clan.escalationThreshold) {
+        escalated.push(`<@${member.userId}> (${activeCount})`);
+      }
+    });
+  }
+  await queue.onIdle();
+  return { issued, escalated };
+}
+
+/**
+ * Post a single warning announcement that pings a whole role, without issuing
+ * per-member warnings. Used by `/xp role warn` in "announce" mode when the
+ * officer just wants one visible callout instead of a record against each
+ * member. Returns whether the message was posted.
+ */
+export async function postWarningAnnouncement(opts: {
+  client: Client;
+  clan: Clan;
+  roleId: string;
+  reason: string;
+  moderatorUsername: string;
+}): Promise<boolean> {
+  const { client, clan } = opts;
+  if (!clan.warningChannelId) return false;
+  try {
+    const channel = await client.channels.fetch(clan.warningChannelId);
+    if (!channel?.isTextBased() || !("send" in channel)) return false;
+    const embed = new EmbedBuilder()
+      .setColor(0xed4245)
+      .setAuthor({ name: `XP Warning • ${clan.clanName}` })
+      .setDescription(opts.reason.slice(0, 4096))
+      .setFooter({ text: `Warned by ${opts.moderatorUsername}` })
+      .setTimestamp();
+    await channel.send({
+      content: `⚠️ <@&${opts.roleId}>`,
+      embeds: [embed],
+      allowedMentions: { roles: [opts.roleId] },
+    });
+    return true;
+  } catch (err) {
+    logger.warn({ err, channel: clan.warningChannelId }, "Warning announcement post failed");
+    return false;
+  }
 }
 
 export async function countActive(guildId: string, userId: string): Promise<number> {
