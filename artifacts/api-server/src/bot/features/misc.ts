@@ -89,6 +89,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
       lines: [
         `You never submit ${activity} — officers verify it in-game`,
         `/xp progress  —  see where you stand this week`,
+        `/calendar  —  your ${activity} calendar & history`,
         `/xp history  —  your past weeks`,
         `/warnings  —  your active ${activity} warnings`,
       ],
@@ -99,12 +100,14 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
       title: "For officers",
       accent: "#5865f2",
       lines: [
+        `/entry @user <amount> [date]  —  log ${activity} (rolls up + backfills)`,
+        `/calendar @user  —  their month time-card`,
+        `/missing  —  who hasn't hit today's target`,
+        `/remind @user  —  nudge one member`,
+        `/warn @user [message]  —  warn for missed ${activity} (admins)`,
         `/xp set | add | remove | complete | reset @user`,
-        `/xp remind @user  —  nudge one member now`,
-        `/xp warn @user [message]  —  warn for missed XP (admins)`,
-        `/xp role add | complete | reset | remind | warn  —  bulk by role`,
-        `/xp review  —  the weekly panel: remind, warn, export`,
-        `/xp dashboard  —  who needs reminders & warnings`,
+        `/xp role add | reset | remind | warn | entry  —  bulk by role`,
+        `/xp review | dashboard  —  weekly panel & who's behind`,
         `/xp exempt | leave | note | goal @user`,
       ],
     });

@@ -108,6 +108,11 @@ export const clansTable = pgTable("clans", {
   // clan_members.weeklyGoalOverride.
   weeklyGoal: integer("weekly_goal").notNull().default(5000),
 
+  // The per-day XP a member is expected to earn. Drives the daily-ledger
+  // calendar: a day counts as "done" when its entry meets this target, and
+  // "missed" when it falls short (0 disables the daily check entirely).
+  dailyTarget: integer("daily_target").notNull().default(0),
+
   // Day the tracking week starts, 0 = Sunday … 6 = Saturday. The weekly reset
   // fires at resetTime on this day in the clan timezone.
   weekStartDay: integer("week_start_day").notNull().default(1),

@@ -104,7 +104,9 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
     .addFields(
       {
         name: `${check(clan.weeklyGoal || clan.trackingMode === "complete")} Weekly Requirement`,
-        value: `${goalLine(clan)}\nTracking mode: **${modeLabel(clan)}**`,
+        value:
+          `${goalLine(clan)}\nTracking mode: **${modeLabel(clan)}**\n` +
+          `Daily target: **${clan.dailyTarget > 0 ? `${clan.dailyTarget.toLocaleString()} ${clan.activityName}/day` : "off"}**`,
         inline: false,
       },
       {
@@ -355,10 +357,10 @@ function goalModal(clan: Clan) {
       row(
         new TextInputBuilder()
           .setCustomId("weeklyGoal")
-          .setLabel("Weekly goal number")
+          .setLabel("Weekly goal (optional , daily target)")
           .setStyle(TextInputStyle.Short)
-          .setValue(String(clan.weeklyGoal))
-          .setPlaceholder("e.g. 5000 XP, or 10 activities")
+          .setValue(clan.dailyTarget > 0 ? `${clan.weeklyGoal}, ${clan.dailyTarget}` : String(clan.weeklyGoal))
+          .setPlaceholder("5000  — or  5000, 500 to set a daily target")
           .setRequired(true)
       ),
       row(
@@ -532,12 +534,16 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
   let patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {};
 
   if (action === "goalModal") {
-    const goal = num(f("weeklyGoal"));
+    // "5000" sets just the weekly goal; "5000, 500" also sets a daily target.
+    const [weeklyRaw = "", dailyRaw = ""] = f("weeklyGoal").split(",");
+    const goal = num(weeklyRaw);
+    const daily = num(dailyRaw);
     const url = f("gameUrl").trim();
     patch = {
       clanName: f("clanName").trim() || clan.clanName,
       activityName: f("activityName").trim() || "XP",
       weeklyGoal: Number.isFinite(goal) && goal > 0 ? goal : clan.weeklyGoal,
+      dailyTarget: dailyRaw.trim() ? (Number.isFinite(daily) && daily >= 0 ? daily : clan.dailyTarget) : 0,
       gameName: f("gameName").trim() || clan.gameName,
       gameUrl: url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : null,
     };

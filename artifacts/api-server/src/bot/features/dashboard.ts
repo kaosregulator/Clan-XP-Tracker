@@ -60,11 +60,13 @@ function memberLine(clan: Clan, m: ClanMember, warnEligible: boolean): string {
   const status = statusOf(clan, m);
   const badge =
     status === "exempt" ? "🛡️" : status === "leave" ? "🌙" : warnEligible ? "🚨" : reminders > 0 ? "🔔" : "▫️";
-  const bits = [`${badge} <@${m.userId}> — ${formatProgress(clan, m)}`];
-  if (reminders) bits.push(`${reminders} reminder(s)`);
-  if (warnings) bits.push(`⚠️ ${warnings} warning(s)`);
-  if (m.notes) bits.push(`📝`);
-  return bits.join(" · ");
+  // Compact line: badge · @member · 20/5000 XP   🔔2 ⚠️1 📝
+  const meta: string[] = [];
+  if (reminders) meta.push(`🔔${reminders}`);
+  if (warnings) meta.push(`⚠️${warnings}`);
+  if (m.notes) meta.push("📝");
+  const head = `${badge} <@${m.userId}> · ${formatProgress(clan, m)}`;
+  return meta.length ? `${head}   ${meta.join(" ")}` : head;
 }
 
 export async function buildDashboardPayload(
