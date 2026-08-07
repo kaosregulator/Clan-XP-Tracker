@@ -22,22 +22,7 @@ export interface SendReminderResult {
   delivered: boolean;
 }
 
-/** What the member still needs, phrased for the server's tracking mode. */
-function needLine(clan: Clan, member: ClanMember | null): string {
-  if (!member) return `You still need to hit this week's ${clan.activityName} goal.`;
-  const progress = currentProgress(clan, member);
-  const goal = effectiveGoal(clan, member);
-  if (clan.trackingMode === "complete") {
-    return `Your weekly ${clan.activityName} is still marked **not completed**.`;
-  }
-  const remaining = Math.max(0, goal - progress);
-  return (
-    `You're at **${progress.toLocaleString()} / ${goal.toLocaleString()}** — ` +
-    `**${remaining.toLocaleString()}** ${clan.activityName} to go.`
-  );
-}
-
-/** A simple reminder card: the member's avatar and a plain reminder message. */
+/** A simple reminder card: the member's avatar and a "go do your XP" nudge. */
 function reminderEmbed(clan: Clan, member: ClanMember | null, target: User): EmbedBuilder {
   const deadline = discordRelative(nextWeeklyReset(clan));
   return new EmbedBuilder()
@@ -45,10 +30,19 @@ function reminderEmbed(clan: Clan, member: ClanMember | null, target: User): Emb
     .setAuthor({ name: `Reminder • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
     .setThumbnail(target.displayAvatarURL())
     .setDescription(
-      `${needLine(clan, member)}\n\n` +
-        `The week resets ${deadline}. This is just a friendly reminder — not a warning.`
+      `This is your reminder to get your ${clan.activityName} in for ${clan.gameName}. 💪\n\n` +
+        `${remainingLine(clan, member)}` +
+        `The week resets ${deadline}. Just a friendly nudge — not a warning.`
     )
     .setTimestamp();
+}
+
+/** Optional one-liner of context, phrased as "still to earn", not "incomplete". */
+function remainingLine(clan: Clan, member: ClanMember | null): string {
+  if (!member || clan.trackingMode === "complete") return "";
+  const remaining = Math.max(0, effectiveGoal(clan, member) - currentProgress(clan, member));
+  if (remaining <= 0) return "";
+  return `You still have **${remaining.toLocaleString()}** ${clan.activityName} to earn this week.\n\n`;
 }
 
 /**
