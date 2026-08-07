@@ -1,6 +1,6 @@
 import { db, warningsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember, Warning } from "@workspace/db";
-import { eq, and, isNull, desc, sql } from "drizzle-orm";
+import { eq, and, isNull, desc, gte, sql } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
@@ -74,31 +74,10 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     }
   }
 
-  await logAction(guild.id, {
-    action: "warning_issued",
-    targetUserId: target.id,
-    targetUsername: target.username,
-    moderatorId: input.moderatorId,
-    moderatorUsername: input.moderatorUsername,
-    details: { reason: input.reason, warningId: warning?.id, activeCount },
-  });
-
-  await sendLog(
-    client,
-    clan,
-    new EmbedBuilder()
-      .setColor(0xed4245)
-      .setAuthor({ name: `Warning issued • ${target.username}`, iconURL: target.displayAvatarURL() })
-      .setDescription(`<@${target.id}> was warned by <@${input.moderatorId}>.`)
-      .addFields(
-        { name: "Reason", value: input.reason.slice(0, 1024) },
-        { name: "Active warnings", value: `${activeCount}`, inline: true }
-      )
-      .setTimestamp()
-  );
-
   const deliverChannel = input.deliver?.channel ?? true;
   const deliverDm = input.deliver?.dm ?? clan.dmOnWarn;
+  let channelPosted = false;
+  let dmSent = false;
 
   // Post to the dedicated warning channel when one is configured. The post
   // pings the member and shows their avatar so it reads as a real callout.
@@ -126,6 +105,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
           embeds: [embed],
           allowedMentions: { users: [target.id] },
         });
+        channelPosted = true;
       }
     } catch (err) {
       logger.warn({ err, channel: clan.warningChannelId }, "Warning channel post failed");
@@ -133,18 +113,97 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
-    await target
+    dmSent = await target
       .send(
         `⚠️ You've received a warning in **${guild.name}**.\n> ${input.reason}\n\nYou now have **${activeCount}** active warning(s).`
       )
-      .catch(() => {});
+      .then(() => true)
+      .catch(() => false);
   }
+
+  // Describe how the member was actually notified, for the log trail.
+  const delivery =
+    [channelPosted ? "warn channel" : null, dmSent ? "DM" : null].filter(Boolean).join(" + ") ||
+    (deliverChannel || deliverDm ? "not delivered" : "silent");
+
+  // Audit row (DB) — the durable record of who warned whom.
+  await logAction(guild.id, {
+    action: "warning_issued",
+    targetUserId: target.id,
+    targetUsername: target.username,
+    moderatorId: input.moderatorId,
+    moderatorUsername: input.moderatorUsername,
+    details: { reason: input.reason, warningId: warning?.id, activeCount, delivery },
+  });
+
+  // Full log embed → the dedicated log channel (separate from the public warn
+  // channel where the member is actually pinged).
+  await sendLog(
+    client,
+    clan,
+    new EmbedBuilder()
+      .setColor(0xed4245)
+      .setAuthor({ name: `Warning issued • ${target.username}`, iconURL: target.displayAvatarURL() })
+      .setDescription(`<@${target.id}> was warned by <@${input.moderatorId}>.`)
+      .addFields(
+        { name: "Reason", value: input.reason.slice(0, 1024) },
+        { name: "Active warnings", value: `${activeCount}`, inline: true },
+        { name: "Delivered via", value: delivery, inline: true }
+      )
+      .setFooter({ text: `Moderator: ${input.moderatorUsername} · ${input.moderatorId}` })
+      .setTimestamp()
+  );
+
+  // Verifiable structured log: who warned whom, and how it was delivered.
+  logger.info(
+    {
+      event: "warning_issued",
+      guildId: guild.id,
+      warningId: warning?.id,
+      targetId: target.id,
+      targetUsername: target.username,
+      moderatorId: input.moderatorId,
+      moderatorUsername: input.moderatorUsername,
+      activeCount,
+      channelPosted,
+      dmSent,
+    },
+    `Warning issued to ${target.username} by ${input.moderatorUsername} (active: ${activeCount})`
+  );
 
   return { warning: warning!, activeCount };
 }
 
+/**
+ * The most recent active warning for a member issued within `windowMs`, or
+ * null. Used to stop the same member being warned (and pinged) twice in quick
+ * succession by stacked commands or a slip of the finger.
+ */
+export async function recentWarning(
+  guildId: string,
+  userId: string,
+  windowMs = 20 * 3600_000
+): Promise<Warning | null> {
+  const cutoff = new Date(Date.now() - windowMs);
+  const [row] = await db
+    .select()
+    .from(warningsTable)
+    .where(
+      and(
+        eq(warningsTable.guildId, guildId),
+        eq(warningsTable.userId, userId),
+        isNull(warningsTable.removedAt),
+        gte(warningsTable.issuedAt, cutoff)
+      )
+    )
+    .orderBy(desc(warningsTable.issuedAt))
+    .limit(1);
+  return row ?? null;
+}
+
 export interface BulkWarnResult {
   issued: number;
+  skipped: number;
   escalated: string[];
 }
 
@@ -153,6 +212,8 @@ export interface BulkWarnResult {
  * role-wide `/xp role warn` behaves like the single-member `/xp warn`. Members
  * whose account can't be fetched are skipped. Anyone who crosses the clan's
  * escalation threshold is returned so the caller can flag them for leadership.
+ * When `skipIfWarnedRecently` is set, members already warned in the last 20
+ * hours are skipped so stacked commands can't double-ping anyone.
  */
 export async function sendBulkWarnings(opts: {
   client: Client;
@@ -163,13 +224,19 @@ export async function sendBulkWarnings(opts: {
   moderatorUsername: string;
   reason: (member: ClanMember) => string;
   deliver?: WarnDelivery;
+  skipIfWarnedRecently?: boolean;
 }): Promise<BulkWarnResult> {
   const { client, clan, guild, targets } = opts;
   const queue = new PQueue({ concurrency: 2, intervalCap: 2, interval: 1000 });
   let issued = 0;
+  let skipped = 0;
   const escalated: string[] = [];
   for (const member of targets) {
     queue.add(async () => {
+      if (opts.skipIfWarnedRecently && (await recentWarning(clan.guildId, member.userId))) {
+        skipped++;
+        return;
+      }
       const user = await client.users.fetch(member.userId).catch(() => null);
       if (!user) return;
       const { activeCount } = await issueWarning({
@@ -189,7 +256,7 @@ export async function sendBulkWarnings(opts: {
     });
   }
   await queue.onIdle();
-  return { issued, escalated };
+  return { issued, skipped, escalated };
 }
 
 /**

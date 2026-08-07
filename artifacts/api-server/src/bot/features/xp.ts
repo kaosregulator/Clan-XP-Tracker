@@ -18,11 +18,12 @@ import {
   currentProgress,
   type ProgressChange,
 } from "../services/progress";
-import { sendReminder, sendBulkReminders } from "../services/reminders";
+import { sendReminder, sendBulkReminders, recentReminder } from "../services/reminders";
 import {
   issueWarning,
   sendBulkWarnings,
   postWarningAnnouncement,
+  recentWarning,
   type WarnDelivery,
 } from "../services/warnings";
 import { roleMemberIdentities } from "../services/roles";
@@ -197,6 +198,17 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         });
         return;
       }
+      // Guard against double-pinging: skip if reminded in the last ~20 hours.
+      const priorReminder = await recentReminder(clan, target.id);
+      if (priorReminder) {
+        const who = priorReminder.auto
+          ? "automatically"
+          : `by ${priorReminder.sentByUsername ?? "an officer"}`;
+        await interaction.editReply({
+          content: `🔕 **${target.username}** was already reminded ${discordRelative(priorReminder.createdAt)} ${who} — not sending another to avoid double-pinging.`,
+        });
+        return;
+      }
       const { delivered } = await sendReminder({
         client: interaction.client,
         clan,
@@ -217,6 +229,14 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
           content: "Only admins can issue warnings. Officers can send reminders with **/xp remind**.",
+        });
+        return;
+      }
+      // Guard against double-pinging: skip if warned in the last ~20 hours.
+      const priorWarning = await recentWarning(clan.guildId, target.id);
+      if (priorWarning) {
+        await interaction.editReply({
+          content: `🛑 **${target.username}** was already warned ${discordRelative(priorWarning.issuedAt)} by ${priorWarning.issuedByUsername} — not issuing a duplicate. Use **/warnings @${target.username}** to review.`,
         });
         return;
       }
@@ -382,13 +402,14 @@ async function handleRoleAction(
         moderatorId: interaction.user.id,
         moderatorUsername: interaction.user.username,
         deliver,
+        skipIfWarnedRecently: true,
         reason: (m) =>
           message ||
           `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, m).toLocaleString()} / ${effectiveGoal(clan, m).toLocaleString()}).`,
       });
       await interaction.editReply({
         content:
-          `⚠️ <@&${role.id}> — issued **${res.issued}** warning(s)${destinationLabel(destination)}.` +
+          `⚠️ <@&${role.id}> — issued **${res.issued}** warning(s)${destinationLabel(destination)}${res.skipped ? ` · skipped ${res.skipped} warned in the last day` : ""}.` +
           (res.escalated.length
             ? `\n🚨 **Leadership review** — at ${clan.escalationThreshold}+ active warnings: ${res.escalated.join(", ")}`
             : ""),
