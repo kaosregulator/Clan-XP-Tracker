@@ -1,6 +1,6 @@
 import { db, remindersTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember } from "@workspace/db";
-import { eq, and, gte, sql } from "drizzle-orm";
+import { eq, and, gte, desc, sql } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, type Client, type User } from "discord.js";
 import { weekKey, nextWeeklyReset, discordRelative } from "./time";
@@ -115,6 +115,14 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     details: { auto: input.auto, delivered, via: channelUsed },
   });
 
+  const by = input.auto
+    ? "automatically"
+    : input.moderatorId
+      ? `by <@${input.moderatorId}>`
+      : "manually";
+
+  // Full log embed → the dedicated log channel (separate from the public
+  // reminder channel where the member is actually pinged).
   await sendLog(
     client,
     clan,
@@ -122,13 +130,64 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       .setColor(0xfaa61a)
       .setAuthor({ name: `Reminder • ${target.username}`, iconURL: target.displayAvatarURL() })
       .setDescription(
-        `<@${target.id}> was reminded${input.auto ? " automatically" : input.moderatorId ? ` by <@${input.moderatorId}>` : ""}.` +
+        `<@${target.id}> was reminded ${by}.` +
           (delivered ? "" : " (not delivered — DMs closed & no reminder channel)")
       )
+      .addFields({ name: "Delivered via", value: delivered ? channelUsed : "not delivered", inline: true })
+      .setFooter({
+        text: input.auto
+          ? "Automatic reminder"
+          : `Moderator: ${input.moderatorUsername ?? "unknown"}${input.moderatorId ? ` · ${input.moderatorId}` : ""}`,
+      })
       .setTimestamp()
   );
 
+  // Verifiable structured log: who reminded whom, and how it was delivered.
+  logger.info(
+    {
+      event: "reminder_sent",
+      guildId: clan.guildId,
+      targetId: target.id,
+      targetUsername: target.username,
+      auto: input.auto,
+      moderatorId: input.moderatorId ?? null,
+      moderatorUsername: input.moderatorUsername ?? null,
+      channel: channelUsed,
+      delivered,
+    },
+    `Reminder ${delivered ? "delivered" : "recorded (undelivered)"} to ${target.username} ${input.auto ? "automatically" : `by ${input.moderatorUsername ?? "unknown"}`}`
+  );
+
   return { delivered };
+}
+
+/**
+ * The most recent reminder for a user within `windowMs`, or null. Lets the
+ * single `/xp remind` command avoid re-pinging someone who was just reminded.
+ */
+export async function recentReminder(
+  clan: Clan,
+  userId: string,
+  windowMs = 20 * 3600_000
+): Promise<{ createdAt: Date; sentByUsername: string | null; auto: boolean } | null> {
+  const cutoff = new Date(Date.now() - windowMs);
+  const [row] = await db
+    .select({
+      createdAt: remindersTable.createdAt,
+      sentByUsername: remindersTable.sentByUsername,
+      auto: remindersTable.auto,
+    })
+    .from(remindersTable)
+    .where(
+      and(
+        eq(remindersTable.guildId, clan.guildId),
+        eq(remindersTable.userId, userId),
+        gte(remindersTable.createdAt, cutoff)
+      )
+    )
+    .orderBy(desc(remindersTable.createdAt))
+    .limit(1);
+  return row ?? null;
 }
 
 /** How many reminders this user already received this tracking week. */

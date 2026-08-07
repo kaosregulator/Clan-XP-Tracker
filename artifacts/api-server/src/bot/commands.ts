@@ -113,6 +113,30 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .setDescription("Send a progress reminder to a member now")
         .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
     )
+    .addSubcommand((s) =>
+      s
+        .setName("warn")
+        .setDescription("Warn a member for missed XP now")
+        .addUserOption((o) => o.setName("user").setDescription("Member to warn").setRequired(true))
+        .addStringOption((o) =>
+          o
+            .setName("message")
+            .setDescription("Optional note to include with the warning")
+            .setRequired(false)
+            .setMaxLength(500)
+        )
+        .addStringOption((o) =>
+          o
+            .setName("destination")
+            .setDescription("Where to send the warning (default: warn channel)")
+            .setRequired(false)
+            .addChoices(
+              { name: "Warn channel", value: "channel" },
+              { name: "Direct message", value: "dm" },
+              { name: "Both", value: "both" }
+            )
+        )
+    )
     // Views ------------------------------------------------------------------
     .addSubcommand((s) =>
       s
@@ -169,6 +193,40 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
             .setName("remind")
             .setDescription("Remind everyone in a role who is behind")
             .addRoleOption((o) => o.setName("role").setDescription("Target role").setRequired(true))
+        )
+        .addSubcommand((s) =>
+          s
+            .setName("warn")
+            .setDescription("Warn a whole role for missed XP")
+            .addRoleOption((o) => o.setName("role").setDescription("Target role").setRequired(true))
+            .addStringOption((o) =>
+              o
+                .setName("message")
+                .setDescription("Optional note to include with the warning")
+                .setRequired(false)
+                .setMaxLength(500)
+            )
+            .addStringOption((o) =>
+              o
+                .setName("mode")
+                .setDescription("Warn each member individually, or ping the whole role once")
+                .setRequired(false)
+                .addChoices(
+                  { name: "Warn each member (records a warning each)", value: "individual" },
+                  { name: "Ping the whole role once (announcement only)", value: "announce" }
+                )
+            )
+            .addStringOption((o) =>
+              o
+                .setName("destination")
+                .setDescription("Where to send warnings (default: warn channel)")
+                .setRequired(false)
+                .addChoices(
+                  { name: "Warn channel", value: "channel" },
+                  { name: "Direct message", value: "dm" },
+                  { name: "Both", value: "both" }
+                )
+            )
         )
     )
     .toJSON(),

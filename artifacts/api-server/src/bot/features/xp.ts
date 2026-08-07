@@ -3,7 +3,7 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type { Clan } from "@workspace/db";
-import { getClan, isOfficer, identityFromUser, getMember } from "../services/config";
+import { getClan, isOfficer, isAdmin, identityFromUser, getMember } from "../services/config";
 import {
   applyProgress,
   setMemberFlag,
@@ -18,7 +18,14 @@ import {
   currentProgress,
   type ProgressChange,
 } from "../services/progress";
-import { sendReminder, sendBulkReminders } from "../services/reminders";
+import { sendReminder, sendBulkReminders, recentReminder } from "../services/reminders";
+import {
+  issueWarning,
+  sendBulkWarnings,
+  postWarningAnnouncement,
+  recentWarning,
+  type WarnDelivery,
+} from "../services/warnings";
 import { roleMemberIdentities } from "../services/roles";
 import { openReview } from "./review";
 import { openDashboard } from "./dashboard";
@@ -55,6 +62,34 @@ const officer = (i: ChatInputCommandInteraction) => ({
   id: i.user.id,
   username: i.user.username,
 });
+
+/** Map the `destination` warn option to explicit delivery flags. */
+function warnDelivery(destination: string | null): WarnDelivery | undefined {
+  switch (destination) {
+    case "channel":
+      return { channel: true, dm: false };
+    case "dm":
+      return { channel: false, dm: true };
+    case "both":
+      return { channel: true, dm: true };
+    default:
+      return undefined; // fall back to clan defaults
+  }
+}
+
+/** Human label for the chosen destination, for reply confirmations. */
+function destinationLabel(destination: string | null): string {
+  switch (destination) {
+    case "dm":
+      return " via DM";
+    case "both":
+      return " in the warn channel and via DM";
+    case "channel":
+      return " in the warn channel";
+    default:
+      return "";
+  }
+}
 
 /* -------------------------------------------------------------- dispatch */
 
@@ -163,6 +198,17 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         });
         return;
       }
+      // Guard against double-pinging: skip if reminded in the last ~20 hours.
+      const priorReminder = await recentReminder(clan, target.id);
+      if (priorReminder) {
+        const who = priorReminder.auto
+          ? "automatically"
+          : `by ${priorReminder.sentByUsername ?? "an officer"}`;
+        await interaction.editReply({
+          content: `🔕 **${target.username}** was already reminded ${discordRelative(priorReminder.createdAt)} ${who} — not sending another to avoid double-pinging.`,
+        });
+        return;
+      }
       const { delivered } = await sendReminder({
         client: interaction.client,
         clan,
@@ -176,6 +222,53 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         content: delivered
           ? `🔔 Reminder sent to **${target.username}**.`
           : `🔔 Reminder recorded, but it couldn't be delivered (DMs closed and no reminder channel).`,
+      });
+      return;
+    }
+    case "warn": {
+      if (!isAdmin(interaction.member, clan)) {
+        await interaction.editReply({
+          content: "Only admins can issue warnings. Officers can send reminders with **/xp remind**.",
+        });
+        return;
+      }
+      // Guard against double-pinging: skip if warned in the last ~20 hours.
+      const priorWarning = await recentWarning(clan.guildId, target.id);
+      if (priorWarning) {
+        await interaction.editReply({
+          content: `🛑 **${target.username}** was already warned ${discordRelative(priorWarning.issuedAt)} by ${priorWarning.issuedByUsername} — not issuing a duplicate. Use **/warnings @${target.username}** to review.`,
+        });
+        return;
+      }
+      const message = interaction.options.getString("message")?.trim();
+      const destination = interaction.options.getString("destination");
+      const deliver = warnDelivery(destination);
+      const member = await getMember(clan.guildId, target.id);
+      const reason =
+        message ||
+        (member
+          ? `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, member).toLocaleString()} / ${effectiveGoal(clan, member).toLocaleString()}).`
+          : `Missed the weekly ${clan.activityName} goal.`);
+      const { activeCount } = await issueWarning({
+        client: interaction.client,
+        clan,
+        guild: interaction.guild,
+        target,
+        moderatorId: interaction.user.id,
+        moderatorUsername: interaction.user.username,
+        reason,
+        deliver,
+      });
+      const wantsChannel = deliver?.channel ?? true;
+      await interaction.editReply({
+        content:
+          `⚠️ Warned **${target.username}**${destinationLabel(destination)} — now **${activeCount}** active warning(s).` +
+          (wantsChannel && !clan.warningChannelId
+            ? "\n_Tip: set an XP warn channel in **/setup** so warnings post publicly._"
+            : "") +
+          (activeCount >= clan.escalationThreshold
+            ? `\n🚨 At ${clan.escalationThreshold}+ active warnings — flag for leadership review.`
+            : ""),
       });
       return;
     }
@@ -252,6 +345,74 @@ async function handleRoleAction(
       });
       await interaction.editReply({
         content: `🔔 <@&${role.id}> — sent **${res.sent}** reminder(s)${res.skipped ? ` · skipped ${res.skipped} reminded in the last day` : ""}.`,
+      });
+      return;
+    }
+    case "warn": {
+      if (!isAdmin(interaction.member, clan)) {
+        await interaction.editReply({
+          content: "Only admins can issue warnings. Officers can send reminders with **/xp role remind**.",
+        });
+        return;
+      }
+      const message = interaction.options.getString("message")?.trim();
+      const mode = interaction.options.getString("mode") ?? "individual";
+
+      // "Ping the whole role once" — a single announcement, no per-member
+      // warnings recorded.
+      if (mode === "announce") {
+        const reason =
+          message || `Members of this role are behind on the weekly ${clan.activityName} goal.`;
+        const posted = await postWarningAnnouncement({
+          client: interaction.client,
+          clan,
+          roleId: role.id,
+          reason,
+          moderatorUsername: interaction.user.username,
+        });
+        await interaction.editReply({
+          content: posted
+            ? `⚠️ Pinged <@&${role.id}> in the warn channel.`
+            : "No XP warn channel is set — configure one in **/setup** to post role announcements.",
+        });
+        return;
+      }
+
+      // "Warn each member" — issue an individual warning to everyone behind.
+      const destination = interaction.options.getString("destination");
+      const deliver = warnDelivery(destination);
+      const members = [];
+      for (const identity of identities) {
+        const m = await getMember(clan.guildId, identity.userId);
+        if (!m) continue;
+        const s = statusOf(clan, m);
+        if (s === "inProgress" || s === "notStarted") members.push(m);
+      }
+      if (!members.length) {
+        await interaction.editReply({
+          content: `Everyone in <@&${role.id}> is complete, exempt or on leave — nothing to warn.`,
+        });
+        return;
+      }
+      const res = await sendBulkWarnings({
+        client: interaction.client,
+        clan,
+        guild: interaction.guild,
+        targets: members,
+        moderatorId: interaction.user.id,
+        moderatorUsername: interaction.user.username,
+        deliver,
+        skipIfWarnedRecently: true,
+        reason: (m) =>
+          message ||
+          `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, m).toLocaleString()} / ${effectiveGoal(clan, m).toLocaleString()}).`,
+      });
+      await interaction.editReply({
+        content:
+          `⚠️ <@&${role.id}> — issued **${res.issued}** warning(s)${destinationLabel(destination)}${res.skipped ? ` · skipped ${res.skipped} warned in the last day` : ""}.` +
+          (res.escalated.length
+            ? `\n🚨 **Leadership review** — at ${clan.escalationThreshold}+ active warnings: ${res.escalated.join(", ")}`
+            : ""),
       });
       return;
     }

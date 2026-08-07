@@ -100,7 +100,9 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
       accent: "#5865f2",
       lines: [
         `/xp set | add | remove | complete | reset @user`,
-        `/xp role add | complete | reset | remind  —  bulk by role`,
+        `/xp remind @user  —  nudge one member now`,
+        `/xp warn @user [message]  —  warn for missed XP (admins)`,
+        `/xp role add | complete | reset | remind | warn  —  bulk by role`,
         `/xp review  —  the weekly panel: remind, warn, export`,
         `/xp dashboard  —  who needs reminders & warnings`,
         `/xp exempt | leave | note | goal @user`,
