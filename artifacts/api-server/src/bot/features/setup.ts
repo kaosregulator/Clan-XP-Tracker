@@ -42,6 +42,7 @@ import {
   SETUP_ADMIN_ROLES,
   SETUP_EXEMPT_ROLES,
   SETUP_LEAVE_ROLES,
+  SETUP_WARN_ROLES,
   setupToggle,
   parseId,
 } from "../ui/ids";
@@ -303,13 +304,24 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
             "**Auto reminders** — the master switch for scheduled reminders.\n" +
             "**DM reminders** — send nudges by direct message.\n" +
             "**Ping in channel** — mention members in the reminder channel.\n" +
+            "**DM on warning** — send the warning by direct message too.\n" +
             "**Auto weekly reset** — archive & reset progress at the week boundary.\n" +
-            "**Archive history** — keep per-member weekly snapshots for `/xp history`."
+            "**Archive history** — keep per-member weekly snapshots for `/xp history`.\n\n" +
+            "**Warning role** — assigned automatically whenever a member is warned, " +
+            "and removed once they have no active warnings left. Leave empty for none."
         ),
     ],
     components: [
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...buttons.slice(0, 3)),
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...buttons.slice(3)),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_WARN_ROLES)
+          .setPlaceholder("Warning role (assigned on warn)")
+          .setMinValues(0)
+          .setMaxValues(5)
+          .setDefaultRoles(clan.warningRoleIds)
+      ),
       backRow(),
     ],
   };
@@ -588,7 +600,12 @@ export async function handleSetupSelect(
     };
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: roleIds });
-    await interaction.editReply(rolesPayload((await getClan(clan.guildId)) ?? clan));
+    const refreshed = (await getClan(clan.guildId)) ?? clan;
+    // The warning-role selector lives on the Notifications page; everything
+    // else on the Roles page. Re-render whichever the officer is looking at.
+    await interaction.editReply(
+      action === "warnRoles" ? notifyPayload(refreshed) : rolesPayload(refreshed)
+    );
     return;
   }
 

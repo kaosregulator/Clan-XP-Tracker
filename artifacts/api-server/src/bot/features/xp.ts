@@ -263,6 +263,9 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       await interaction.editReply({
         content:
           `⚠️ Warned **${target.username}**${destinationLabel(destination)} — now **${activeCount}** active warning(s).` +
+          (clan.warningRoleIds.length
+            ? `\n🔗 Applied warning role: ${clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ")}`
+            : "\n_Tip: pick a **Warning role** in **/setup → Notifications** to auto-assign one on warn._") +
           (wantsChannel && !clan.warningChannelId
             ? "\n_Tip: set an XP warn channel in **/setup** so warnings post publicly._"
             : "") +

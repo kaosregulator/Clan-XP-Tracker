@@ -113,10 +113,16 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
-    dmSent = await target
-      .send(
-        `⚠️ You've received a warning in **${guild.name}**.\n> ${input.reason}\n\nYou now have **${activeCount}** active warning(s).`
+    const dmEmbed = new EmbedBuilder()
+      .setColor(0xed4245)
+      .setAuthor({ name: `Warning • ${guild.name}`, iconURL: target.displayAvatarURL() })
+      .setThumbnail(target.displayAvatarURL())
+      .setDescription(
+        `You've received a warning.\n\n**Reason:** ${input.reason}\n\nYou now have **${activeCount}** active warning(s).`
       )
+      .setTimestamp();
+    dmSent = await target
+      .send({ embeds: [dmEmbed] })
       .then(() => true)
       .catch(() => false);
   }

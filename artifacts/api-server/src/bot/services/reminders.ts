@@ -37,14 +37,18 @@ function needLine(clan: Clan, member: ClanMember | null): string {
   );
 }
 
-function reminderText(clan: Clan, member: ClanMember | null): string {
+/** A simple reminder card: the member's avatar and a plain reminder message. */
+function reminderEmbed(clan: Clan, member: ClanMember | null, target: User): EmbedBuilder {
   const deadline = discordRelative(nextWeeklyReset(clan));
-  return (
-    `👋 **Friendly reminder** from **${clan.clanName}**\n\n` +
-    `${needLine(clan, member)}\n` +
-    `The week closes ${deadline}. **This is only a reminder — it is not a warning.**\n\n` +
-    `An officer will update your progress once they've verified it in ${clan.gameName}.`
-  );
+  return new EmbedBuilder()
+    .setColor(0xfaa61a)
+    .setAuthor({ name: `Reminder • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
+    .setThumbnail(target.displayAvatarURL())
+    .setDescription(
+      `${needLine(clan, member)}\n\n` +
+        `The week resets ${deadline}. This is just a friendly reminder — not a warning.`
+    )
+    .setTimestamp();
 }
 
 /**
@@ -59,9 +63,11 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   let delivered = false;
   let channelUsed = "none";
 
+  const embed = reminderEmbed(clan, member, target);
+
   if (clan.dmReminders) {
     try {
-      await target.send({ content: reminderText(clan, member) });
+      await target.send({ embeds: [embed] });
       delivered = true;
       channelUsed = "dm";
     } catch {
@@ -75,7 +81,8 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       if (channel?.isTextBased() && "send" in channel) {
         const mention = clan.pingReminders ? `<@${target.id}>` : `**${target.username}**`;
         await channel.send({
-          content: `🔔 ${mention} — ${needLine(clan, member)} The week closes ${discordRelative(nextWeeklyReset(clan))}.`,
+          content: `🔔 ${mention}`,
+          embeds: [embed],
           allowedMentions: clan.pingReminders ? { users: [target.id] } : { parse: [] },
         });
         delivered = true;
