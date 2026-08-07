@@ -65,7 +65,7 @@ export function formatProgress(clan: Clan, member: ClanMember): string {
     return progress >= goal ? "✅ Complete" : `🟡 Needs ${clan.activityName}`;
   }
   const unit = clan.trackingMode === "exact" ? ` ${clan.activityName}` : "";
-  return `${progress.toLocaleString()} / ${goal.toLocaleString()}${unit}`;
+  return `${progress.toLocaleString()}/${goal.toLocaleString()}${unit}`;
 }
 
 /* -------------------------------------------------------- progress writes */

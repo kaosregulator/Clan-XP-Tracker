@@ -15,6 +15,7 @@
 import { parentPort } from "node:worker_threads";
 import { renderHelpCard } from "./cards/helpCard";
 import { renderWeeklyReview } from "./cards/weeklyReviewCard";
+import { renderCalendar } from "./cards/calendarCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -45,6 +46,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderWeeklyReview(p as any);
     case "helpCard":
       return renderHelpCard(p as any);
+    case "calendarCard":
+      return renderCalendar(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

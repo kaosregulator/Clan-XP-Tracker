@@ -1,5 +1,6 @@
 import {
   EmbedBuilder,
+  AttachmentBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type { Clan } from "@workspace/db";
@@ -16,6 +17,7 @@ import {
   memberHistory,
   effectiveGoal,
   currentProgress,
+  listTracked,
   type ProgressChange,
 } from "../services/progress";
 import { sendReminder, sendBulkReminders, recentReminder } from "../services/reminders";
@@ -27,9 +29,17 @@ import {
   type WarnDelivery,
 } from "../services/warnings";
 import { roleMemberIdentities } from "../services/roles";
+import {
+  recordEntry,
+  calendarFor,
+  periodTotals,
+  membersMissingToday,
+  type EntryMode,
+} from "../services/xpLedger";
 import { openReview } from "./review";
 import { openDashboard } from "./dashboard";
-import { relative, weekRangeLabel, nextWeeklyReset, discordRelative } from "../services/time";
+import { relative, weekRangeLabel, nextWeeklyReset, discordRelative, activityDate } from "../services/time";
+import { renderOffThread } from "../canvas/render-pool";
 
 export function notConfiguredMessage(officer: boolean): { content: string } {
   return {
@@ -95,12 +105,17 @@ function destinationLabel(destination: string | null): string {
 
 export async function handleXpCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
-  const group = interaction.options.getSubcommandGroup(false);
-  const sub = interaction.options.getSubcommand();
+  // Everyday actions are exposed both as `/xp <sub>` and as plain top-level
+  // commands (/remind, /warn, /calendar, /entry, /missing). For the aliases
+  // there is no subcommand — the command name *is* the action.
+  const isAlias = interaction.commandName !== "xp";
+  const group = isAlias ? null : interaction.options.getSubcommandGroup(false);
+  const sub = isAlias ? interaction.commandName : interaction.options.getSubcommand();
 
   // Views open to everyone (self) come first.
   if (!group && sub === "progress") return handleProgress(interaction);
   if (!group && sub === "history") return handleHistory(interaction);
+  if (!group && sub === "calendar") return handleCalendar(interaction);
   if (!group && sub === "review") return openReview(interaction);
   if (!group && sub === "dashboard") return openDashboard(interaction);
 
@@ -109,6 +124,9 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   if (!clan) return;
 
   if (group === "role") return handleRoleAction(interaction, clan, sub);
+
+  // Officer actions without a required user option.
+  if (sub === "missing") return handleMissing(interaction, clan);
 
   const target = interaction.options.getUser("user", true);
   if (target.bot) {
@@ -228,7 +246,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
     case "warn": {
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
-          content: "Only admins can issue warnings. Officers can send reminders with **/xp remind**.",
+          content: "Only admins can issue warnings. Officers can send reminders with **/remind**.",
         });
         return;
       }
@@ -263,6 +281,9 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       await interaction.editReply({
         content:
           `⚠️ Warned **${target.username}**${destinationLabel(destination)} — now **${activeCount}** active warning(s).` +
+          (clan.warningRoleIds.length
+            ? `\n🔗 Applied warning role: ${clan.warningRoleIds.map((r) => `<@&${r}>`).join(" ")}`
+            : "\n_Tip: pick a **Warning role** in **/setup → Notifications** to auto-assign one on warn._") +
           (wantsChannel && !clan.warningChannelId
             ? "\n_Tip: set an XP warn channel in **/setup** so warnings post publicly._"
             : "") +
@@ -272,7 +293,43 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       });
       return;
     }
+    case "entry": {
+      const amount = interaction.options.getInteger("amount", true);
+      const mode: EntryMode = interaction.options.getBoolean("set") ? "set" : "add";
+      const note = interaction.options.getString("note");
+      const parsed = parseEntryDate(clan, interaction.options.getString("date"));
+      if ("error" in parsed) {
+        await interaction.editReply({ content: parsed.error });
+        return;
+      }
+      const res = await recordEntry(clan, identity, { date: parsed.date, amount, mode, note }, officer(interaction));
+      const totals = await periodTotals(clan, target.id);
+      const dayLabel = parsed.date === activityDate(clan) ? "today" : `**${parsed.date}**`;
+      await interaction.editReply({
+        content:
+          `📒 Logged **${res.dayTotal.toLocaleString()} ${clan.activityName}** for **${target.username}** on ${dayLabel}` +
+          `${mode === "set" ? " (set)" : ` (+${amount.toLocaleString()})`}.\n` +
+          `Totals — today **${totals.today.toLocaleString()}**, week **${totals.week.toLocaleString()}**, month **${totals.month.toLocaleString()}**, all-time **${totals.allTime.toLocaleString()}**.` +
+          (clan.dailyTarget > 0
+            ? `\nDaily target: **${clan.dailyTarget.toLocaleString()}** — ${res.dayTotal >= clan.dailyTarget ? "✅ met" : "✗ short"} for ${dayLabel}.`
+            : ""),
+      });
+      return;
+    }
   }
+}
+
+/** Validate/normalise an optional YYYY-MM-DD entry date (default: today). */
+function parseEntryDate(clan: Clan, raw: string | null): { date: string } | { error: string } {
+  if (!raw) return { date: activityDate(clan) };
+  const trimmed = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { error: "Date must be in **YYYY-MM-DD** format (e.g. 2026-08-01)." };
+  }
+  const d = new Date(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return { error: `**${trimmed}** isn't a real date.` };
+  if (trimmed > activityDate(clan)) return { error: "You can't log XP for a future day." };
+  return { date: trimmed };
 }
 
 /* ------------------------------------------------------------- bulk role */
@@ -320,6 +377,23 @@ async function handleRoleAction(
       });
       return;
     }
+    case "entry": {
+      const amount = interaction.options.getInteger("amount", true);
+      const mode: EntryMode = interaction.options.getBoolean("set") ? "set" : "add";
+      const parsed = parseEntryDate(clan, interaction.options.getString("date"));
+      if ("error" in parsed) {
+        await interaction.editReply({ content: parsed.error });
+        return;
+      }
+      for (const identity of identities) {
+        await recordEntry(clan, identity, { date: parsed.date, amount, mode }, officer(interaction));
+      }
+      const dayLabel = parsed.date === activityDate(clan) ? "today" : `**${parsed.date}**`;
+      await interaction.editReply({
+        content: `📒 Logged **${amount.toLocaleString()} ${clan.activityName}** ${mode === "set" ? "(set) " : ""}for **${identities.length}** member(s) of <@&${role.id}> on ${dayLabel}.`,
+      });
+      return;
+    }
     case "remind": {
       const members = [];
       for (const identity of identities) {
@@ -351,7 +425,7 @@ async function handleRoleAction(
     case "warn": {
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
-          content: "Only admins can issue warnings. Officers can send reminders with **/xp role remind**.",
+          content: "Only admins can issue warnings. Officers can send reminders with **/xp role remind** or **/remind**.",
         });
         return;
       }
@@ -538,5 +612,115 @@ async function handleHistory(interaction: ChatInputCommandInteraction) {
         .setDescription(lines.join("\n"))
         .setFooter({ text: "Most recent first · archived at each weekly reset" }),
     ],
+  });
+}
+
+/** Validate an optional YYYY-MM month (default: current month). */
+function parseMonth(
+  clan: Clan,
+  raw: string | null
+): { year: number; month: number } | { error: string } {
+  const today = activityDate(clan);
+  if (!raw) return { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) };
+  const m = raw.trim().match(/^(\d{4})-(\d{2})$/);
+  if (!m) return { error: "Month must be in **YYYY-MM** format (e.g. 2026-08)." };
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return { error: "Month must be between 01 and 12." };
+  return { year, month };
+}
+
+/** /xp calendar [user] [month] — a per-member time-card of daily XP. */
+async function handleCalendar(interaction: ChatInputCommandInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+  const target = interaction.options.getUser("user") ?? interaction.user;
+  if (target.id !== interaction.user.id && !isOfficer(interaction.member, clan)) {
+    await interaction.editReply({ content: "Only officers can view other members' calendars." });
+    return;
+  }
+  const member = await getMember(clan.guildId, target.id);
+  if (!member) {
+    await interaction.editReply({
+      content: `**${target.username}** isn't tracked yet — log some XP with **/xp entry** first.`,
+    });
+    return;
+  }
+  const parsed = parseMonth(clan, interaction.options.getString("month"));
+  if ("error" in parsed) {
+    await interaction.editReply({ content: parsed.error });
+    return;
+  }
+  const { year, month } = parsed;
+  const view = await calendarFor(clan, member, year, month);
+  const totals = await periodTotals(clan, target.id);
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+
+  const buffer = await renderOffThread("calendarCard", {
+    communityName: clan.clanName,
+    memberName: target.displayName ?? target.username,
+    activityName: clan.activityName,
+    monthLabel: view.monthLabel,
+    target: view.target,
+    firstWeekday,
+    days: view.days.map((d) => ({ day: d.day, amount: d.amount, status: d.status })),
+    doneCount: view.doneCount,
+    missedCount: view.missedCount,
+    monthTotal: view.total,
+    week: totals.week,
+    allTime: totals.allTime,
+  });
+
+  await interaction.editReply({
+    content: `📅 **${target.displayName ?? target.username}** — ${view.monthLabel}`,
+    files: [
+      new AttachmentBuilder(buffer, { name: `calendar-${target.id}-${year}-${month}.png` }),
+    ],
+  });
+}
+
+/** /xp missing [role] — who still owes XP today. */
+async function handleMissing(interaction: ChatInputCommandInteraction<"cached">, clan: Clan) {
+  const role = interaction.options.getRole("role");
+  let members;
+  if (role) {
+    const ids = await roleMemberIdentities(interaction.guild, role.id);
+    members = [];
+    for (const id of ids) {
+      const m = await getMember(clan.guildId, id.userId);
+      if (m) members.push(m);
+    }
+  } else {
+    members = await listTracked(clan);
+  }
+
+  const missing = await membersMissingToday(clan, members);
+  const scope = role ? ` in <@&${role.id}>` : "";
+  if (!missing.length) {
+    await interaction.editReply({
+      content: `✅ Everyone${scope} has hit today's target${clan.dailyTarget > 0 ? ` of **${clan.dailyTarget.toLocaleString()} ${clan.activityName}**` : ""}.`,
+      allowedMentions: { parse: [] },
+    });
+    return;
+  }
+
+  const targetLabel =
+    clan.dailyTarget > 0 ? `${clan.dailyTarget.toLocaleString()} ${clan.activityName}` : `any ${clan.activityName}`;
+  const lines = missing
+    .slice(0, 40)
+    .map(
+      (m) =>
+        `• <@${m.member.userId}> — **${m.todayAmount.toLocaleString()}** / ${clan.dailyTarget > 0 ? clan.dailyTarget.toLocaleString() : "—"}`
+    );
+  await interaction.editReply({
+    content:
+      `🔎 **${missing.length}** member(s)${scope} haven't hit today's target (${targetLabel}):\n` +
+      `${lines.join("\n")}${missing.length > 40 ? `\n…and ${missing.length - 40} more` : ""}`,
+    allowedMentions: { parse: [] },
   });
 }

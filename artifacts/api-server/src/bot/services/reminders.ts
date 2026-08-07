@@ -22,29 +22,27 @@ export interface SendReminderResult {
   delivered: boolean;
 }
 
-/** What the member still needs, phrased for the server's tracking mode. */
-function needLine(clan: Clan, member: ClanMember | null): string {
-  if (!member) return `You still need to hit this week's ${clan.activityName} goal.`;
-  const progress = currentProgress(clan, member);
-  const goal = effectiveGoal(clan, member);
-  if (clan.trackingMode === "complete") {
-    return `Your weekly ${clan.activityName} is still marked **not completed**.`;
-  }
-  const remaining = Math.max(0, goal - progress);
-  return (
-    `You're at **${progress.toLocaleString()} / ${goal.toLocaleString()}** — ` +
-    `**${remaining.toLocaleString()}** ${clan.activityName} to go.`
-  );
+/** A simple reminder card: the member's avatar and a "go do your XP" nudge. */
+function reminderEmbed(clan: Clan, member: ClanMember | null, target: User): EmbedBuilder {
+  const deadline = discordRelative(nextWeeklyReset(clan));
+  return new EmbedBuilder()
+    .setColor(0xfaa61a)
+    .setAuthor({ name: `Reminder • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
+    .setThumbnail(target.displayAvatarURL())
+    .setDescription(
+      `This is your reminder to get your ${clan.activityName} in for ${clan.gameName}. 💪\n\n` +
+        `${remainingLine(clan, member)}` +
+        `The week resets ${deadline}. Just a friendly nudge — not a warning.`
+    )
+    .setTimestamp();
 }
 
-function reminderText(clan: Clan, member: ClanMember | null): string {
-  const deadline = discordRelative(nextWeeklyReset(clan));
-  return (
-    `👋 **Friendly reminder** from **${clan.clanName}**\n\n` +
-    `${needLine(clan, member)}\n` +
-    `The week closes ${deadline}. **This is only a reminder — it is not a warning.**\n\n` +
-    `An officer will update your progress once they've verified it in ${clan.gameName}.`
-  );
+/** Optional one-liner of context, phrased as "still to earn", not "incomplete". */
+function remainingLine(clan: Clan, member: ClanMember | null): string {
+  if (!member || clan.trackingMode === "complete") return "";
+  const remaining = Math.max(0, effectiveGoal(clan, member) - currentProgress(clan, member));
+  if (remaining <= 0) return "";
+  return `You still have **${remaining.toLocaleString()}** ${clan.activityName} to earn this week.\n\n`;
 }
 
 /**
@@ -59,9 +57,11 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   let delivered = false;
   let channelUsed = "none";
 
+  const embed = reminderEmbed(clan, member, target);
+
   if (clan.dmReminders) {
     try {
-      await target.send({ content: reminderText(clan, member) });
+      await target.send({ embeds: [embed] });
       delivered = true;
       channelUsed = "dm";
     } catch {
@@ -75,7 +75,8 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       if (channel?.isTextBased() && "send" in channel) {
         const mention = clan.pingReminders ? `<@${target.id}>` : `**${target.username}**`;
         await channel.send({
-          content: `🔔 ${mention} — ${needLine(clan, member)} The week closes ${discordRelative(nextWeeklyReset(clan))}.`,
+          content: `🔔 ${mention}`,
+          embeds: [embed],
           allowedMentions: clan.pingReminders ? { users: [target.id] } : { parse: [] },
         });
         delivered = true;

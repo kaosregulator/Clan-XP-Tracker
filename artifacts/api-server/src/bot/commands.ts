@@ -107,36 +107,6 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
           o.setName("enabled").setDescription("On or off (default on)").setRequired(false)
         )
     )
-    .addSubcommand((s) =>
-      s
-        .setName("remind")
-        .setDescription("Send a progress reminder to a member now")
-        .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("warn")
-        .setDescription("Warn a member for missed XP now")
-        .addUserOption((o) => o.setName("user").setDescription("Member to warn").setRequired(true))
-        .addStringOption((o) =>
-          o
-            .setName("message")
-            .setDescription("Optional note to include with the warning")
-            .setRequired(false)
-            .setMaxLength(500)
-        )
-        .addStringOption((o) =>
-          o
-            .setName("destination")
-            .setDescription("Where to send the warning (default: warn channel)")
-            .setRequired(false)
-            .addChoices(
-              { name: "Warn channel", value: "channel" },
-              { name: "Direct message", value: "dm" },
-              { name: "Both", value: "both" }
-            )
-        )
-    )
     // Views ------------------------------------------------------------------
     .addSubcommand((s) =>
       s
@@ -190,6 +160,27 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         )
         .addSubcommand((s) =>
           s
+            .setName("entry")
+            .setDescription("Log the same XP for everyone in a role")
+            .addRoleOption((o) => o.setName("role").setDescription("Target role").setRequired(true))
+            .addIntegerOption((o) =>
+              o.setName("amount").setDescription("XP earned each").setRequired(true).setMinValue(0)
+            )
+            .addStringOption((o) =>
+              o
+                .setName("date")
+                .setDescription("Day to log (YYYY-MM-DD); default today")
+                .setRequired(false)
+            )
+            .addBooleanOption((o) =>
+              o
+                .setName("set")
+                .setDescription("Overwrite that day's total instead of adding")
+                .setRequired(false)
+            )
+        )
+        .addSubcommand((s) =>
+          s
             .setName("remind")
             .setDescription("Remind everyone in a role who is behind")
             .addRoleOption((o) => o.setName("role").setDescription("Target role").setRequired(true))
@@ -229,6 +220,74 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
             )
         )
     )
+    .toJSON(),
+
+  // Plain one-word commands for the everyday actions ------------------------
+  new SlashCommandBuilder()
+    .setName("remind")
+    .setDescription("Nudge a member to do their XP")
+    .setDMPermission(false)
+    .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("warn")
+    .setDescription("Warn a member for missed XP")
+    .setDMPermission(false)
+    .addUserOption((o) => o.setName("user").setDescription("Member to warn").setRequired(true))
+    .addStringOption((o) =>
+      o.setName("message").setDescription("Optional note").setRequired(false).setMaxLength(500)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("destination")
+        .setDescription("Where to send it (default: warn channel)")
+        .setRequired(false)
+        .addChoices(
+          { name: "Warn channel", value: "channel" },
+          { name: "Direct message", value: "dm" },
+          { name: "Both", value: "both" }
+        )
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("entry")
+    .setDescription("Log a member's XP for a day")
+    .setDMPermission(false)
+    .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
+    .addIntegerOption((o) =>
+      o.setName("amount").setDescription("XP earned").setRequired(true).setMinValue(0)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("date")
+        .setDescription("Day to log (YYYY-MM-DD) — backfill past days; default today")
+        .setRequired(false)
+    )
+    .addBooleanOption((o) =>
+      o.setName("set").setDescription("Overwrite that day instead of adding").setRequired(false)
+    )
+    .addStringOption((o) =>
+      o.setName("note").setDescription("Optional note").setRequired(false).setMaxLength(200)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("calendar")
+    .setDescription("Show a member's XP calendar")
+    .setDMPermission(false)
+    .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
+    .addStringOption((o) =>
+      o.setName("month").setDescription("Month (YYYY-MM); default this month").setRequired(false)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("missing")
+    .setDescription("List members who haven't hit today's XP target")
+    .setDMPermission(false)
+    .addRoleOption((o) => o.setName("role").setDescription("Only check this role").setRequired(false))
     .toJSON(),
 
   new SlashCommandBuilder()
