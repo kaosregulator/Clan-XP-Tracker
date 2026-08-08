@@ -21,8 +21,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await openSetup(interaction));
         case "xp":
         // Plain top-level aliases for the everyday actions — same handler.
-        case "remind":
-        case "warn":
+        case "xpremind":
+        case "xpwarn":
         case "entry":
         case "calendar":
         case "missing":

@@ -106,11 +106,17 @@ function destinationLabel(destination: string | null): string {
 export async function handleXpCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   // Everyday actions are exposed both as `/xp <sub>` and as plain top-level
-  // commands (/remind, /warn, /calendar, /entry, /missing). For the aliases
+  // commands (/xpremind, /xpwarn, /calendar, /entry, /missing). For the aliases
   // there is no subcommand — the command name *is* the action.
   const isAlias = interaction.commandName !== "xp";
   const group = isAlias ? null : interaction.options.getSubcommandGroup(false);
-  const sub = isAlias ? interaction.commandName : interaction.options.getSubcommand();
+  const sub = isAlias
+    ? interaction.commandName === "xpremind"
+      ? "remind"
+      : interaction.commandName === "xpwarn"
+        ? "warn"
+        : interaction.commandName
+    : interaction.options.getSubcommand();
 
   // Views open to everyone (self) come first.
   if (!group && sub === "progress") return handleProgress(interaction);
@@ -246,7 +252,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
     case "warn": {
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
-          content: "Only admins can issue warnings. Officers can send reminders with **/remind**.",
+          content: "Only admins can issue warnings. Officers can send reminders with **/xpremind**.",
         });
         return;
       }
@@ -425,7 +431,8 @@ async function handleRoleAction(
     case "warn": {
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
-          content: "Only admins can issue warnings. Officers can send reminders with **/xp role remind** or **/remind**.",
+          content:
+            "Only admins can issue warnings. Officers can send reminders with **/xp role remind** or **/xpremind**.",
         });
         return;
       }
