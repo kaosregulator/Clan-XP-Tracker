@@ -1,25 +1,48 @@
-# 🎮 Clan XP Tracker
+# ⚔️ Clan XP Manager
 
-A **Discord-first daily activity & XP tracker** designed for gaming clans and communities. Members prove daily activity by posting screenshots, which the bot forwards to a staff review queue for quick approval. Built with TypeScript, React, Express, and PostgreSQL.
+A **staff-first Discord XP management tool** for gaming clans. Members do **not**
+submit anything — **staff enter XP** while watching the game or a spreadsheet,
+and the bot turns that into an organised calendar, history, reminder and
+enforcement workflow. Built with TypeScript, React, Express, and PostgreSQL.
+
+> **V3 note:** this bot is no longer an XP *submission / leaderboard* product.
+> There is no screenshot submission, no review queue and no competitive
+> ranking. It is a management tool for staff. (Earlier READMEs described the
+> older submission model — this section is the current source of truth.)
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen)
 
-## ✨ Features
+## ✨ What it does
 
-- **Discord-Native Interface**: Slash commands, interactive cards, modal submissions — no web browser needed
-- **Screenshot Submission**: Members submit daily activity with screenshots to prove engagement
-- **Staff Review Queue**: Interactive review cards let moderators approve/deny submissions instantly
-- **Leaderboard Tracking**: Daily, weekly, monthly, and all-time XP leaderboards
-- **Member Profiles**: View member stats, streaks, and contribution history
-- **Automated Reminders**: Scheduled notifications to encourage daily participation
-- **Warning System**: Track and manage member infractions with full audit logging
-- **Clan Analytics**: Dashboard with stats, charts, and contribution tracking
-- **Fully Configurable**: Customize activity names, game names, and visual themes per server
-- **Multi-Game Support**: Built for Roblox by default but works with any game/community
-- **Contribution Model**: Configurable clan contribution system with capacity limits
-- **Canvas Rendering**: Beautiful, branded card designs with custom fonts
+The bot is organised around a small number of **hubs**:
+
+- **⚔️ XP Manager** (`/xp manage`) — a spreadsheet-style roster of every tracked
+  member with category tabs (Complete / Attention / Missed / Reminded / Leave /
+  Exempt / Excused), paging, and a click-through member panel to enter XP
+  (incl. backdated), set status, remind, warn, remove warnings, adjust warning
+  points and leave notes.
+- **🔔 Notifications** (`/xp notifications`) — the actionable "what needs
+  attention" queue with **Read** / **Clear** per item and a **View Members**
+  jump; owners/staff also get a daily DM nudge.
+- **⚠️ Warnings & Enforcement** (`/xp warnings`) — reminders, warnings, warning
+  points, the enforcement role, remove-warning, warning history, member
+  **disputes** and **tickets**, all in one place.
+- **📅 Calendar** (`/calendar`) — the historical visual record of staff-entered
+  XP, including backdated entries.
+- **📊 Reports** (`/xp reports`) — a plain management summary (not a
+  leaderboard) plus a full export.
+- **⚙️ Setup** (`/xp setup`) — tracking role, goal, period, channels (choose or
+  auto-create), staff/enforcement roles and thresholds.
+
+Members get a deliberately tiny **/xp** view: their week, calendar, warnings,
+history, and a **Something Wrong?** button to dispute a warning.
+
+Key rules: completing XP **never** auto-removes a warning or the enforcement
+role — enforcement stays staff-managed. Nothing here duplicates an existing
+system; the hubs are operator surfaces over one XP ledger, one warning system,
+one reminder system and one audit log.
 
 ## 🚀 Quick Start
 
@@ -70,27 +93,42 @@ A **Discord-first daily activity & XP tracker** designed for gaming clans and co
 
 6. **Add the bot to your Discord server**
    - Go to Discord Developer Portal → OAuth2 → URL Generator
-   - Select scopes: `bot`
-   - Select permissions: `Send Messages`, `Embed Links`, `Attach Files`, `Read Message History`, `Add Reactions`
+   - Select scopes: `bot`, `applications.commands`
+   - Select permissions: `Send Messages`, `Embed Links`, `Attach Files`,
+     `Manage Roles` (to assign the enforcement role), and optionally
+     `Manage Channels` (to let setup auto-create the reminder/warning/log
+     channels)
+   - Enable the **Server Members Intent** in the Developer Portal (needed to
+     resolve role membership for the roster and bulk actions). Message Content
+     is **not** required.
    - Visit the generated URL and authorize
 
-7. **Run the `/setup` command** in your Discord server to configure the bot
+7. **Run `/xp setup`** in your Discord server to configure the bot
 
 ## 📚 Commands
 
-### Member Commands
-- `/xp` — View your XP, streaks, and submissions
-- `/leaderboard [period]` — View XP leaderboards (daily, weekly, monthly, alltime)
-- `/profile [@member]` — View a member's profile and history
-- `/report [@member]` — Report a member to staff
+### Member
+- `/xp progress` — **MY XP**: your week, with buttons for My Calendar, My
+  Warnings, My History and **Something Wrong?** (dispute a warning). Staff notes
+  are delivered here once, then clear themselves.
 
-### Staff Commands
-- `/xpadmin` — Access the staff review hub
-- `/warnings [@member]` — View and manage member warnings
-- `/leaderboard [period]` — Full admin dashboard
+### Officer hubs
+- `/xp manage` — the **XP Manager** roster + member panel
+- `/xp notifications` — what needs attention (Read / Clear)
+- `/xp warnings` — the **Warnings & Enforcement** hub (disputes, tickets)
+- `/xp reports` — weekly management summary + export
+- `/xp review` · `/xp dashboard` — weekly review card & who's behind
 
-### Admin Commands
-- `/setup` — Configure the bot for your clan (identity, appearance, rules)
+### Officer quick actions (kept for compatibility)
+- `/entry @user <amount> [date]` — log XP (rolls up + backfills the calendar)
+- `/remind @user` · `/warn @user` — nudge / warn (warn is admin-only)
+- `/calendar [@user] [month]` · `/missing [role]`
+- `/xp set | add | remove | complete | reset | exempt | leave | note | goal`
+- `/xp role add | reset | remind | warn | entry` — bulk by role
+
+### Admin
+- `/xp setup` (or `/setup`) — configure tracking role, goal, period, channels,
+  staff/enforcement roles and thresholds
 
 ## 📂 Project Structure
 
@@ -101,7 +139,7 @@ Clan-XP-Tracker/
 │   │   ├── src/
 │   │   │   ├── bot/          # Discord.js bot & commands
 │   │   │   │   ├── canvas/   # Card rendering engine
-│   │   │   │   ├── features/ # Feature workflows (submit, review, etc)
+│   │   │   │   ├── features/ # Hubs & workflows (manager, warningsHub, memberView, notifications, setup…)
 │   │   │   │   ├── services/ # DB & domain logic
 │   │   │   │   └── ui/       # Component builders & customId registry
 │   │   │   └── routes/       # API endpoints
@@ -158,36 +196,51 @@ pnpm --filter @workspace/db run push
 
 ## ⚙️ Configuration
 
-All configuration is server-specific and managed via the `/setup` command:
+All configuration is server-specific and managed via `/xp setup` (or `/setup`):
 
-- **Clan Name** — Your clan or community name
-- **Activity Name** — Custom name for XP (default: "XP")
-- **Game Name** — Game or community identifier (default: "Roblox")
-- **Game URL** — Button link for members
-- **Submission Channel** — Where members post screenshots
-- **Review Channel** — Where staff review submissions
-- **Tracker Channel** — Auto-updating contribution tracker embed
-- **Auto-Approve** — Instant approval or staff queue
-- **Contribution Model** — XP per submission, capacity limits, alts system
-- **Theme & Colors** — Customizable card designs
+- **Tracking role** — the members the XP Manager manages (the roster). If 42
+  people have it, the manager tracks 42. Distinct from the enforcement role.
+- **Weekly goal / tracking mode** — exact numeric goal, complete/not-complete,
+  or a small custom goal; plus an optional per-day target for the calendar.
+- **Schedule** — timezone, week start day, reset time, reminder days/time.
+- **Channels** — reminder, warning and log channels (choose existing or let the
+  bot **create them for you**).
+- **Roles** — officers, admins, exempt, on-leave, and the **enforcement role**
+  auto-assigned on warn.
+- **Thresholds** — warn after N reminders; leadership review at N warnings.
 
 ## 📊 Data Model
 
 ### Core Tables
 
-- **clans** — Clan configuration and settings
-- **clan_members** — Member records with XP, streaks, warnings
-- **xp_submissions** — Daily submissions with screenshot metadata
-- **warnings** — Member infractions and history
-- **audit_logs** — Full action audit trail
-- **sessions** — Express session data
+- **clans** — per-guild configuration (tracking role, goal, schedule, channels,
+  roles, thresholds)
+- **clan_members** — member records: weekly progress, status flags
+  (exempt / on-leave / **excused**), **warning points**, notes, counts
+- **xp_entries** — the daily XP ledger (one row per member per day) that drives
+  week/month/all-time totals and the calendar; supports backdating
+- **xp_week_history** — archived per-member weekly outcomes for `/xp history`
+- **warnings** — enforcement warnings and removal history
+- **reminders** — every reminder sent (auto or manual)
+- **disputes** — member warning disputes and their staff resolution
+- **tickets** — lightweight staff tickets (escalated from disputes)
+- **staff_notifications** — the Read/Clear notification queue
+- **audit_logs** — full WHO/WHAT/WHEN/WHY action trail
 
 ### Key Concepts
 
-- **Contributions** — Weighted submissions (1 + alts) worth configurable XP
-- **Clan Capacity** — Daily limit on total contributions or XP
-- **Streaks** — Consecutive days of submission activity
-- **Extraction** — Pluggable screenshot analysis (OCR/game verification)
+- **Staff-entered XP** — officers enter XP; the bot records, rolls up and
+  calendars it. Members never submit.
+- **Tracking role vs enforcement role** — who is *managed* vs who has hit the
+  reminder/warning threshold (`@Do Your XP`).
+- **Warning points** — a staff-managed tally, separate from durable warnings;
+  never auto-reset by completing XP.
+- **Disputes → tickets** — members dispute a warning; staff accept / deny / ask
+  for info / open a ticket.
+
+> Some legacy tables and the older web dashboard (`xp_submissions`, leaderboard
+> routes) remain in the repo for backward compatibility but are **not** part of
+> the V3 staff-management product and are no longer written by the bot.
 
 ## 🎨 Customization
 
@@ -227,7 +280,7 @@ pnpm --filter @workspace/api-server run dev
 Provide:
 - PostgreSQL database (or Railway Postgres)
 - Node.js 24+ with pnpm
-- Discord bot token with Message Content intent
+- Discord bot token with the **Server Members** intent enabled
 
 ## 🧪 Testing & Validation
 
@@ -246,8 +299,8 @@ All packages are strict TypeScript (`noUncheckedIndexedAccess`, `noImplicitAny`,
 
 ## 📝 Important Notes
 
-- **Database Push Required**: After pulling, run `pnpm --filter @workspace/db run push` to create new schema
-- **Message Content Intent**: Required in Discord Developer Portal for screenshot reading
+- **Database Push Required**: After pulling, run `pnpm --filter @workspace/db run push` to create new schema (V3 adds `disputes`, `tickets`, `staff_notifications` tables and `clan_members.warning_points` / `excused` columns)
+- **Server Members Intent**: Required in the Discord Developer Portal so the bot can resolve role membership for the roster and bulk actions
 - **Session Secret**: Generate a secure random value; never commit actual secrets
 - **API Codegen**: After regenerating, `lib/api-zod/src/index.ts` must be manually restored (see gotchas in replit.md)
 - **Canvas Fonts**: Always use bundled fonts; system fonts not available in containers

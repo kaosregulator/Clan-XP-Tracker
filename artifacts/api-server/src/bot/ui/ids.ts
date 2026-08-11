@@ -56,6 +56,7 @@ export const SETUP_NOTIFY = id(NS.setup, "notify");
 export const SETUP_BACK = id(NS.setup, "back");
 export const SETUP_FINISH = id(NS.setup, "finish");
 // Channel selects
+export const SETUP_CREATE_CHANNELS = id(NS.setup, "createChannels");
 export const SETUP_REMINDER_CHANNEL = id(NS.setup, "reminderChannel");
 export const SETUP_WARNING_CHANNEL = id(NS.setup, "warningChannel");
 export const SETUP_LOG_CHANNEL = id(NS.setup, "logChannel");

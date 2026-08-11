@@ -35,6 +35,7 @@ import {
   SETUP_NOTIFY,
   SETUP_BACK,
   SETUP_FINISH,
+  SETUP_CREATE_CHANNELS,
   SETUP_REMINDER_CHANNEL,
   SETUP_WARNING_CHANNEL,
   SETUP_LOG_CHANNEL,
@@ -237,14 +238,22 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
         .setDescription(
           "**Reminders** — where progress nudges post (also the fallback when a member's DMs are closed).\n" +
             "**Warnings** — where XP enforcement warnings are announced.\n" +
-            "**Logs** — the audit trail of every officer action."
+            "**Logs** — the audit trail of every officer action.\n\n" +
+            "Choose existing channels below, or let the bot **create them for you**."
         ),
     ],
     components: [
       menu(SETUP_REMINDER_CHANNEL, "Reminder channel", clan.reminderChannelId),
       menu(SETUP_WARNING_CHANNEL, "Warning channel", clan.warningChannelId),
       menu(SETUP_LOG_CHANNEL, "Log channel", clan.logChannelId),
-      backRow(),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(SETUP_CREATE_CHANNELS)
+          .setLabel("Create missing channels for me")
+          .setEmoji("✨")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+      ),
     ],
   };
 }
@@ -522,6 +531,10 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(rolesPayload(clan)));
     case "notify":
       return void (await interaction.editReply(notifyPayload(clan)));
+    case "createChannels": {
+      const updated = await createMissingChannels(interaction, clan);
+      return void (await interaction.editReply(channelsPayload(updated)));
+    }
     case "back":
       return void (await interaction.editReply(setupMainPayload(clan)));
     case "toggle": {
@@ -535,6 +548,37 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(setupMainPayload(updated)));
     }
   }
+}
+
+/**
+ * Create any reminder/warning/log channels that aren't set yet and save them.
+ * Best-effort — a channel that can't be created (missing permission) is left
+ * unset. Returns the freshest clan row for re-rendering.
+ */
+async function createMissingChannels(interaction: ButtonInteraction, clan: Clan): Promise<Clan> {
+  if (!interaction.inCachedGuild()) return clan;
+  const guild = interaction.guild;
+  const patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {};
+  const specs: Array<[keyof Clan, keyof typeof patch, string, string]> = [
+    ["reminderChannelId", "reminderChannelId", "xp-reminders", "Progress nudges post here."],
+    ["warningChannelId", "warningChannelId", "xp-warnings", "XP enforcement warnings post here."],
+    ["logChannelId", "logChannelId", "xp-logs", "Audit trail of every officer action."],
+  ];
+  for (const [field, key, name, topic] of specs) {
+    if (clan[field]) continue;
+    try {
+      const channel = await guild.channels.create({
+        name,
+        type: ChannelType.GuildText,
+        topic,
+      });
+      patch[key] = channel.id as never;
+    } catch {
+      // Missing Manage Channels or hit the guild limit — skip this one.
+    }
+  }
+  if (Object.keys(patch).length === 0) return clan;
+  return (await updateClan(clan.guildId, patch)) ?? clan;
 }
 
 export async function handleSetupModal(interaction: ModalSubmitInteraction) {
