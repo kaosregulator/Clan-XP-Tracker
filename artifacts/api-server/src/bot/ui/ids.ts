@@ -60,6 +60,7 @@ export const SETUP_REMINDER_CHANNEL = id(NS.setup, "reminderChannel");
 export const SETUP_WARNING_CHANNEL = id(NS.setup, "warningChannel");
 export const SETUP_LOG_CHANNEL = id(NS.setup, "logChannel");
 // Role selects
+export const SETUP_TRACKING_ROLE = id(NS.setup, "trackingRole");
 export const SETUP_OFFICER_ROLES = id(NS.setup, "officerRoles");
 export const SETUP_ADMIN_ROLES = id(NS.setup, "adminRoles");
 export const SETUP_EXEMPT_ROLES = id(NS.setup, "exemptRoles");

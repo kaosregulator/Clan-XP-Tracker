@@ -88,27 +88,23 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
       accent: "#57f287",
       lines: [
         `You never submit ${activity} — officers verify it in-game`,
-        `/xp progress  —  see where you stand this week`,
-        `/calendar  —  your ${activity} calendar & history`,
-        `/xp history  —  your past weeks`,
-        `/warnings  —  your active ${activity} warnings`,
+        `/xp progress  —  MY XP: your week, calendar, warnings, history`,
+        `❓ Something Wrong?  —  dispute a warning from your /xp`,
       ],
     },
   ];
   if (officer) {
     sections.push({
-      title: "For officers",
+      title: "For officers — the hubs",
       accent: "#5865f2",
       lines: [
-        `/entry @user <amount> [date]  —  log ${activity} (rolls up + backfills)`,
-        `/calendar @user  —  their month time-card`,
-        `/missing  —  who hasn't hit today's target`,
-        `/remind @user  —  nudge one member`,
-        `/warn @user [message]  —  warn for missed ${activity} (admins)`,
-        `/xp set | add | remove | complete | reset @user`,
-        `/xp role add | reset | remind | warn | entry  —  bulk by role`,
-        `/xp review | dashboard  —  weekly panel & who's behind`,
-        `/xp exempt | leave | note | goal @user`,
+        `/xp manage  —  ⚔️ XP MANAGER: roster tabs + member panel`,
+        `/xp notifications  —  🔔 what needs attention (Read / Clear)`,
+        `/xp warnings  —  ⚠️ Warnings & Enforcement (disputes, tickets)`,
+        `/xp reports  —  📊 weekly summary + export`,
+        `/xp setup  —  ⚙️ tracking role, goal, channels, thresholds`,
+        `Quick actions still work: /entry /remind /warn /calendar /missing`,
+        `Bulk by role: /xp role add | reset | remind | warn | entry`,
       ],
     });
   }

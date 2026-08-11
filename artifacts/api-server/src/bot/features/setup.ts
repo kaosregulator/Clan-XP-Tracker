@@ -38,6 +38,7 @@ import {
   SETUP_REMINDER_CHANNEL,
   SETUP_WARNING_CHANNEL,
   SETUP_LOG_CHANNEL,
+  SETUP_TRACKING_ROLE,
   SETUP_OFFICER_ROLES,
   SETUP_ADMIN_ROLES,
   SETUP_EXEMPT_ROLES,
@@ -137,8 +138,9 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         inline: false,
       },
       {
-        name: `${check(clan.staffRoleIds.length || clan.adminRoleIds.length)} Roles`,
+        name: `${check(clan.requiredRoleId)} Roles`,
         value: [
+          `Tracking role: ${clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "_all tracked members_"}`,
           `Officers: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
           `Admins: ${clan.adminRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
           `Exempt: ${clan.exemptRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
@@ -257,22 +259,31 @@ function rolesPayload(clan: Clan): BaseMessageOptions {
         .setMaxValues(5)
         .setDefaultRoles(current)
     );
+  const trackingMenu = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+    new RoleSelectMenuBuilder()
+      .setCustomId(SETUP_TRACKING_ROLE)
+      .setPlaceholder("Tracking role — who earns XP (the roster)")
+      .setMinValues(0)
+      .setMaxValues(1)
+      .setDefaultRoles(clan.requiredRoleId ? [clan.requiredRoleId] : [])
+  );
   return {
     embeds: [
       new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("🛡️ Roles")
         .setDescription(
-          "**Officers** — update progress, remind, warn, run the review.\n" +
+          "**Tracking role** — the members the XP Manager manages. If 42 people have it, the manager tracks 42. This is NOT the enforcement role.\n" +
+            "**Officers** — update progress, remind, warn, run the review.\n" +
             "**Admins** — everything officers can do, plus configuration.\n" +
             "**Exempt / On leave** — members holding these roles are skipped by reminders, warnings and completion-rate math."
         ),
     ],
     components: [
+      trackingMenu,
       menu(SETUP_OFFICER_ROLES, "Officer roles", clan.staffRoleIds),
       menu(SETUP_ADMIN_ROLES, "Admin roles", clan.adminRoleIds),
       menu(SETUP_EXEMPT_ROLES, "Exempt roles", clan.exemptRoleIds),
-      menu(SETUP_LEAVE_ROLES, "Leave roles", clan.leaveRoleIds),
       backRow(),
     ],
   };
@@ -319,10 +330,18 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new RoleSelectMenuBuilder()
           .setCustomId(SETUP_WARN_ROLES)
-          .setPlaceholder("Warning role (assigned on warn)")
+          .setPlaceholder("Enforcement role (assigned on warn)")
           .setMinValues(0)
           .setMaxValues(5)
           .setDefaultRoles(clan.warningRoleIds)
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_LEAVE_ROLES)
+          .setPlaceholder("On-leave roles (skipped by reminders/warnings)")
+          .setMinValues(0)
+          .setMaxValues(5)
+          .setDefaultRoles(clan.leaveRoleIds)
       ),
       backRow(),
     ],
@@ -596,6 +615,12 @@ export async function handleSetupSelect(
   }
 
   if (interaction.isRoleSelectMenu()) {
+    // The tracking role is a single role id, not an array.
+    if (action === "trackingRole") {
+      await updateClan(clan.guildId, { requiredRoleId: interaction.values[0] ?? null });
+      await interaction.editReply(rolesPayload((await getClan(clan.guildId)) ?? clan));
+      return;
+    }
     const roleIds = [...interaction.values];
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
       officerRoles: "staffRoleIds",
@@ -607,10 +632,10 @@ export async function handleSetupSelect(
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: roleIds });
     const refreshed = (await getClan(clan.guildId)) ?? clan;
-    // The warning-role selector lives on the Notifications page; everything
-    // else on the Roles page. Re-render whichever the officer is looking at.
+    // The enforcement-role and leave-role selectors live on the Notifications
+    // page; everything else on the Roles page. Re-render whichever is showing.
     await interaction.editReply(
-      action === "warnRoles" ? notifyPayload(refreshed) : rolesPayload(refreshed)
+      action === "warnRoles" || action === "leaveRoles" ? notifyPayload(refreshed) : rolesPayload(refreshed)
     );
     return;
   }

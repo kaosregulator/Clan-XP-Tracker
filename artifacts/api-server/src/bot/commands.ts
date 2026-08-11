@@ -115,6 +115,21 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
       s.setName("notifications").setDescription("See what needs attention (officers)")
     )
     .addSubcommand((s) =>
+      s.setName("setup").setDescription("Configure XP management (admins)")
+    )
+    .addSubcommand((s) =>
+      s.setName("reports").setDescription("Weekly management summary (officers)")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("calendar")
+        .setDescription("Show a member's XP calendar")
+        .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
+        .addStringOption((o) =>
+          o.setName("month").setDescription("Month (YYYY-MM); default this month").setRequired(false)
+        )
+    )
+    .addSubcommand((s) =>
       s
         .setName("progress")
         .setDescription("View weekly progress (yours, or any member's)")
