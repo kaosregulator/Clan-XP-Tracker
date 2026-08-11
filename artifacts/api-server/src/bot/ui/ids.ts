@@ -8,6 +8,7 @@ export const NS = {
   dash: "dash", // warning dashboard
   setup: "setup", // configuration hub
   warn: "warn", // warnings management
+  cc: "cc", // persistent live command center
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -65,3 +66,16 @@ export const setupToggle = (key: string) => id(NS.setup, "toggle", key);
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
+
+// Persistent live command center. Buttons route staff into existing hubs; the
+// category shortcuts open the warning dashboard already filtered.
+export const CC_REFRESH = id(NS.cc, "refresh");
+export const CC_MANAGE = id(NS.cc, "manage"); // → dashboard (all)
+export const CC_WARNINGS = id(NS.cc, "warnings"); // → dashboard (warned)
+export const CC_NOTIFS = id(NS.cc, "notifs"); // → live attention feed
+export const CC_REPORTS = id(NS.cc, "reports"); // → weekly review card
+export const CC_CALENDAR = id(NS.cc, "calendar"); // → calendar helper
+export const CC_SEARCH = id(NS.cc, "search"); // → member lookup (user select)
+export const CC_SEARCH_SELECT = id(NS.cc, "searchSelect");
+// Jump straight into a filtered dashboard category (arg = dash filter).
+export const ccCategory = (filter: string) => id(NS.cc, "cat", filter);

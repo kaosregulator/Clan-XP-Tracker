@@ -12,6 +12,7 @@ import {
   rollWeek,
 } from "./services/progress";
 import { sendBulkReminders } from "./services/reminders";
+import { refreshDashboardNow } from "./services/commandCenter";
 
 const TICK_MS = 60_000;
 
@@ -145,6 +146,13 @@ async function tick(client: Client) {
       // Once a day, an hour after the reminder window, flag escalations.
       if (reminderTime && hhmm === bumpHour(reminderTime)) {
         await runOfficerMonitoring(client, clan, dateKey);
+      }
+
+      // Keep the persistent command center honest on a slow cadence (every 10
+      // minutes) so time-relative counts like "missed today" stay current even
+      // when nothing wrote to the DB. Data-change events refresh it instantly.
+      if (new Date().getMinutes() % 10 === 0) {
+        await refreshDashboardNow(clan.guildId).catch(() => {});
       }
     } catch (err) {
       logger.error({ err, guild: clan.guildId }, "Scheduler tick failed for clan");

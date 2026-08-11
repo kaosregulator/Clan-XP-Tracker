@@ -6,6 +6,7 @@ import { EmbedBuilder, type Client, type User } from "discord.js";
 import { weekKey, nextWeeklyReset, discordRelative } from "./time";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyReminder, currentProgress, effectiveGoal } from "./progress";
+import { scheduleDashboardRefresh } from "./commandCenter";
 import { logger } from "../../lib/logger";
 
 export interface SendReminderInput {
@@ -158,6 +159,8 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     },
     `Reminder ${delivered ? "delivered" : "recorded (undelivered)"} to ${target.username} ${input.auto ? "automatically" : `by ${input.moderatorUsername ?? "unknown"}`}`
   );
+
+  scheduleDashboardRefresh(clan.guildId);
 
   return { delivered };
 }

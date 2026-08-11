@@ -1,6 +1,7 @@
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
+  ChannelType,
   type RESTPostAPIApplicationCommandsJSONBody,
 } from "discord.js";
 
@@ -288,6 +289,20 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setDescription("List members who haven't hit today's XP target")
     .setDMPermission(false)
     .addRoleOption((o) => o.setName("role").setDescription("Only check this role").setRequired(false))
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("panel")
+    .setDescription("Post the persistent live XP command center (officers)")
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString())
+    .addChannelOption((o) =>
+      o
+        .setName("channel")
+        .setDescription("Where to post it (default: here or the configured staff channel)")
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(false)
+    )
     .toJSON(),
 
   new SlashCommandBuilder()

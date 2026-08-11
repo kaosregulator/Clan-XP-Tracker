@@ -31,6 +31,10 @@ const PAGE_SIZE = 12;
 function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): ClanMember[] {
   const wk = weekKey(clan);
   switch (filter) {
+    case "all":
+      return members;
+    case "complete":
+      return members.filter((m) => statusOf(clan, m) === "complete");
     case "attention": {
       // Warning-eligible first, then fewest-progress first.
       const targets = reminderTargets(clan, members);

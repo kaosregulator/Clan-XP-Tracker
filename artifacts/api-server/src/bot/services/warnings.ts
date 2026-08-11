@@ -7,6 +7,7 @@ import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser } from "./config";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyWarning } from "./progress";
+import { scheduleDashboardRefresh } from "./commandCenter";
 
 /**
  * Where a warning is delivered. Both default to the clan settings when
@@ -176,6 +177,8 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     },
     `Warning issued to ${target.username} by ${input.moderatorUsername} (active: ${activeCount})`
   );
+
+  scheduleDashboardRefresh(guild.id);
 
   return { warning: warning!, activeCount };
 }
@@ -371,6 +374,8 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
     moderatorUsername: input.moderatorUsername,
     details: { warningId, activeCount },
   });
+
+  scheduleDashboardRefresh(guild.id);
 
   return warning;
 }

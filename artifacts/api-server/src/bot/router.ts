@@ -11,6 +11,11 @@ import { handleXpCommand } from "./features/xp";
 import { handleReviewButton } from "./features/review";
 import { handleDashButton, handleDashSelect } from "./features/dashboard";
 import { handleWarnings, handleHelp, handleWarnRemoveSelect } from "./features/misc";
+import {
+  openCommandCenter,
+  handleCommandCenterButton,
+  handleCommandCenterSelect,
+} from "./features/commandCenter";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -31,6 +36,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleWarnings(interaction));
         case "help":
           return void (await handleHelp(interaction));
+        case "panel":
+          return void (await openCommandCenter(interaction));
       }
       return;
     }
@@ -44,7 +51,15 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleDashButton(interaction));
         case NS.setup:
           return void (await handleSetupButton(interaction));
+        case NS.cc:
+          return void (await handleCommandCenterButton(interaction));
       }
+      return;
+    }
+
+    if (interaction.isUserSelectMenu()) {
+      const { ns } = parseId(interaction.customId);
+      if (ns === NS.cc) return void (await handleCommandCenterSelect(interaction));
       return;
     }
 

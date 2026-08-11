@@ -10,6 +10,7 @@ import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { weekKey } from "./time";
 import { logAction } from "./logging";
 import { ensureMember, type MemberIdentity } from "./config";
+import { scheduleDashboardRefresh } from "./commandCenter";
 
 /**
  * The progress engine. Every surface — /xp commands, the weekly review, the
@@ -163,6 +164,8 @@ export async function applyProgress(
     details: { before, after, goal, weekKey: wk },
   });
 
+  scheduleDashboardRefresh(clan.guildId);
+
   return {
     member: updated ?? row,
     before,
@@ -197,6 +200,7 @@ export async function setMemberFlag(
     moderatorId: officer.id,
     moderatorUsername: officer.username,
   });
+  scheduleDashboardRefresh(clan.guildId);
   return updated ?? row;
 }
 
@@ -423,6 +427,8 @@ export async function rollWeek(clan: Clan, officer?: Officer): Promise<RollResul
     moderatorUsername: officer?.username ?? null,
     details: { archived, closedWeeks: [...closingKeys] },
   });
+
+  scheduleDashboardRefresh(clan.guildId);
 
   return { archived, weekKey: weekKey(clan) };
 }
