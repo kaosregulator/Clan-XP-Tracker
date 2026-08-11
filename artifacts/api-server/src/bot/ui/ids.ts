@@ -64,6 +64,18 @@ export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
 // Notification toggles (arg = key)
 export const setupToggle = (key: string) => id(NS.setup, "toggle", key);
 
+/* Guided setup wizard. All actions are prefixed "wiz" so they never collide
+ * with the configuration hub's actions (goal, channels, warnRoles, …). Compound
+ * args use "-" the way dashPage does. */
+export const wizGo = (step: number) => id(NS.setup, "wizGo", step); // render step N
+export const wizEdit = (step: number) => id(NS.setup, "wizEdit", step); // open step N's modal
+export const wizModal = (step: number) => id(NS.setup, "wizModal", step); // modal submit for step N
+export const wizToggle = (key: string, step: number) => id(NS.setup, "wizToggle", `${key}-${step}`);
+export const wizSel = (field: string, step: number) => id(NS.setup, "wizSel", `${field}-${step}`);
+export const WIZ_FINISH = id(NS.setup, "wizFinish");
+export const WIZ_CANCEL = id(NS.setup, "wizCancel");
+export const WIZ_HUB = id(NS.setup, "wizHub"); // jump to the advanced edit hub
+
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
 
