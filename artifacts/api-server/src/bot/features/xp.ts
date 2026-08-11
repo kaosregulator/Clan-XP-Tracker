@@ -39,6 +39,7 @@ import {
 import { openReview } from "./review";
 import { openDashboard } from "./dashboard";
 import { openManager } from "./manager";
+import { openMemberView } from "./memberView";
 import { relative, weekRangeLabel, nextWeeklyReset, discordRelative, activityDate } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 
@@ -510,6 +511,12 @@ async function handleProgress(interaction: ChatInputCommandInteraction) {
   if (target.id !== interaction.user.id && !isOfficer(interaction.member, clan)) {
     await interaction.editReply({ content: "Only officers can view other members' progress." });
     return;
+  }
+
+  // A member viewing themselves gets the friendly MY XP card (+ staff-note
+  // delivery + dispute button). Officers viewing others keep the detail embed.
+  if (target.id === interaction.user.id) {
+    return openMemberView(interaction, clan);
   }
 
   const member = await getMember(clan.guildId, target.id);

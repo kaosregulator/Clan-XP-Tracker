@@ -16,6 +16,7 @@ import {
   handleManagerSelect,
   handleManagerModal,
 } from "./features/manager";
+import { handleMeButton, handleMeModal } from "./features/memberView";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -51,6 +52,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleSetupButton(interaction));
         case NS.mgr:
           return void (await handleManagerButton(interaction));
+        case NS.me:
+          return void (await handleMeButton(interaction));
       }
       return;
     }
@@ -59,6 +62,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
       if (ns === NS.mgr) return void (await handleManagerModal(interaction));
+      if (ns === NS.me) return void (await handleMeModal(interaction));
       return;
     }
 
