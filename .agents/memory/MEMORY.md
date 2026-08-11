@@ -1,3 +1,4 @@
 - [ClanXP architecture](clanxp-arch.md) — key constraints for the discord bot + API + React app
 - [Tailwind v4 dark mode](tailwind-v4-dark.md) — @apply dark fails; use class="dark" on html element
 - [api-zod barrel](api-zod-barrel.md) — manually maintained to avoid TS2308; never overwrite with codegen barrel
+- [Publish schema sync](publish-schema-sync.md) — compiled DB types do not update databases; push dev schema before publishing

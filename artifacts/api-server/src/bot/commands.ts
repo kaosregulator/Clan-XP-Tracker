@@ -234,14 +234,14 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   // Plain one-word commands for the everyday actions ------------------------
   new SlashCommandBuilder()
-    .setName("remind")
+    .setName("xpremind")
     .setDescription("Nudge a member to do their XP")
     .setDMPermission(false)
     .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
     .toJSON(),
 
   new SlashCommandBuilder()
-    .setName("warn")
+    .setName("xpwarn")
     .setDescription("Warn a member for missed XP")
     .setDMPermission(false)
     .addUserOption((o) => o.setName("user").setDescription("Member to warn").setRequired(true))
