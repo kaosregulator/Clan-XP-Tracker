@@ -74,7 +74,10 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .setDescription("Attach an officer note to a member")
         .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
         .addStringOption((o) =>
-          o.setName("text").setDescription("Note (leave empty to clear)").setRequired(false)
+          o.setName("text").setDescription("Note (leave empty to clear the quick note)").setRequired(false)
+        )
+        .addBooleanOption((o) =>
+          o.setName("notify").setDescription("Also DM this note to the member").setRequired(false)
         )
     )
     .addSubcommand((s) =>

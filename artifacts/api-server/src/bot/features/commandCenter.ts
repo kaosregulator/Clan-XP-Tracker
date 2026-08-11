@@ -24,6 +24,8 @@ import {
 } from "../services/progress";
 import { membersMissingToday } from "../services/xpLedger";
 import { listActive } from "../services/warnings";
+import { listMemberNotes } from "../services/notes";
+import { disputesForUser } from "../services/disputes";
 import { periodTotals } from "../services/xpLedger";
 import { nextWeeklyReset, discordRelative, relative } from "../services/time";
 import {
@@ -267,6 +269,9 @@ export async function memberSummary(clan: Clan, userId: string) {
   const status = statusOf(clan, member);
   const warns = await listActive(clan.guildId, userId);
   const totals = await periodTotals(clan, userId);
+  const notes = await listMemberNotes(clan.guildId, userId, 3);
+  const disputes = await disputesForUser(clan.guildId, userId, 3);
+  const openDisputes = disputes.filter((d) => d.status === "pending" || d.status === "info_requested").length;
   const goal = effectiveGoal(clan, member);
   const progress = currentProgress(clan, member);
   const pct = Math.min(100, Math.round((progress / goal) * 100));
@@ -279,9 +284,18 @@ export async function memberSummary(clan: Clan, userId: string) {
       { name: "Status", value: STATUS_LABEL[status], inline: true },
       { name: "This week", value: `🔔 ${member.weekReminders} · ⚠️ ${member.weekWarnings}`, inline: true },
       { name: "Active warnings", value: `**${warns.length}**`, inline: true },
-      { name: "Today / Week", value: `${totals.today.toLocaleString()} / ${totals.week.toLocaleString()}`, inline: true },
-      { name: "Week closes", value: discordRelative(nextWeeklyReset(clan)), inline: true }
+      { name: "Open disputes", value: `**${openDisputes}**`, inline: true },
+      { name: "Today / Week", value: `${totals.today.toLocaleString()} / ${totals.week.toLocaleString()}`, inline: true }
     );
+  if (notes.length) {
+    embed.addFields({
+      name: "🗒️ Recent staff notes",
+      value: notes
+        .map((n) => `• ${n.body.slice(0, 80)} — _${n.authorUsername}, ${relative(n.createdAt)}_${n.notifyMember ? (n.delivered ? " · 📨 sent" : " · ✉️ pending") : ""}`)
+        .join("\n")
+        .slice(0, 1024),
+    });
+  }
   if (clan.trackingMode !== "complete") {
     embed.setDescription(`\`${"█".repeat(Math.round((pct / 100) * 12))}${"░".repeat(12 - Math.round((pct / 100) * 12))}\` **${pct}%**`);
   }

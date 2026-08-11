@@ -92,6 +92,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         `/calendar  —  your ${activity} calendar & daily history`,
         `/xp history  —  your past weeks`,
         `/warnings  —  your active ${activity} warnings`,
+        `/dispute  —  contest one of your own warnings`,
       ],
     },
   ];
@@ -125,6 +126,16 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/missing  —  who hasn't hit today's target`,
           `/xp review  —  weekly card: bulk remind / warn / reset`,
           `/xp dashboard  —  filterable roster of who needs attention`,
+        ],
+      },
+      {
+        title: "Notifications, disputes & tickets",
+        accent: "#a855f7",
+        lines: [
+          `/notifications  —  the staff attention feed (read / clear / resolve)`,
+          `/disputes  —  review member warning disputes`,
+          `/tickets  —  track staff issues to resolution`,
+          `/xp note @user [notify]  —  add a staff note (optionally DM it)`,
         ],
       },
       {
