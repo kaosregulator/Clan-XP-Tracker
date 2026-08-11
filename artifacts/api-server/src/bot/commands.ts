@@ -1,6 +1,7 @@
 import {
   SlashCommandBuilder,
   PermissionFlagsBits,
+  ChannelType,
   type RESTPostAPIApplicationCommandsJSONBody,
 } from "discord.js";
 
@@ -73,7 +74,10 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .setDescription("Attach an officer note to a member")
         .addUserOption((o) => o.setName("user").setDescription("Member").setRequired(true))
         .addStringOption((o) =>
-          o.setName("text").setDescription("Note (leave empty to clear)").setRequired(false)
+          o.setName("text").setDescription("Note (leave empty to clear the quick note)").setRequired(false)
+        )
+        .addBooleanOption((o) =>
+          o.setName("notify").setDescription("Also DM this note to the member").setRequired(false)
         )
     )
     .addSubcommand((s) =>
@@ -118,6 +122,12 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
       s
         .setName("history")
         .setDescription("View a member's weekly history")
+        .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("audit")
+        .setDescription("View a member's full XP history / audit trail")
         .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
     )
     .addSubcommand((s) =>
@@ -291,6 +301,20 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .toJSON(),
 
   new SlashCommandBuilder()
+    .setName("panel")
+    .setDescription("Post the persistent live XP command center (officers)")
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild.toString())
+    .addChannelOption((o) =>
+      o
+        .setName("channel")
+        .setDescription("Where to post it (default: here or the configured staff channel)")
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(false)
+    )
+    .toJSON(),
+
+  new SlashCommandBuilder()
     .setName("warnings")
     .setDescription("View and manage XP warnings")
     .addUserOption((o) => o.setName("user").setDescription("Whose warnings to view").setRequired(false))
@@ -300,6 +324,32 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
     .setName("help")
     .setDescription("How the XP manager works (officers & members)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  // Member self-service: dispute one of your own warnings.
+  new SlashCommandBuilder()
+    .setName("dispute")
+    .setDescription("Dispute one of your own XP warnings")
+    .setDMPermission(false)
+    .toJSON(),
+
+  // Officer hubs for the enforcement workflow.
+  new SlashCommandBuilder()
+    .setName("disputes")
+    .setDescription("Review member warning disputes (officers)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("notifications")
+    .setDescription("Open the staff notification center (officers)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("tickets")
+    .setDescription("View and manage staff tickets (officers)")
     .setDMPermission(false)
     .toJSON(),
 ];

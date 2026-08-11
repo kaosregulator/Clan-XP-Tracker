@@ -1,5 +1,6 @@
 import { db, auditLogsTable } from "@workspace/db";
-import type { Clan } from "@workspace/db";
+import type { AuditLog, Clan } from "@workspace/db";
+import { and, eq, desc, sql } from "drizzle-orm";
 import type { Client, EmbedBuilder } from "discord.js";
 import { logger } from "../../lib/logger";
 
@@ -27,6 +28,21 @@ export async function logAction(guildId: string, input: AuditInput): Promise<voi
   } catch (err) {
     logger.error({ err, action: input.action }, "Failed to write audit log");
   }
+}
+
+/** One page of a member's audit trail, plus the total for pagination. */
+export async function auditForUser(
+  guildId: string,
+  userId: string,
+  limit: number,
+  offset: number
+): Promise<{ rows: AuditLog[]; total: number }> {
+  const where = and(eq(auditLogsTable.guildId, guildId), eq(auditLogsTable.targetUserId, userId));
+  const [rows, [countRow]] = await Promise.all([
+    db.select().from(auditLogsTable).where(where).orderBy(desc(auditLogsTable.createdAt)).limit(limit).offset(offset),
+    db.select({ count: sql<number>`count(*)::int` }).from(auditLogsTable).where(where),
+  ]);
+  return { rows, total: countRow?.count ?? 0 };
 }
 
 /** Post an embed to the clan's configured log channel, if any. Best-effort. */

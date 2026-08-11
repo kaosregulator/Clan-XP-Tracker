@@ -8,6 +8,12 @@ export const NS = {
   dash: "dash", // warning dashboard
   setup: "setup", // configuration hub
   warn: "warn", // warnings management
+  cc: "cc", // persistent live command center
+  notif: "ntf", // notification center
+  disp: "dsp", // disputes
+  tkt: "tkt", // tickets
+  mp: "mp", // member panel actions
+  aud: "aud", // xp history / audit viewer
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -63,5 +69,71 @@ export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
 // Notification toggles (arg = key)
 export const setupToggle = (key: string) => id(NS.setup, "toggle", key);
 
+/* Guided setup wizard. All actions are prefixed "wiz" so they never collide
+ * with the configuration hub's actions (goal, channels, warnRoles, …). Compound
+ * args use "-" the way dashPage does. */
+export const wizGo = (step: number) => id(NS.setup, "wizGo", step); // render step N
+export const wizEdit = (step: number) => id(NS.setup, "wizEdit", step); // open step N's modal
+export const wizModal = (step: number) => id(NS.setup, "wizModal", step); // modal submit for step N
+export const wizToggle = (key: string, step: number) => id(NS.setup, "wizToggle", `${key}-${step}`);
+export const wizSel = (field: string, step: number) => id(NS.setup, "wizSel", `${field}-${step}`);
+export const WIZ_FINISH = id(NS.setup, "wizFinish");
+export const WIZ_CANCEL = id(NS.setup, "wizCancel");
+export const WIZ_HUB = id(NS.setup, "wizHub"); // jump to the advanced edit hub
+
+// Notification center.
+export const NOTIF_REFRESH = id(NS.notif, "refresh");
+export const NOTIF_READ_ALL = id(NS.notif, "readAll");
+export const NOTIF_CLEAR_READ = id(NS.notif, "clearRead");
+export const NOTIF_PICK = id(NS.notif, "pick"); // string-select of notifications
+export const notifRead = (nid: number) => id(NS.notif, "read", nid);
+export const notifClear = (nid: number) => id(NS.notif, "clear", nid);
+export const notifResolve = (nid: number) => id(NS.notif, "resolve", nid);
+export const notifMember = (userId: string) => id(NS.notif, "member", userId);
+
+// Disputes. Member picks a warning to dispute; staff act on a dispute id.
+export const DISPUTE_PICK = id(NS.disp, "pick"); // member: select a warning
+export const disputeReasonModal = (warningId: number) => id(NS.disp, "reason", warningId);
+export const DISPUTE_REVIEW_PICK = id(NS.disp, "review"); // staff: select a dispute
+export const disputeAccept = (did: number) => id(NS.disp, "accept", did);
+export const disputeDeny = (did: number) => id(NS.disp, "deny", did);
+export const disputeInfo = (did: number) => id(NS.disp, "info", did);
+export const disputeTicket = (did: number) => id(NS.disp, "ticket", did);
+export const disputeRemoveWarning = (did: number) => id(NS.disp, "remwarn", did);
+export const disputeMember = (userId: string) => id(NS.disp, "member", userId);
+
+// Tickets.
+export const TICKET_PICK = id(NS.tkt, "pick");
+export const ticketProgress = (tid: number) => id(NS.tkt, "progress", tid);
+export const ticketResolve = (tid: number) => id(NS.tkt, "resolve", tid);
+export const ticketClose = (tid: number) => id(NS.tkt, "close", tid);
+export const ticketAssign = (tid: number) => id(NS.tkt, "assign", tid);
+
+// Member panel actions (arg = target user id).
+export const mpAddXp = (userId: string) => id(NS.mp, "addxp", userId);
+export const mpRemoveXp = (userId: string) => id(NS.mp, "remxp", userId);
+export const mpComplete = (userId: string) => id(NS.mp, "complete", userId);
+export const mpRemind = (userId: string) => id(NS.mp, "remind", userId);
+export const mpWarn = (userId: string) => id(NS.mp, "warn", userId);
+export const mpXpModal = (kind: string, userId: string) => id(NS.mp, "xpModal", `${kind}-${userId}`);
+
+// XP history / audit viewer (arg = "<userId>-<page>").
+export const audPage = (userId: string, page: number) => id(NS.aud, "page", `${userId}-${page}`);
+
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
+
+// Persistent live command center. Buttons route staff into existing hubs; the
+// category shortcuts open the warning dashboard already filtered.
+export const CC_REFRESH = id(NS.cc, "refresh");
+export const CC_MANAGE = id(NS.cc, "manage"); // → dashboard (all)
+export const CC_WARNINGS = id(NS.cc, "warnings"); // → dashboard (warned)
+export const CC_NOTIFS = id(NS.cc, "notifs"); // → live attention feed
+export const CC_REPORTS = id(NS.cc, "reports"); // → weekly review card
+export const CC_CALENDAR = id(NS.cc, "calendar"); // → calendar helper
+export const CC_SEARCH = id(NS.cc, "search"); // → member lookup (user select)
+export const CC_SEARCH_SELECT = id(NS.cc, "searchSelect");
+export const CC_DISPUTES = id(NS.cc, "disputes"); // → dispute review hub
+export const CC_TICKETS = id(NS.cc, "tickets"); // → ticket list
+// Jump straight into a filtered dashboard category (arg = dash filter).
+export const ccCategory = (filter: string) => id(NS.cc, "cat", filter);

@@ -29,6 +29,7 @@ import {
   type WarnDelivery,
 } from "../services/warnings";
 import { roleMemberIdentities } from "../services/roles";
+import { addMemberNote } from "../services/notes";
 import {
   recordEntry,
   calendarFor,
@@ -38,6 +39,7 @@ import {
 } from "../services/xpLedger";
 import { openReview } from "./review";
 import { openDashboard } from "./dashboard";
+import { openAudit } from "./audit";
 import { relative, weekRangeLabel, nextWeeklyReset, discordRelative, activityDate } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 
@@ -115,6 +117,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   // Views open to everyone (self) come first.
   if (!group && sub === "progress") return handleProgress(interaction);
   if (!group && sub === "history") return handleHistory(interaction);
+  if (!group && sub === "audit") return openAudit(interaction);
   if (!group && sub === "calendar") return handleCalendar(interaction);
   if (!group && sub === "review") return openReview(interaction);
   if (!group && sub === "dashboard") return openDashboard(interaction);
@@ -169,11 +172,31 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   switch (sub) {
     case "note": {
       const note = interaction.options.getString("text") ?? "";
+      const notify = interaction.options.getBoolean("notify") ?? false;
+      // Keep the single "quick note" field (drives the 📝 indicator) in sync…
       await setMemberNote(clan, identity, note, officer(interaction));
+      // …and append to the durable, author-stamped notes trail. A blank note is
+      // only a "clear" of the quick field, so there's nothing to append.
+      let delivered = false;
+      if (note.trim()) {
+        const res = await addMemberNote({
+          client: interaction.client,
+          clan,
+          target: { id: target.id, username: target.username },
+          body: note.trim(),
+          notifyMember: notify,
+          author: officer(interaction),
+        });
+        delivered = res.delivered;
+      }
       await interaction.editReply({
-        content: note.trim()
-          ? `📝 Note saved for **${target.username}**.`
-          : `📝 Note cleared for **${target.username}**.`,
+        content: !note.trim()
+          ? `📝 Quick note cleared for **${target.username}**.`
+          : notify
+            ? delivered
+              ? `📝 Note saved and DM'd to **${target.username}**.`
+              : `📝 Note saved, but the DM couldn't be delivered (their DMs are closed).`
+            : `📝 Note saved for **${target.username}**.`,
       });
       return;
     }

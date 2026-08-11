@@ -88,29 +88,66 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
       accent: "#57f287",
       lines: [
         `You never submit ${activity} — officers verify it in-game`,
-        `/xp progress  —  see where you stand this week`,
-        `/calendar  —  your ${activity} calendar & history`,
+        `/xp progress  —  where you stand this week`,
+        `/calendar  —  your ${activity} calendar & daily history`,
         `/xp history  —  your past weeks`,
         `/warnings  —  your active ${activity} warnings`,
+        `/dispute  —  contest one of your own warnings`,
       ],
     },
   ];
   if (officer) {
-    sections.push({
-      title: "For officers",
-      accent: "#5865f2",
-      lines: [
-        `/entry @user <amount> [date]  —  log ${activity} (rolls up + backfills)`,
-        `/calendar @user  —  their month time-card`,
-        `/missing  —  who hasn't hit today's target`,
-        `/remind @user  —  nudge one member`,
-        `/warn @user [message]  —  warn for missed ${activity} (admins)`,
-        `/xp set | add | remove | complete | reset @user`,
-        `/xp role add | reset | remind | warn | entry  —  bulk by role`,
-        `/xp review | dashboard  —  weekly panel & who's behind`,
-        `/xp exempt | leave | note | goal @user`,
-      ],
-    });
+    sections.push(
+      {
+        title: "Command center",
+        accent: "#a855f7",
+        lines: [
+          `/panel  —  post the live dashboard (survives restarts, auto-refreshes)`,
+          `Category counts are buttons — jump into Attention, Missed, Warnings`,
+          `Notifications · Reports · Calendar · Search built in`,
+        ],
+      },
+      {
+        title: "Logging XP",
+        accent: "#5865f2",
+        lines: [
+          `/entry @user <amount> [date]  —  log ${activity} (rolls up + backfills past days)`,
+          `/xp set | add | remove | complete | reset @user`,
+          `/xp goal | exempt | leave | note @user  —  per-member settings`,
+          `/xp audit @user  —  full history (before → after, who, when)`,
+          `/xp role add | reset | remind | warn | entry  —  bulk by role`,
+        ],
+      },
+      {
+        title: "Reminders & enforcement",
+        accent: "#faa61a",
+        lines: [
+          `/remind @user  —  friendly nudge (never a warning)`,
+          `/warn @user [message]  —  warn for missed ${activity} (admins)`,
+          `/missing  —  who hasn't hit today's target`,
+          `/xp review  —  weekly card: bulk remind / warn / reset`,
+          `/xp dashboard  —  filterable roster of who needs attention`,
+        ],
+      },
+      {
+        title: "Notifications, disputes & tickets",
+        accent: "#a855f7",
+        lines: [
+          `/notifications  —  the staff attention feed (read / clear / resolve)`,
+          `/disputes  —  review member warning disputes`,
+          `/tickets  —  track staff issues to resolution`,
+          `/xp note @user [notify]  —  add a staff note (optionally DM it)`,
+        ],
+      },
+      {
+        title: "Setup",
+        accent: "#22d3ee",
+        lines: [
+          `/setup  —  goal, tracking mode, schedule, channels, roles, enforcement`,
+          `/calendar @user  —  any member's month time-card`,
+        ],
+      }
+    );
   }
 
   const png = await renderOffThread("helpCard", {

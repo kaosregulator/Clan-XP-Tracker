@@ -44,8 +44,15 @@ import {
   SETUP_LEAVE_ROLES,
   SETUP_WARN_ROLES,
   setupToggle,
+  wizGo,
   parseId,
 } from "../ui/ids";
+import {
+  wizardStepPayload,
+  handleWizardButton,
+  handleWizardModal,
+  handleWizardSelect,
+} from "./setupWizard";
 
 /**
  * The configuration hub. Replaces the old static setup embeds: one compact
@@ -53,7 +60,7 @@ import {
  * notifications) reached by buttons, each editing the same message in place.
  */
 
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+export const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export const TRACKING_MODES = [
   {
@@ -168,6 +175,9 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
       b(SETUP_ROLES, "Roles"),
       b(SETUP_NOTIFY, "Notifications"),
       b(SETUP_FINISH, "Finish", ButtonStyle.Success)
+    ),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(wizGo(1), "🧭 Guided setup wizard")
     ),
   ];
 }
@@ -475,11 +485,19 @@ export async function openSetup(interaction: ChatInputCommandInteraction) {
   // a cold Postgres connection.
   await interaction.deferReply({ flags: 64 });
   const clan = await ensureClan(interaction.guildId, interaction.guild.name);
-  await interaction.editReply(setupMainPayload(clan));
+  // New servers get the linear guided wizard; already-configured servers open
+  // the advanced hub for quick edits (the wizard is one button away).
+  await interaction.editReply(
+    clan.setupComplete ? setupMainPayload(clan) : wizardStepPayload(clan, 1)
+  );
 }
 
 export async function handleSetupButton(interaction: ButtonInteraction) {
   const { action, arg } = parseId(interaction.customId);
+
+  // Guided-wizard actions ("wiz…") are handled separately; delegate before any
+  // defer so the modal-open path can still showModal first.
+  if (action.startsWith("wiz")) return void (await handleWizardButton(interaction));
 
   // Modals must be the first response — Discord forbids deferring beforehand.
   if (action === "goal" || action === "schedule") {
@@ -519,6 +537,8 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
 }
 
 export async function handleSetupModal(interaction: ModalSubmitInteraction) {
+  const parsed = parseId(interaction.customId);
+  if (parsed.action.startsWith("wiz")) return void (await handleWizardModal(interaction));
   if (interaction.isFromMessage()) await interaction.deferUpdate();
   else await interaction.deferReply({ flags: 64 });
   const clan = await guard(interaction, true);
@@ -577,6 +597,10 @@ export async function handleSetupSelect(
     | RoleSelectMenuInteraction
     | StringSelectMenuInteraction
 ) {
+  // Guided-wizard selects manage their own defer/guard/persist flow.
+  if (parseId(interaction.customId).action.startsWith("wiz")) {
+    return void (await handleWizardSelect(interaction));
+  }
   await interaction.deferUpdate();
   const clan = await guard(interaction, true);
   if (!clan) return;

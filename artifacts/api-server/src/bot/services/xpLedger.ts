@@ -6,6 +6,7 @@ import { activityDate, weekKey } from "./time";
 import { effectiveGoal } from "./progress";
 import { ensureMember, type MemberIdentity } from "./config";
 import { logAction } from "./logging";
+import { scheduleDashboardRefresh } from "./commandCenter";
 
 /* ------------------------------------------------------------------ dates */
 
@@ -126,6 +127,8 @@ export async function recordEntry(
     moderatorUsername: officer.username,
     details: { date, amount, mode, dayTotal, weekTotal, inCurrentWeek },
   });
+
+  scheduleDashboardRefresh(clan.guildId);
 
   return { activityDate: date, dayTotal, weekTotal, inCurrentWeek };
 }

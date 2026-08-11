@@ -5,6 +5,7 @@ import { routeInteraction } from "./router";
 import { ensureFonts } from "./canvas/fonts";
 import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
+import { setCommandCenterClient } from "./services/commandCenter";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -81,6 +82,9 @@ export function startBot() {
 
   client.once(Events.ClientReady, async (c) => {
     logger.info({ tag: c.user.tag, guilds: c.guilds.cache.size }, "Discord bot ready");
+    // Give the persistent command center a live client so it can edit its
+    // message in place when data changes.
+    setCommandCenterClient(c);
     await registerCommands(c);
     startScheduler(c);
   });

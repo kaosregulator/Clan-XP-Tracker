@@ -7,6 +7,8 @@ import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser } from "./config";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyWarning } from "./progress";
+import { scheduleDashboardRefresh } from "./commandCenter";
+import { createNotification, resolveRelated } from "./notifications";
 
 /**
  * Where a warning is delivered. Both default to the clan settings when
@@ -176,6 +178,34 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     },
     `Warning issued to ${target.username} by ${input.moderatorUsername} (active: ${activeCount})`
   );
+
+  scheduleDashboardRefresh(guild.id);
+
+  // Staff notification center: surface the warning and any escalation.
+  await createNotification({
+    guildId: guild.id,
+    type: "warning",
+    title: `Warning issued — ${target.username}`,
+    body: `${input.reason.slice(0, 300)} (now ${activeCount} active)`,
+    targetUserId: target.id,
+    targetUsername: target.username,
+    relatedId: warning?.id ?? null,
+    createdBy: input.moderatorId,
+    createdByUsername: input.moderatorUsername,
+  });
+  if (activeCount >= clan.escalationThreshold) {
+    await createNotification({
+      guildId: guild.id,
+      type: "escalation",
+      title: `Escalation — ${target.username}`,
+      body: `${target.username} is at ${activeCount} active warnings (threshold ${clan.escalationThreshold}). Flag for leadership review.`,
+      targetUserId: target.id,
+      targetUsername: target.username,
+      relatedId: warning?.id ?? null,
+      createdBy: input.moderatorId,
+      createdByUsername: input.moderatorUsername,
+    });
+  }
 
   return { warning: warning!, activeCount };
 }
@@ -371,6 +401,11 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
     moderatorUsername: input.moderatorUsername,
     details: { warningId, activeCount },
   });
+
+  scheduleDashboardRefresh(guild.id);
+  // Its notifications no longer need attention.
+  await resolveRelated(guild.id, "warning", warningId);
+  await resolveRelated(guild.id, "escalation", warningId);
 
   return warning;
 }
