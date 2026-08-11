@@ -46,6 +46,7 @@ import {
   mpComplete,
   mpRemind,
   mpWarn,
+  audPage,
 } from "../ui/ids";
 import type { DashFilter } from "../ui/components";
 import { notConfiguredMessage } from "./xp";
@@ -321,6 +322,9 @@ export async function memberSummary(clan: Clan, userId: string) {
     new ButtonBuilder().setCustomId(mpRemind(userId)).setLabel("🔔 Remind").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(mpWarn(userId)).setLabel("⚠️ Warn").setStyle(ButtonStyle.Danger)
   );
+  const more = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(audPage(userId, 0)).setLabel("📜 History").setStyle(ButtonStyle.Secondary)
+  );
 
-  return { embeds: [embed], components: [actions], allowedMentions: { parse: [] as never[] } };
+  return { embeds: [embed], components: [actions, more], allowedMentions: { parse: [] as never[] } };
 }

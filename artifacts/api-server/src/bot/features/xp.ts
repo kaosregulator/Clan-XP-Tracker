@@ -39,6 +39,7 @@ import {
 } from "../services/xpLedger";
 import { openReview } from "./review";
 import { openDashboard } from "./dashboard";
+import { openAudit } from "./audit";
 import { relative, weekRangeLabel, nextWeeklyReset, discordRelative, activityDate } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 
@@ -116,6 +117,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   // Views open to everyone (self) come first.
   if (!group && sub === "progress") return handleProgress(interaction);
   if (!group && sub === "history") return handleHistory(interaction);
+  if (!group && sub === "audit") return openAudit(interaction);
   if (!group && sub === "calendar") return handleCalendar(interaction);
   if (!group && sub === "review") return openReview(interaction);
   if (!group && sub === "dashboard") return openDashboard(interaction);

@@ -26,6 +26,7 @@ import {
 } from "./features/disputes";
 import { openTickets, handleTicketButton, handleTicketSelect } from "./features/tickets";
 import { handleMemberPanelButton, handleMemberPanelModal } from "./features/memberPanel";
+import { handleAuditButton } from "./features/audit";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -79,6 +80,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleTicketButton(interaction));
         case NS.mp:
           return void (await handleMemberPanelButton(interaction));
+        case NS.aud:
+          return void (await handleAuditButton(interaction));
       }
       return;
     }

@@ -114,6 +114,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/entry @user <amount> [date]  —  log ${activity} (rolls up + backfills past days)`,
           `/xp set | add | remove | complete | reset @user`,
           `/xp goal | exempt | leave | note @user  —  per-member settings`,
+          `/xp audit @user  —  full history (before → after, who, when)`,
           `/xp role add | reset | remind | warn | entry  —  bulk by role`,
         ],
       },

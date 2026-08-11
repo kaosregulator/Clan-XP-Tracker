@@ -125,6 +125,12 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
     )
     .addSubcommand((s) =>
+      s
+        .setName("audit")
+        .setDescription("View a member's full XP history / audit trail")
+        .addUserOption((o) => o.setName("user").setDescription("Member to view").setRequired(false))
+    )
+    .addSubcommand((s) =>
       s.setName("review").setDescription("Open the weekly review panel (officers)")
     )
     .addSubcommand((s) =>

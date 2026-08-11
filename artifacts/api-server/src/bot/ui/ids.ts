@@ -13,6 +13,7 @@ export const NS = {
   disp: "dsp", // disputes
   tkt: "tkt", // tickets
   mp: "mp", // member panel actions
+  aud: "aud", // xp history / audit viewer
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -115,6 +116,9 @@ export const mpComplete = (userId: string) => id(NS.mp, "complete", userId);
 export const mpRemind = (userId: string) => id(NS.mp, "remind", userId);
 export const mpWarn = (userId: string) => id(NS.mp, "warn", userId);
 export const mpXpModal = (kind: string, userId: string) => id(NS.mp, "xpModal", `${kind}-${userId}`);
+
+// XP history / audit viewer (arg = "<userId>-<page>").
+export const audPage = (userId: string, page: number) => id(NS.aud, "page", `${userId}-${page}`);
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
