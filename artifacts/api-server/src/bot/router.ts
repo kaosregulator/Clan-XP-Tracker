@@ -11,6 +11,11 @@ import { handleXpCommand } from "./features/xp";
 import { handleReviewButton } from "./features/review";
 import { handleDashButton, handleDashSelect } from "./features/dashboard";
 import { handleWarnings, handleHelp, handleWarnRemoveSelect } from "./features/misc";
+import {
+  handleManagerButton,
+  handleManagerSelect,
+  handleManagerModal,
+} from "./features/manager";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -44,6 +49,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleDashButton(interaction));
         case NS.setup:
           return void (await handleSetupButton(interaction));
+        case NS.mgr:
+          return void (await handleManagerButton(interaction));
       }
       return;
     }
@@ -51,6 +58,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     if (interaction.isModalSubmit()) {
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
+      if (ns === NS.mgr) return void (await handleManagerModal(interaction));
       return;
     }
 
@@ -65,6 +73,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
       if (ns === NS.dash) return void (await handleDashSelect(interaction));
       if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));
+      if (ns === NS.mgr) return void (await handleManagerSelect(interaction));
       return;
     }
   } catch (err) {

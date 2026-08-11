@@ -8,6 +8,10 @@ export const NS = {
   dash: "dash", // warning dashboard
   setup: "setup", // configuration hub
   warn: "warn", // warnings management
+  mgr: "mgr", // XP Manager hub (spreadsheet roster + member panel)
+  hub: "hub", // Warnings & Enforcement hub
+  note: "note", // member-facing note acknowledgement
+  me: "me", // member self-view (/xp for non-officers)
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -65,3 +69,36 @@ export const setupToggle = (key: string) => id(NS.setup, "toggle", key);
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
+
+/* ------------------------------------------------------------ XP Manager hub */
+// Category tabs / roster. Arg encodes "<filter>" or "<filter>-<page>".
+export const mgrCat = (filter: string) => id(NS.mgr, "cat", filter);
+export const mgrPage = (filter: string, page: number) => id(NS.mgr, "page", `${filter}-${page}`);
+export const mgrPick = (filter: string, page: number) => id(NS.mgr, "pick", `${filter}-${page}`);
+export const MGR_REFRESH = id(NS.mgr, "refresh");
+export const MGR_ENTER = id(NS.mgr, "enter");
+// Member panel. Arg carries the target user id; a trailing "|<filter>-<page>"
+// lets Back return to the exact roster tab/page the officer came from.
+export const mgrMember = (action: string, userId: string) => id(NS.mgr, action, userId);
+// Modals opened from the member panel.
+export const mgrAddXpModal = (userId: string) => id(NS.mgr, "addxpModal", userId);
+export const mgrRemXpModal = (userId: string) => id(NS.mgr, "remxpModal", userId);
+export const mgrBackXpModal = (userId: string) => id(NS.mgr, "backxpModal", userId);
+export const mgrNoteModal = (userId: string) => id(NS.mgr, "noteModal", userId);
+export const mgrWarnModal = (userId: string) => id(NS.mgr, "warnModal", userId);
+export const mgrRemoveWarnSelect = (userId: string) => id(NS.mgr, "removeWarn", userId);
+
+/* ----------------------------------------------- Warnings & Enforcement hub */
+export const hubTab = (tab: string) => id(NS.hub, "tab", tab);
+export const HUB_REFRESH = id(NS.hub, "refresh");
+export const hubDispute = (action: string, disputeId: number) => id(NS.hub, action, disputeId);
+export const hubDisputeNoteModal = (disputeId: number) => id(NS.hub, "dnote", disputeId);
+
+/* ---------------------------------------------------------- Member self view */
+export const ME_CALENDAR = id(NS.me, "calendar");
+export const ME_WARNINGS = id(NS.me, "warnings");
+export const ME_HISTORY = id(NS.me, "history");
+export const ME_DISPUTE = id(NS.me, "dispute");
+export const meDisputeModal = (warningId: string) => id(NS.me, "disputeModal", warningId);
+// Member note acknowledgement — clears the note once the member has read it.
+export const noteAck = (userId: string) => id(NS.note, "ack", userId);

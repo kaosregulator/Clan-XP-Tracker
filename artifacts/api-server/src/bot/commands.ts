@@ -109,6 +109,9 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     )
     // Views ------------------------------------------------------------------
     .addSubcommand((s) =>
+      s.setName("manage").setDescription("Open the XP Manager — the spreadsheet roster (officers)")
+    )
+    .addSubcommand((s) =>
       s
         .setName("progress")
         .setDescription("View weekly progress (yours, or any member's)")
