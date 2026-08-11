@@ -12,6 +12,7 @@ export const NS = {
   notif: "ntf", // notification center
   disp: "dsp", // disputes
   tkt: "tkt", // tickets
+  mp: "mp", // member panel actions
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -106,6 +107,14 @@ export const ticketProgress = (tid: number) => id(NS.tkt, "progress", tid);
 export const ticketResolve = (tid: number) => id(NS.tkt, "resolve", tid);
 export const ticketClose = (tid: number) => id(NS.tkt, "close", tid);
 export const ticketAssign = (tid: number) => id(NS.tkt, "assign", tid);
+
+// Member panel actions (arg = target user id).
+export const mpAddXp = (userId: string) => id(NS.mp, "addxp", userId);
+export const mpRemoveXp = (userId: string) => id(NS.mp, "remxp", userId);
+export const mpComplete = (userId: string) => id(NS.mp, "complete", userId);
+export const mpRemind = (userId: string) => id(NS.mp, "remind", userId);
+export const mpWarn = (userId: string) => id(NS.mp, "warn", userId);
+export const mpXpModal = (kind: string, userId: string) => id(NS.mp, "xpModal", `${kind}-${userId}`);
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);

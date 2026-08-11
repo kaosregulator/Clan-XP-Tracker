@@ -25,6 +25,7 @@ import {
   handleDisputeReasonModal,
 } from "./features/disputes";
 import { openTickets, handleTicketButton, handleTicketSelect } from "./features/tickets";
+import { handleMemberPanelButton, handleMemberPanelModal } from "./features/memberPanel";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -76,6 +77,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleDisputeButton(interaction));
         case NS.tkt:
           return void (await handleTicketButton(interaction));
+        case NS.mp:
+          return void (await handleMemberPanelButton(interaction));
       }
       return;
     }
@@ -90,6 +93,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
       if (ns === NS.disp) return void (await handleDisputeReasonModal(interaction));
+      if (ns === NS.mp) return void (await handleMemberPanelModal(interaction));
       return;
     }
 

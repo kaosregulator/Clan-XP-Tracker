@@ -38,7 +38,15 @@ import { buildReviewPayload } from "./review";
 import { buildNotificationCenter } from "./notifications";
 import { buildDisputeReview } from "./disputes";
 import { buildTicketList } from "./tickets";
-import { parseId, CC_SEARCH_SELECT } from "../ui/ids";
+import {
+  parseId,
+  CC_SEARCH_SELECT,
+  mpAddXp,
+  mpRemoveXp,
+  mpComplete,
+  mpRemind,
+  mpWarn,
+} from "../ui/ids";
 import type { DashFilter } from "../ui/components";
 import { notConfiguredMessage } from "./xp";
 
@@ -307,7 +315,11 @@ export async function memberSummary(clan: Clan, userId: string) {
   }
 
   const actions = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    new ButtonBuilder().setCustomId("noop").setLabel("Use /xp, /remind, /warn, /calendar for actions").setStyle(ButtonStyle.Secondary).setDisabled(true)
+    new ButtonBuilder().setCustomId(mpAddXp(userId)).setLabel("➕ Add XP").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(mpRemoveXp(userId)).setLabel("➖ Remove XP").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(mpComplete(userId)).setLabel("✅ Complete").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(mpRemind(userId)).setLabel("🔔 Remind").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(mpWarn(userId)).setLabel("⚠️ Warn").setStyle(ButtonStyle.Danger)
   );
 
   return { embeds: [embed], components: [actions], allowedMentions: { parse: [] as never[] } };
