@@ -23,14 +23,16 @@ export type MemberStatus =
   | "inProgress"
   | "notStarted"
   | "exempt"
-  | "leave";
+  | "leave"
+  | "excused";
 
 export const STATUS_LABEL: Record<MemberStatus, string> = {
-  complete: "✅ Complete",
-  inProgress: "🟡 Needs progress",
-  notStarted: "🔴 Not started",
+  complete: "🟢 Complete",
+  inProgress: "🟡 Needs attention",
+  notStarted: "⚠️ Missed",
   exempt: "🛡️ Exempt",
   leave: "🌙 On leave",
+  excused: "🔵 Excused",
 };
 
 /** The goal this member is measured against this week. */
@@ -51,6 +53,7 @@ export function currentProgress(clan: Clan, member: ClanMember): number {
 
 export function statusOf(clan: Clan, member: ClanMember): MemberStatus {
   if (member.onLeave) return "leave";
+  if (member.excused) return "excused";
   if (member.exempt) return "exempt";
   const progress = currentProgress(clan, member);
   if (progress >= effectiveGoal(clan, member)) return "complete";
@@ -172,11 +175,11 @@ export async function applyProgress(
   };
 }
 
-/** Set/clear the exempt or on-leave flag with an audit trail. */
+/** Set/clear the exempt, on-leave or excused flag with an audit trail. */
 export async function setMemberFlag(
   clan: Clan,
   identity: MemberIdentity,
-  flag: "exempt" | "onLeave",
+  flag: "exempt" | "onLeave" | "excused",
   value: boolean,
   officer: Officer
 ): Promise<ClanMember> {
@@ -196,6 +199,39 @@ export async function setMemberFlag(
     targetUsername: identity.username,
     moderatorId: officer.id,
     moderatorUsername: officer.username,
+  });
+  return updated ?? row;
+}
+
+/**
+ * Nudge a member's enforcement warning-point tally up or down by `delta`
+ * (clamped at zero) and audit it. Warning points are a staff-managed number
+ * that completing XP never touches — only Add WP / Remove WP move it.
+ */
+export async function adjustWarningPoints(
+  clan: Clan,
+  identity: MemberIdentity,
+  delta: number,
+  officer: Officer
+): Promise<ClanMember> {
+  const row = await ensureMember(clan.guildId, identity);
+  const next = Math.max(0, row.warningPoints + delta);
+  const [updated] = await db
+    .update(clanMembersTable)
+    .set({
+      warningPoints: next,
+      lastUpdatedBy: officer.id,
+      lastUpdatedByUsername: officer.username,
+    })
+    .where(eq(clanMembersTable.id, row.id))
+    .returning();
+  await logAction(clan.guildId, {
+    action: delta >= 0 ? "warning_points_added" : "warning_points_removed",
+    targetUserId: identity.userId,
+    targetUsername: identity.username,
+    moderatorId: officer.id,
+    moderatorUsername: officer.username,
+    details: { delta, before: row.warningPoints, after: next },
   });
   return updated ?? row;
 }
@@ -272,6 +308,7 @@ export interface WeeklySnapshot {
   notStarted: number;
   exempt: number;
   onLeave: number;
+  excused: number;
   completionRate: number; // 0..1 over active members
   remindersThisWeek: number;
   warningsThisWeek: number;
@@ -289,6 +326,7 @@ export function snapshotFrom(clan: Clan, members: ClanMember[]): WeeklySnapshot 
     notStarted: 0,
     exempt: 0,
     onLeave: 0,
+    excused: 0,
     completionRate: 0,
     remindersThisWeek: 0,
     warningsThisWeek: 0,
@@ -297,6 +335,7 @@ export function snapshotFrom(clan: Clan, members: ClanMember[]): WeeklySnapshot 
     const status = statusOf(clan, m);
     if (status === "exempt") snap.exempt++;
     else if (status === "leave") snap.onLeave++;
+    else if (status === "excused") snap.excused++;
     else {
       snap.active++;
       if (status === "complete") snap.completed++;

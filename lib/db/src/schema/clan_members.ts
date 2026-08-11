@@ -71,6 +71,14 @@ export const clanMembersTable = pgTable(
     // reminders, warnings and completion-rate math.
     exempt: boolean("exempt").notNull().default(false),
     onLeave: boolean("on_leave").notNull().default(false),
+    // Temporary staff-granted excused status (🔵). Like exempt/leave it skips
+    // reminders & warnings, but is tracked as its own category so staff can
+    // tell "excused this once" apart from a standing exemption.
+    excused: boolean("excused").notNull().default(false),
+    // Enforcement warning points — a lightweight running tally staff nudge up
+    // or down independently of the durable `warnings` records. Never auto-reset
+    // by completing XP; only staff change it (Add WP / Remove WP).
+    warningPoints: integer("warning_points").notNull().default(0),
     notes: text("notes"),
     // Who last touched this member's progress.
     lastUpdatedBy: text("last_updated_by"),
