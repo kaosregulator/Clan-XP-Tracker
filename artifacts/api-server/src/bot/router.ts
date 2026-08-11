@@ -16,6 +16,15 @@ import {
   handleCommandCenterButton,
   handleCommandCenterSelect,
 } from "./features/commandCenter";
+import { openNotifications, handleNotifButton, handleNotifSelect } from "./features/notifications";
+import {
+  openDisputePicker,
+  openDisputeReview,
+  handleDisputeButton,
+  handleDisputeSelect,
+  handleDisputeReasonModal,
+} from "./features/disputes";
+import { openTickets, handleTicketButton, handleTicketSelect } from "./features/tickets";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -38,6 +47,14 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleHelp(interaction));
         case "panel":
           return void (await openCommandCenter(interaction));
+        case "notifications":
+          return void (await openNotifications(interaction));
+        case "dispute":
+          return void (await openDisputePicker(interaction));
+        case "disputes":
+          return void (await openDisputeReview(interaction));
+        case "tickets":
+          return void (await openTickets(interaction));
       }
       return;
     }
@@ -53,6 +70,12 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleSetupButton(interaction));
         case NS.cc:
           return void (await handleCommandCenterButton(interaction));
+        case NS.notif:
+          return void (await handleNotifButton(interaction));
+        case NS.disp:
+          return void (await handleDisputeButton(interaction));
+        case NS.tkt:
+          return void (await handleTicketButton(interaction));
       }
       return;
     }
@@ -66,6 +89,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     if (interaction.isModalSubmit()) {
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
+      if (ns === NS.disp) return void (await handleDisputeReasonModal(interaction));
       return;
     }
 
@@ -80,6 +104,9 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
       if (ns === NS.dash) return void (await handleDashSelect(interaction));
       if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));
+      if (ns === NS.notif) return void (await handleNotifSelect(interaction));
+      if (ns === NS.disp) return void (await handleDisputeSelect(interaction));
+      if (ns === NS.tkt) return void (await handleTicketSelect(interaction));
       return;
     }
   } catch (err) {

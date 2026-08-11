@@ -317,4 +317,30 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setDescription("How the XP manager works (officers & members)")
     .setDMPermission(false)
     .toJSON(),
+
+  // Member self-service: dispute one of your own warnings.
+  new SlashCommandBuilder()
+    .setName("dispute")
+    .setDescription("Dispute one of your own XP warnings")
+    .setDMPermission(false)
+    .toJSON(),
+
+  // Officer hubs for the enforcement workflow.
+  new SlashCommandBuilder()
+    .setName("disputes")
+    .setDescription("Review member warning disputes (officers)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("notifications")
+    .setDescription("Open the staff notification center (officers)")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("tickets")
+    .setDescription("View and manage staff tickets (officers)")
+    .setDMPermission(false)
+    .toJSON(),
 ];

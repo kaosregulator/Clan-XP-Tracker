@@ -26,6 +26,9 @@ import {
   type WeeklySnapshot,
 } from "./progress";
 import { membersMissingToday } from "./xpLedger";
+import { unreadCount } from "./notifications";
+import { openDisputeCount } from "./disputes";
+import { openTicketCount } from "./tickets";
 import { weekKey, weekRangeLabel, discordRelative, relative, nextWeeklyReset } from "./time";
 import {
   CC_REFRESH,
@@ -35,6 +38,8 @@ import {
   CC_REPORTS,
   CC_CALENDAR,
   CC_SEARCH,
+  CC_DISPUTES,
+  CC_TICKETS,
   ccCategory,
 } from "../ui/ids";
 
@@ -96,6 +101,9 @@ export interface CommandCenterStats {
   warned: number; // warned at least once this week
   missedToday: number; // haven't met today's daily target
   activeWarnings: number; // open warning rows across the guild
+  unreadNotifs: number; // unread items in the notification center
+  openDisputes: number; // disputes awaiting a decision
+  openTickets: number; // open/in-progress tickets
   recent: { line: string }[];
 }
 
@@ -115,6 +123,12 @@ export async function commandCenterStats(clan: Clan): Promise<CommandCenterStats
     .from(warningsTable)
     .where(and(eq(warningsTable.guildId, clan.guildId), isNull(warningsTable.removedAt)));
 
+  const [unreadNotifs, openDisputes, openTickets] = await Promise.all([
+    unreadCount(clan.guildId),
+    openDisputeCount(clan.guildId),
+    openTicketCount(clan.guildId),
+  ]);
+
   const recentRows = await db
     .select()
     .from(auditLogsTable)
@@ -132,6 +146,9 @@ export async function commandCenterStats(clan: Clan): Promise<CommandCenterStats
     warned,
     missedToday: missing.length,
     activeWarnings,
+    unreadNotifs,
+    openDisputes,
+    openTickets,
     recent,
   };
 }
@@ -187,7 +204,8 @@ function bar(pct: number, width = 14): string {
 export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessageOptions> {
   const s = await commandCenterStats(clan);
   const pct = Math.round(s.snap.completionRate * 100);
-  const needsAction = s.attention + s.warnable + s.missedToday + s.activeWarnings > 0;
+  const needsAction =
+    s.attention + s.warnable + s.missedToday + s.activeWarnings + s.openDisputes + s.unreadNotifs > 0;
 
   const embed = new EmbedBuilder()
     .setColor(needsAction ? parseInt(PALETTE.amber.slice(1), 16) : parseInt(PALETTE.green.slice(1), 16))
@@ -198,6 +216,8 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
         (needsAction
           ? `\n🚩 **Needs action:** ` +
             [
+              s.unreadNotifs ? `🔔 ${s.unreadNotifs} unread` : null,
+              s.openDisputes ? `⚖️ ${s.openDisputes} dispute(s)` : null,
               s.attention ? `${s.attention} attention` : null,
               s.missedToday ? `${s.missedToday} missed today` : null,
               s.warnable ? `${s.warnable} warn-eligible` : null,
@@ -217,6 +237,9 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
       { name: "🛡️ Exempt", value: `**${s.snap.exempt}**`, inline: true },
       { name: "🌙 On leave", value: `**${s.snap.onLeave}**`, inline: true },
       { name: "🚨 Warn-eligible", value: `**${s.warnable}**`, inline: true },
+      { name: "🔔 Unread", value: `**${s.unreadNotifs}**`, inline: true },
+      { name: "⚖️ Disputes", value: `**${s.openDisputes}** open`, inline: true },
+      { name: "🎫 Tickets", value: `**${s.openTickets}** open`, inline: true },
       {
         name: "🧾 Recent activity",
         value: s.recent.length ? s.recent.map((r) => r.line).join("\n") : "_Nothing logged yet._",
@@ -239,12 +262,14 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     ),
     // Hubs.
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(CC_NOTIFS, `🔔 Notifications${needsAction ? " •" : ""}`, ButtonStyle.Primary),
+      b(CC_NOTIFS, `🔔 Notifications${s.unreadNotifs ? ` (${s.unreadNotifs})` : ""}`, s.unreadNotifs ? ButtonStyle.Primary : ButtonStyle.Secondary),
       b(CC_REPORTS, "📊 Reports"),
       b(CC_CALENDAR, "📅 Calendar"),
       b(CC_SEARCH, "🔎 Search")
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(CC_DISPUTES, `⚖️ Disputes${s.openDisputes ? ` (${s.openDisputes})` : ""}`, s.openDisputes ? ButtonStyle.Danger : ButtonStyle.Secondary),
+      b(CC_TICKETS, `🎫 Tickets${s.openTickets ? ` (${s.openTickets})` : ""}`, ButtonStyle.Secondary),
       b(CC_REFRESH, "🔄 Refresh")
     ),
   ];

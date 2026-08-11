@@ -9,6 +9,9 @@ export const NS = {
   setup: "setup", // configuration hub
   warn: "warn", // warnings management
   cc: "cc", // persistent live command center
+  notif: "ntf", // notification center
+  disp: "dsp", // disputes
+  tkt: "tkt", // tickets
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -76,6 +79,34 @@ export const WIZ_FINISH = id(NS.setup, "wizFinish");
 export const WIZ_CANCEL = id(NS.setup, "wizCancel");
 export const WIZ_HUB = id(NS.setup, "wizHub"); // jump to the advanced edit hub
 
+// Notification center.
+export const NOTIF_REFRESH = id(NS.notif, "refresh");
+export const NOTIF_READ_ALL = id(NS.notif, "readAll");
+export const NOTIF_CLEAR_READ = id(NS.notif, "clearRead");
+export const NOTIF_PICK = id(NS.notif, "pick"); // string-select of notifications
+export const notifRead = (nid: number) => id(NS.notif, "read", nid);
+export const notifClear = (nid: number) => id(NS.notif, "clear", nid);
+export const notifResolve = (nid: number) => id(NS.notif, "resolve", nid);
+export const notifMember = (userId: string) => id(NS.notif, "member", userId);
+
+// Disputes. Member picks a warning to dispute; staff act on a dispute id.
+export const DISPUTE_PICK = id(NS.disp, "pick"); // member: select a warning
+export const disputeReasonModal = (warningId: number) => id(NS.disp, "reason", warningId);
+export const DISPUTE_REVIEW_PICK = id(NS.disp, "review"); // staff: select a dispute
+export const disputeAccept = (did: number) => id(NS.disp, "accept", did);
+export const disputeDeny = (did: number) => id(NS.disp, "deny", did);
+export const disputeInfo = (did: number) => id(NS.disp, "info", did);
+export const disputeTicket = (did: number) => id(NS.disp, "ticket", did);
+export const disputeRemoveWarning = (did: number) => id(NS.disp, "remwarn", did);
+export const disputeMember = (userId: string) => id(NS.disp, "member", userId);
+
+// Tickets.
+export const TICKET_PICK = id(NS.tkt, "pick");
+export const ticketProgress = (tid: number) => id(NS.tkt, "progress", tid);
+export const ticketResolve = (tid: number) => id(NS.tkt, "resolve", tid);
+export const ticketClose = (tid: number) => id(NS.tkt, "close", tid);
+export const ticketAssign = (tid: number) => id(NS.tkt, "assign", tid);
+
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
 
@@ -89,5 +120,7 @@ export const CC_REPORTS = id(NS.cc, "reports"); // → weekly review card
 export const CC_CALENDAR = id(NS.cc, "calendar"); // → calendar helper
 export const CC_SEARCH = id(NS.cc, "search"); // → member lookup (user select)
 export const CC_SEARCH_SELECT = id(NS.cc, "searchSelect");
+export const CC_DISPUTES = id(NS.cc, "disputes"); // → dispute review hub
+export const CC_TICKETS = id(NS.cc, "tickets"); // → ticket list
 // Jump straight into a filtered dashboard category (arg = dash filter).
 export const ccCategory = (filter: string) => id(NS.cc, "cat", filter);

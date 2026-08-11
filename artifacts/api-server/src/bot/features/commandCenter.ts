@@ -33,6 +33,9 @@ import {
 } from "../services/commandCenter";
 import { buildDashboardPayload } from "./dashboard";
 import { buildReviewPayload } from "./review";
+import { buildNotificationCenter } from "./notifications";
+import { buildDisputeReview } from "./disputes";
+import { buildTicketList } from "./tickets";
 import { parseId, CC_SEARCH_SELECT } from "../ui/ids";
 import type { DashFilter } from "../ui/components";
 import { notConfiguredMessage } from "./xp";
@@ -129,7 +132,13 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
       return;
     }
     case "notifs":
-      await interaction.editReply(await notificationsReply(clan));
+      await interaction.editReply(await buildNotificationCenter(clan));
+      return;
+    case "disputes":
+      await interaction.editReply(await buildDisputeReview(clan));
+      return;
+    case "tickets":
+      await interaction.editReply(await buildTicketList(clan));
       return;
     case "reports":
       await interaction.editReply(await buildReviewPayload(interaction, clan));
@@ -250,7 +259,7 @@ async function notificationsReply(clan: Clan) {
 }
 
 /** A compact member command-center summary shown from Search. */
-async function memberSummary(clan: Clan, userId: string) {
+export async function memberSummary(clan: Clan, userId: string) {
   const member = await getMember(clan.guildId, userId);
   if (!member) {
     return { content: `<@${userId}> isn't tracked yet — an officer can start them with \`/xp set\`.` };
