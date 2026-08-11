@@ -40,6 +40,7 @@ import { openReview } from "./review";
 import { openDashboard } from "./dashboard";
 import { openManager } from "./manager";
 import { openMemberView } from "./memberView";
+import { openWarningsHub } from "./warningsHub";
 import { relative, weekRangeLabel, nextWeeklyReset, discordRelative, activityDate } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 
@@ -119,6 +120,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   if (!group && sub === "history") return handleHistory(interaction);
   if (!group && sub === "calendar") return handleCalendar(interaction);
   if (!group && sub === "manage") return openManager(interaction);
+  if (!group && sub === "warnings") return openWarningsHub(interaction);
   if (!group && sub === "review") return openReview(interaction);
   if (!group && sub === "dashboard") return openDashboard(interaction);
 

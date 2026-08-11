@@ -91,6 +91,7 @@ export const mgrRemoveWarnSelect = (userId: string) => id(NS.mgr, "removeWarn", 
 /* ----------------------------------------------- Warnings & Enforcement hub */
 export const hubTab = (tab: string) => id(NS.hub, "tab", tab);
 export const HUB_REFRESH = id(NS.hub, "refresh");
+export const HUB_DPICK = id(NS.hub, "dpick");
 export const hubDispute = (action: string, disputeId: number) => id(NS.hub, action, disputeId);
 export const hubDisputeNoteModal = (disputeId: number) => id(NS.hub, "dnote", disputeId);
 
