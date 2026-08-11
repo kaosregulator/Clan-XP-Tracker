@@ -1,4 +1,5 @@
-import type { Client, TextBasedChannel } from "discord.js";
+import { EmbedBuilder, type Client, type TextBasedChannel } from "discord.js";
+import PQueue from "p-queue";
 import type { Clan } from "@workspace/db";
 import dayjs from "dayjs";
 import { logger } from "../lib/logger";
@@ -12,6 +13,7 @@ import {
   rollWeek,
 } from "./services/progress";
 import { sendBulkReminders } from "./services/reminders";
+import { refreshNotifications, staffRecipients } from "./services/notifications";
 
 const TICK_MS = 60_000;
 
@@ -85,6 +87,46 @@ async function runWeeklyReset(client: Client, clan: Clan) {
   logger.info({ guild: clan.guildId, archived: res.archived }, "Weekly reset completed");
 }
 
+/**
+ * DM the owners/staff a compact "here's what needs attention" nudge, built
+ * from the same notification queue the /xp notifications panel shows. Only
+ * unread items nudge — once staff read/clear them they stop being re-pinged.
+ * Fires at most once per day per clan.
+ */
+async function runStaffNudge(client: Client, clan: Clan, dateKey: string) {
+  const guild = client.guilds.cache.get(clan.guildId);
+  if (!guild) return;
+
+  const items = await refreshNotifications(clan);
+  const unread = items.filter((i) => i.status === "unread");
+  if (!unread.length) return;
+
+  if (!fireOnce(`${clan.guildId}:${dateKey}:staffNudge`)) return;
+
+  const recipients = await staffRecipients(clan, guild);
+  if (!recipients.length) return;
+
+  const embed = new EmbedBuilder()
+    .setColor(0xfaa61a)
+    .setTitle(`🔔 XP MANAGER — ${clan.clanName}`)
+    .setDescription(
+      `You have **${items.length}** thing${items.length === 1 ? "" : "s"} that need attention.\n\n` +
+        items.map((i) => `• ${i.body}`).join("\n") +
+        `\n\nOpen **/xp notifications** to Read, Clear or jump to the members.`
+    )
+    .setTimestamp();
+
+  const queue = new PQueue({ concurrency: 3, intervalCap: 3, interval: 1000 });
+  for (const userId of recipients) {
+    queue.add(async () => {
+      const user = await client.users.fetch(userId).catch(() => null);
+      if (user) await user.send({ embeds: [embed] }).catch(() => {});
+    });
+  }
+  await queue.onIdle();
+  logger.info({ guild: clan.guildId, recipients: recipients.length, items: items.length }, "Staff notification nudge sent");
+}
+
 /** Nudge officers when many members are behind and the week is nearly over. */
 async function runOfficerMonitoring(client: Client, clan: Clan, dateKey: string) {
   const channel = clan.warningChannelId ?? clan.logChannelId;
@@ -142,9 +184,11 @@ async function tick(client: Client) {
         await runReminderWindow(client, clan);
       }
 
-      // Once a day, an hour after the reminder window, flag escalations.
+      // Once a day, an hour after the reminder window, flag escalations and
+      // DM staff/owners their outstanding notifications.
       if (reminderTime && hhmm === bumpHour(reminderTime)) {
         await runOfficerMonitoring(client, clan, dateKey);
+        await runStaffNudge(client, clan, dateKey);
       }
     } catch (err) {
       logger.error({ err, guild: clan.guildId }, "Scheduler tick failed for clan");

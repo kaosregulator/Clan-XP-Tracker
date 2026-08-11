@@ -22,6 +22,7 @@ import {
   handleHubSelect,
   handleHubModal,
 } from "./features/warningsHub";
+import { handleNotifButton, handleNotifSelect } from "./features/notifications";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -61,6 +62,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleMeButton(interaction));
         case NS.hub:
           return void (await handleHubButton(interaction));
+        case NS.notif:
+          return void (await handleNotifButton(interaction));
       }
       return;
     }
@@ -87,6 +90,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));
       if (ns === NS.mgr) return void (await handleManagerSelect(interaction));
       if (ns === NS.hub) return void (await handleHubSelect(interaction));
+      if (ns === NS.notif) return void (await handleNotifSelect(interaction));
       return;
     }
   } catch (err) {

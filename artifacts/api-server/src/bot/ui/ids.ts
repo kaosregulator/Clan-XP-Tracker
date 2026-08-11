@@ -12,6 +12,7 @@ export const NS = {
   hub: "hub", // Warnings & Enforcement hub
   note: "note", // member-facing note acknowledgement
   me: "me", // member self-view (/xp for non-officers)
+  notif: "ntf", // staff notification queue (Read / Clear)
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -103,3 +104,9 @@ export const ME_DISPUTE = id(NS.me, "dispute");
 export const meDisputeModal = (warningId: string) => id(NS.me, "disputeModal", warningId);
 // Member note acknowledgement — clears the note once the member has read it.
 export const noteAck = (userId: string) => id(NS.note, "ack", userId);
+
+/* -------------------------------------------------- Staff notification queue */
+export const NOTIF_REFRESH = id(NS.notif, "refresh");
+export const NOTIF_CLEAR_ALL = id(NS.notif, "clearAll");
+export const NOTIF_PICK = id(NS.notif, "pick");
+export const notifAction = (action: string, notifId: number) => id(NS.notif, action, notifId);

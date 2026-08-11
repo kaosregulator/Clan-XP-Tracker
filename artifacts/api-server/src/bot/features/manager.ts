@@ -45,6 +45,7 @@ import { countActive, listActive, issueWarning, removeWarning } from "../service
 import { sendReminder, recentReminder } from "../services/reminders";
 import { recordEntry, calendarFor, periodTotals } from "../services/xpLedger";
 import { roleMemberIdentities } from "../services/roles";
+import { unreadCount } from "../services/notifications";
 import { activityDate, weekKey, weekRangeLabel, discordRelative, nextWeeklyReset } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 import {
@@ -58,6 +59,7 @@ import {
   mgrWarnModal,
   mgrRemoveWarnSelect,
   MGR_REFRESH,
+  NOTIF_REFRESH,
   parseId,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
@@ -249,8 +251,14 @@ export async function buildManagerHome(
         .setDisabled(clamped >= pageCount - 1)
     );
   }
+  const unread = await unreadCount(clan.guildId);
   nav.push(
-    new ButtonBuilder().setCustomId(MGR_REFRESH).setStyle(ButtonStyle.Secondary).setLabel("🔄 Refresh")
+    new ButtonBuilder()
+      .setCustomId(NOTIF_REFRESH)
+      .setStyle(unread ? ButtonStyle.Danger : ButtonStyle.Secondary)
+      .setLabel(`Notifications${unread ? ` (${unread})` : ""}`)
+      .setEmoji("🔔"),
+    new ButtonBuilder().setCustomId(MGR_REFRESH).setStyle(ButtonStyle.Secondary).setLabel("Refresh").setEmoji("🔄")
   );
   components.push(new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...nav));
 
