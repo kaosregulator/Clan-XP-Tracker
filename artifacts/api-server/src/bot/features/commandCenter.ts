@@ -85,16 +85,15 @@ export async function openCommandCenter(interaction: ChatInputCommandInteraction
   const clan = await officerGuard(interaction, true);
   if (!clan) return;
 
-  // Post into the explicitly chosen channel, else the configured staff
-  // dashboard channel, else right here.
+  // Post into the explicitly chosen channel, else right here. (We intentionally
+  // default to the *current* channel rather than a previously-configured one so
+  // /panel always posts where the officer runs it, unless they pick a channel.)
   const chosen = interaction.options.getChannel("channel", false, [ChannelType.GuildText]);
-  const channelId = chosen?.id ?? clan.staffDashboardChannelId ?? interaction.channelId;
+  const channelId = chosen?.id ?? interaction.channelId;
 
-  const messageId = await postCommandCenter(clan, channelId);
-  if (!messageId) {
-    await interaction.editReply({
-      content: `Couldn't post the command center in <#${channelId}> — check I can view & send messages there.`,
-    });
+  const res = await postCommandCenter(clan, channelId);
+  if (!res.ok) {
+    await interaction.editReply({ content: `⚠️ ${res.reason}` });
     return;
   }
   await interaction.editReply({
@@ -116,9 +115,8 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
     await interaction.deferUpdate();
     const clan = await getClan(interaction.guildId);
     if (!clan || !isOfficer(interaction.member, clan)) return;
-    await interaction.editReply(await buildCommandCenterPayload(clan));
-    // Keep the debounce state consistent after a manual refresh.
-    void refreshDashboardNow(interaction.guildId).catch(() => {});
+    // attachments: [] replaces the previous rendered image rather than stacking.
+    await interaction.editReply({ ...(await buildCommandCenterPayload(clan)), attachments: [] });
     return;
   }
 

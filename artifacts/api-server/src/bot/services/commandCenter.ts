@@ -9,13 +9,16 @@ import { and, eq, desc, isNull, sql } from "drizzle-orm";
 import {
   EmbedBuilder,
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
+  PermissionFlagsBits,
   type Client,
   type BaseMessageOptions,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
 import { PALETTE } from "../canvas/theme";
+import { renderOffThread } from "../canvas/render-pool";
 import { logger } from "../../lib/logger";
 import { getClan } from "./config";
 import {
@@ -29,7 +32,7 @@ import { membersMissingToday } from "./xpLedger";
 import { unreadCount } from "./notifications";
 import { openDisputeCount } from "./disputes";
 import { openTicketCount } from "./tickets";
-import { weekKey, weekRangeLabel, discordRelative, relative, nextWeeklyReset } from "./time";
+import { weekKey, weekRangeLabel, discordRelative, relative, nextWeeklyReset, formatInZone } from "./time";
 import {
   CC_REFRESH,
   CC_MANAGE,
@@ -200,51 +203,54 @@ function bar(pct: number, width = 14): string {
   return `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
 }
 
-/** Build the live command-center message (embed + navigation controls). */
+/**
+ * Build the live command-center message: a rendered canvas card (the "nicer,
+ * cleaner" dashboard visual) shown inside an embed whose description carries the
+ * recent-activity feed, with the navigation controls beneath. Callers that edit
+ * the message in place must pass `attachments: []` alongside these files so the
+ * previous image is replaced rather than accumulated (see refreshAttachmentFix).
+ */
 export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessageOptions> {
   const s = await commandCenterStats(clan);
   const pct = Math.round(s.snap.completionRate * 100);
-  const needsAction =
-    s.attention + s.warnable + s.missedToday + s.activeWarnings + s.openDisputes + s.unreadNotifs > 0;
+  const needsActionParts = [
+    s.unreadNotifs ? `${s.unreadNotifs} unread` : null,
+    s.openDisputes ? `${s.openDisputes} disputes` : null,
+    s.attention ? `${s.attention} attention` : null,
+    s.missedToday ? `${s.missedToday} missed` : null,
+    s.warnable ? `${s.warnable} warn-eligible` : null,
+    s.activeWarnings ? `${s.activeWarnings} warnings` : null,
+  ].filter(Boolean) as string[];
+  const needsAction = needsActionParts.length > 0;
+
+  const png = await renderOffThread("commandCenter", {
+    communityName: clan.clanName,
+    weekRange: weekRangeLabel(s.snap.weekKey),
+    deadline: `resets ${formatInZone(nextWeeklyReset(clan), clan, "ddd HH:mm")}`,
+    completionPct: pct,
+    completed: s.snap.completed,
+    active: s.snap.active,
+    needsActionLabel: needsAction ? `Needs action: ${needsActionParts.join(" · ")}` : "All clear — everyone is on pace",
+    tiles: [
+      { label: "Complete", value: s.snap.completed, tone: "good" },
+      { label: "Attention", value: s.attention, tone: "warn" },
+      { label: "Missed today", value: s.missedToday, tone: "bad" },
+      { label: "Warnings", value: s.activeWarnings, tone: "bad" },
+      { label: "Reminded", value: s.reminded, tone: "neutral" },
+      { label: "Warn-eligible", value: s.warnable, tone: "bad" },
+      { label: "Unread", value: s.unreadNotifs, tone: "warn" },
+      { label: "Disputes", value: s.openDisputes, tone: "bad" },
+    ],
+    footer: `${s.snap.tracked} tracked   •   ${s.snap.exempt} exempt   •   ${s.snap.onLeave} on leave   •   ${s.openTickets} tickets`,
+  });
+  const file = new AttachmentBuilder(png, { name: "command-center.png" });
 
   const embed = new EmbedBuilder()
     .setColor(needsAction ? parseInt(PALETTE.amber.slice(1), 16) : parseInt(PALETTE.green.slice(1), 16))
-    .setTitle(`🛰️ XP Command Center — ${clan.clanName}`)
+    .setImage("attachment://command-center.png")
     .setDescription(
-      `Week **${weekRangeLabel(s.snap.weekKey)}** · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
-        `\`${bar(pct)}\` **${pct}%** complete — ${s.snap.completed}/${s.snap.active} active members\n` +
-        (needsAction
-          ? `\n🚩 **Needs action:** ` +
-            [
-              s.unreadNotifs ? `🔔 ${s.unreadNotifs} unread` : null,
-              s.openDisputes ? `⚖️ ${s.openDisputes} dispute(s)` : null,
-              s.attention ? `${s.attention} attention` : null,
-              s.missedToday ? `${s.missedToday} missed today` : null,
-              s.warnable ? `${s.warnable} warn-eligible` : null,
-              s.activeWarnings ? `${s.activeWarnings} active warning(s)` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")
-          : `\n✨ All clear — everyone tracked is on pace.`)
-    )
-    .addFields(
-      { name: "👥 Tracked", value: `**${s.snap.tracked}**`, inline: true },
-      { name: "✅ Complete", value: `**${s.snap.completed}**`, inline: true },
-      { name: "🔴 Attention", value: `**${s.attention}**`, inline: true },
-      { name: "🕐 Missed today", value: `**${s.missedToday}**`, inline: true },
-      { name: "🔔 Reminded", value: `**${s.reminded}**`, inline: true },
-      { name: "⚠️ Warnings", value: `**${s.activeWarnings}** open · ${s.warned} this wk`, inline: true },
-      { name: "🛡️ Exempt", value: `**${s.snap.exempt}**`, inline: true },
-      { name: "🌙 On leave", value: `**${s.snap.onLeave}**`, inline: true },
-      { name: "🚨 Warn-eligible", value: `**${s.warnable}**`, inline: true },
-      { name: "🔔 Unread", value: `**${s.unreadNotifs}**`, inline: true },
-      { name: "⚖️ Disputes", value: `**${s.openDisputes}** open`, inline: true },
-      { name: "🎫 Tickets", value: `**${s.openTickets}** open`, inline: true },
-      {
-        name: "🧾 Recent activity",
-        value: s.recent.length ? s.recent.map((r) => r.line).join("\n") : "_Nothing logged yet._",
-        inline: false,
-      }
+      `**🧾 Recent activity** · resets ${discordRelative(nextWeeklyReset(clan))}\n` +
+        (s.recent.length ? s.recent.map((r) => r.line).join("\n") : "_Nothing logged yet._")
     )
     .setFooter({ text: "Live dashboard · refreshes automatically when data changes" })
     .setTimestamp();
@@ -274,7 +280,7 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
     ),
   ];
 
-  return { embeds: [embed], components: rows };
+  return { embeds: [embed], files: [file], components: rows };
 }
 
 /* ------------------------------------------------------- posting & refresh */
@@ -286,24 +292,91 @@ export function setCommandCenterClient(client: Client): void {
   dashboardClient = client;
 }
 
+export type PostCommandCenterResult =
+  | { ok: true; messageId: string }
+  | { ok: false; reason: string };
+
 /**
  * Post a brand-new command center message in `channelId` and remember it. Any
  * previously tracked message is left in place (staff can delete it) — the new
- * one becomes the live target.
+ * one becomes the live target. Returns a specific reason on failure so the
+ * caller can tell the officer exactly what to fix instead of always blaming
+ * channel permissions.
  */
-export async function postCommandCenter(clan: Clan, channelId: string): Promise<string | null> {
+export async function postCommandCenter(
+  clan: Clan,
+  channelId: string
+): Promise<PostCommandCenterResult> {
   const client = dashboardClient;
-  if (!client) return null;
+  if (!client) {
+    return { ok: false, reason: "The bot is still starting up — wait a few seconds and try again." };
+  }
+
+  // 1) Resolve the channel.
+  let channel;
   try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel?.isTextBased() || !("send" in channel)) return null;
-    const payload = await buildCommandCenterPayload(clan);
+    channel = await client.channels.fetch(channelId);
+  } catch {
+    channel = null;
+  }
+  if (!channel) {
+    return { ok: false, reason: `I can't access <#${channelId}> — pick a channel I can see, or run /panel in the channel you want.` };
+  }
+  if (!channel.isTextBased() || !("send" in channel)) {
+    return { ok: false, reason: `<#${channelId}> isn't a text channel I can post in.` };
+  }
+
+  // 2) Preflight the exact permissions the post needs, in this channel. This is
+  // per-channel: a server-wide role (even Administrator) can still be blocked by
+  // a channel-level permission overwrite, so we check the resolved permissions.
+  if ("permissionsFor" in channel && "guild" in channel) {
+    try {
+      const me = channel.guild.members.me ?? (await channel.guild.members.fetchMe());
+      const perms = channel.permissionsFor(me);
+      const missing: string[] = [];
+      if (!perms?.has(PermissionFlagsBits.ViewChannel)) missing.push("View Channel");
+      if (!perms?.has(PermissionFlagsBits.SendMessages)) missing.push("Send Messages");
+      if (!perms?.has(PermissionFlagsBits.EmbedLinks)) missing.push("Embed Links");
+      if (missing.length) {
+        return {
+          ok: false,
+          reason:
+            `I'm missing **${missing.join(", ")}** in <#${channelId}>.\n` +
+            "Even with an admin role, a channel-level permission override can deny me here — " +
+            "check this channel's permissions for my role (or the @everyone override).",
+        };
+      }
+    } catch {
+      // If we couldn't resolve permissions, fall through and let send() be the
+      // source of truth.
+    }
+  }
+
+  // 3) Build the payload. This reads the V4 tables — surface a clear hint if the
+  // migration hasn't been applied yet.
+  let payload: BaseMessageOptions;
+  try {
+    payload = await buildCommandCenterPayload(clan);
+  } catch (err) {
+    logger.error({ err, guild: clan.guildId }, "Command center payload build failed");
+    return {
+      ok: false,
+      reason:
+        "I couldn't read the dashboard data. If you just deployed V4, the new database tables " +
+        "(notifications, disputes, tickets, member_notes) may be missing — run " +
+        "`pnpm --filter @workspace/db run push` on the server, then try /panel again.",
+    };
+  }
+
+  // 4) Send it.
+  try {
     const msg = await channel.send(payload);
     await saveStaffDashboard(clan.guildId, channelId, msg.id);
-    return msg.id;
+    return { ok: true, messageId: msg.id };
   } catch (err) {
     logger.warn({ err, guild: clan.guildId, channelId }, "Failed to post command center");
-    return null;
+    const message = err instanceof Error ? err.message : "unknown error";
+    return { ok: false, reason: `Discord rejected the post in <#${channelId}> — ${message}` };
   }
 }
 
@@ -319,7 +392,9 @@ async function doRefresh(guildId: string): Promise<void> {
     const channel = await client.channels.fetch(state.channelId);
     if (!channel?.isTextBased() || !("messages" in channel)) return;
     const payload = await buildCommandCenterPayload(clan);
-    await channel.messages.edit(state.messageId, payload);
+    // attachments: [] drops the previous rendered image so the new one replaces
+    // it (otherwise each edit would stack another attachment).
+    await channel.messages.edit(state.messageId, { ...payload, attachments: [] });
     await db
       .update(dashboardsTable)
       .set({ updatedAt: new Date() })
