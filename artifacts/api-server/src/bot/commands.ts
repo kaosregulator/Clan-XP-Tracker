@@ -240,6 +240,29 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
     .toJSON(),
 
+  // /xpreminder mirrors /xpwarn's option surface (message + destination) so a
+  // reminder can carry a note and be routed to the channel, a DM, or both.
+  new SlashCommandBuilder()
+    .setName("xpreminder")
+    .setDescription("Remind a member to do their XP (with an optional note)")
+    .setDMPermission(false)
+    .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
+    .addStringOption((o) =>
+      o.setName("message").setDescription("Optional note").setRequired(false).setMaxLength(500)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("destination")
+        .setDescription("Where to send it (default: DM + reminder channel)")
+        .setRequired(false)
+        .addChoices(
+          { name: "Reminder channel", value: "channel" },
+          { name: "Direct message", value: "dm" },
+          { name: "Both", value: "both" }
+        )
+    )
+    .toJSON(),
+
   new SlashCommandBuilder()
     .setName("xpwarn")
     .setDescription("Warn a member for missed XP")

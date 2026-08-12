@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   createCanvas,
   loadImage,
@@ -6,6 +9,7 @@ import {
   type Image,
 } from "@napi-rs/canvas";
 import { ensureFonts, font, sanitizeText } from "./fonts";
+import { logger } from "../../lib/logger";
 
 // The runtime is Node (no DOM lib), so alias the few canvas value/enum types
 // we reference instead of relying on the ambient DOM globals.
@@ -146,14 +150,72 @@ export function horizontalGradient(
   return g;
 }
 
-/** Paint the standard app background. */
+/* -------------------------------------------------------------- background */
+
+// The shared brand texture, loaded once per worker thread and reused for every
+// card so a card render never touches the disk on the hot path.
+let bgImage: Image | null = null;
+let bgLoadAttempted = false;
+
+/**
+ * Load the standard background texture from disk (bundled under assets/). Call
+ * once before rendering; safe to call repeatedly. The image is optional — if it
+ * is ever missing we fall back to the painted gradient so a card still renders.
+ */
+export async function ensureBackgroundLoaded(): Promise<void> {
+  if (bgLoadAttempted) return;
+  bgLoadAttempted = true;
+  const path = fileURLToPath(new URL("./assets/backgrounds/app-bg.jpg", import.meta.url));
+  if (!existsSync(path)) {
+    logger.warn({ path }, "Canvas background missing — using painted gradient");
+    return;
+  }
+  try {
+    bgImage = await loadImage(await readFile(path));
+  } catch (err) {
+    logger.warn({ err, path }, "Canvas background failed to decode — using painted gradient");
+  }
+}
+
+/** Draw an image cover-fit (fill the box, centre-cropping the overflow). */
+export function drawCover(
+  ctx: SKRSContext2D,
+  img: Image,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+) {
+  const scale = Math.max(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+/**
+ * Paint the standard app background — the brand texture under a dark veil that
+ * keeps the app's dark cards and light text legible while the texture reads
+ * through at the edges. Falls back to the original gradient if the texture is
+ * unavailable (or `ensureBackgroundLoaded()` was never awaited).
+ */
 export function paintBackground(rc: RenderCanvas) {
   const { ctx, width, height } = rc;
-  ctx.fillStyle = verticalGradient(ctx, 0, 0, height, [
-    [0, PALETTE.bg1],
-    [1, PALETTE.bg0],
-  ]);
-  ctx.fillRect(0, 0, width, height);
+  if (bgImage) {
+    drawCover(ctx, bgImage, 0, 0, width, height);
+    // Dark veil: the texture is a light grunge, so the app's dark theme needs a
+    // translucent scrim on top for the near-white body text to stay readable.
+    ctx.fillStyle = verticalGradient(ctx, 0, 0, height, [
+      [0, "rgba(16,20,33,0.90)"],
+      [1, "rgba(8,11,18,0.94)"],
+    ]);
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = verticalGradient(ctx, 0, 0, height, [
+      [0, PALETTE.bg1],
+      [1, PALETTE.bg0],
+    ]);
+    ctx.fillRect(0, 0, width, height);
+  }
 
   // Soft accent glow in the top-left for depth.
   const glow = ctx.createRadialGradient(width * 0.18, -60, 0, width * 0.18, -60, width * 0.7);
@@ -161,6 +223,27 @@ export function paintBackground(rc: RenderCanvas) {
   glow.addColorStop(1, "rgba(88,101,242,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
+}
+
+/**
+ * Paint the brand texture as a *light* surface — the look of the warning /
+ * reminder cards, where the grunge shows through directly with only a soft
+ * white wash so the dark card text stays crisp. Accent glows are layered by
+ * the caller. Falls back to a light gradient when the texture is missing.
+ */
+export function paintPhotoSurface(rc: RenderCanvas) {
+  const { ctx, width, height } = rc;
+  if (bgImage) {
+    drawCover(ctx, bgImage, 0, 0, width, height);
+    ctx.fillStyle = "rgba(244,245,248,0.55)";
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = verticalGradient(ctx, 0, 0, height, [
+      [0, "#f4f5f8"],
+      [1, "#e9ebf1"],
+    ]);
+    ctx.fillRect(0, 0, width, height);
+  }
 }
 
 /* -------------------------------------------------------------- text utils */
@@ -344,7 +427,7 @@ export function drawAvatar(
   y: number,
   size: number,
   fallbackInitial = "?",
-  ring = PALETTE.blurple
+  ring: string = PALETTE.blurple
 ) {
   const cx = x + size / 2;
   const cy = y + size / 2;

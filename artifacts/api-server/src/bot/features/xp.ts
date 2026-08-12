@@ -113,7 +113,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   const isAlias = interaction.commandName !== "xp";
   const group = isAlias ? null : interaction.options.getSubcommandGroup(false);
   const sub = isAlias
-    ? interaction.commandName === "xpremind"
+    ? interaction.commandName === "xpremind" || interaction.commandName === "xpreminder"
       ? "remind"
       : interaction.commandName === "xpwarn"
         ? "warn"
@@ -256,6 +256,10 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         });
         return;
       }
+      // /xpreminder adds a note + destination (channel / dm / both), mirroring
+      // /xpwarn. Plain /xpremind and /xp remind leave both unset.
+      const note = interaction.options.getString("message")?.trim() || null;
+      const destination = interaction.options.getString("destination");
       const { delivered } = await sendReminder({
         client: interaction.client,
         clan,
@@ -264,10 +268,12 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         auto: false,
         moderatorId: interaction.user.id,
         moderatorUsername: interaction.user.username,
+        note,
+        deliver: warnDelivery(destination),
       });
       await interaction.editReply({
         content: delivered
-          ? `🔔 Reminder sent to **${target.username}**.`
+          ? `🔔 Reminder sent to **${target.username}**${destinationLabel(destination).replace("warn channel", "reminder channel")}.`
           : `🔔 Reminder recorded, but it couldn't be delivered (DMs closed and no reminder channel).`,
       });
       return;

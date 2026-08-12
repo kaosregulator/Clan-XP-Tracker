@@ -53,21 +53,20 @@ const STATUS_BADGE: Record<string, string> = {
 
 /* ------------------------------------------------------------ member flow */
 
-/** /dispute — a member opens a dispute against one of their active warnings. */
-export async function openDisputePicker(interaction: ChatInputCommandInteraction) {
-  if (!interaction.inCachedGuild()) return;
-  await interaction.deferReply({ flags: 64 });
-  const clan = await getClan(interaction.guildId);
-  if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
-    return;
-  }
-  const warns = await listActive(clan.guildId, interaction.user.id);
+/**
+ * Build the "pick a warning to dispute" payload for a given member. Shared by
+ * the /dispute command and the member hub's Dispute button so both open the
+ * exact same picker.
+ */
+export async function buildDisputePicker(
+  clan: Clan,
+  userId: string
+): Promise<BaseMessageOptions & { content: string }> {
+  const warns = await listActive(clan.guildId, userId);
   if (!warns.length) {
-    await interaction.editReply({ content: "You have no active warnings to dispute. ✅" });
-    return;
+    return { content: "You have no active warnings to dispute. ✅", components: [] };
   }
-  await interaction.editReply({
+  return {
     content: "Pick the warning you want to dispute. You can only dispute your own warnings.",
     components: [
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
@@ -83,7 +82,19 @@ export async function openDisputePicker(interaction: ChatInputCommandInteraction
           )
       ),
     ],
-  });
+  };
+}
+
+/** /dispute — a member opens a dispute against one of their active warnings. */
+export async function openDisputePicker(interaction: ChatInputCommandInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+  await interaction.editReply(await buildDisputePicker(clan, interaction.user.id));
 }
 
 /** Member selected a warning → open the reason modal (no defer before modal). */
