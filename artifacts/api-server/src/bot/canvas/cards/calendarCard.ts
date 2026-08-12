@@ -37,13 +37,13 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function cellColors(status: CalendarDayStatus): { fill: string; stroke: string; ink: string } {
   switch (status) {
     case "done":
-      return { fill: "#14351f", stroke: PALETTE.green, ink: PALETTE.greenBright };
+      return { fill: "#dff5e6", stroke: PALETTE.green, ink: "#1b7a3f" };
     case "missed":
-      return { fill: "#3a1a1c", stroke: PALETTE.red, ink: "#ff7a7d" };
+      return { fill: "#fde3e5", stroke: PALETTE.red, ink: "#c62330" };
     case "none":
-      return { fill: "#2a1520", stroke: "#7a2d3a", ink: "#ff9aa2" };
+      return { fill: "#fdeef0", stroke: "#f0b8bd", ink: "#c62330" };
     case "vacation":
-      return { fill: "#2a2340", stroke: PALETTE.violet, ink: "#c99bff" };
+      return { fill: "#efe6fe", stroke: PALETTE.violet, ink: "#7a35c9" };
     case "future":
       return { fill: PALETTE.bg1, stroke: PALETTE.borderSoft, ink: PALETTE.muted };
     case "skip":
