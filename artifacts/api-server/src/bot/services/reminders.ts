@@ -2,12 +2,23 @@ import { db, remindersTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import PQueue from "p-queue";
-import { EmbedBuilder, type Client, type User } from "discord.js";
+import { EmbedBuilder, AttachmentBuilder, type Client, type User } from "discord.js";
 import { weekKey, nextWeeklyReset, discordRelative } from "./time";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyReminder, currentProgress, effectiveGoal } from "./progress";
 import { scheduleDashboardRefresh } from "./commandCenter";
+import { renderOffThread } from "../canvas/render-pool";
 import { logger } from "../../lib/logger";
+
+/**
+ * Where a reminder is delivered. Both default to the clan settings when
+ * omitted (DM when dmReminders is on, plus the reminder channel), so callers
+ * that don't care keep the old behaviour. /xpreminder passes explicit flags.
+ */
+export interface ReminderDelivery {
+  channel?: boolean;
+  dm?: boolean;
+}
 
 export interface SendReminderInput {
   client: Client;
@@ -17,10 +28,38 @@ export interface SendReminderInput {
   auto: boolean;
   moderatorId?: string | null;
   moderatorUsername?: string | null;
+  /** Optional officer note shown on the reminder card in place of the default copy. */
+  note?: string | null;
+  /** Explicit channel/DM override; falls back to clan settings when omitted. */
+  deliver?: ReminderDelivery;
 }
 
 export interface SendReminderResult {
   delivered: boolean;
+}
+
+/** Render the XP reminder canvas card with the member's avatar, best-effort. */
+async function renderReminderCardSafe(
+  clan: Clan,
+  target: User,
+  note?: string | null
+): Promise<Buffer | null> {
+  try {
+    return await renderOffThread("reminderCard", {
+      communityName: clan.clanName,
+      memberName: target.username,
+      avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
+      message: note ?? null,
+    });
+  } catch (err) {
+    logger.warn({ err }, "Reminder card render failed — falling back to embed");
+    return null;
+  }
+}
+
+/** A fresh attachment for each send — Buffers must not be shared across sends. */
+function reminderAttachment(card: Buffer): AttachmentBuilder {
+  return new AttachmentBuilder(card, { name: "xp-reminder.png" });
 }
 
 /** A simple reminder card: the member's avatar and a "go do your XP" nudge. */
@@ -59,25 +98,36 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   let channelUsed = "none";
 
   const embed = reminderEmbed(clan, member, target);
+  // The canvas card is the primary visual (matches the warning card); the embed
+  // stays as a fallback when a render fails so a reminder always gets through.
+  const card = await renderReminderCardSafe(clan, target, input.note);
 
-  if (clan.dmReminders) {
+  // Delivery targets: explicit override wins; otherwise the clan defaults
+  // (DM when dmReminders is on, and the reminder channel when configured).
+  const wantDm = input.deliver?.dm ?? clan.dmReminders;
+  const wantChannel = input.deliver
+    ? (input.deliver.channel ?? false)
+    : !!clan.reminderChannelId;
+
+  if (wantDm) {
     try {
-      await target.send({ embeds: [embed] });
+      await target.send(card ? { files: [reminderAttachment(card)] } : { embeds: [embed] });
       delivered = true;
       channelUsed = "dm";
     } catch {
-      // DMs closed — fall through to the channel if configured.
+      // DMs closed — fall through to the channel if configured/allowed.
     }
   }
 
-  if (clan.reminderChannelId && (!delivered || !clan.dmReminders)) {
+  const channelFallback = wantChannel || (!delivered && !!clan.reminderChannelId);
+  if (clan.reminderChannelId && channelFallback) {
     try {
       const channel = await client.channels.fetch(clan.reminderChannelId);
       if (channel?.isTextBased() && "send" in channel) {
         const mention = clan.pingReminders ? `<@${target.id}>` : `**${target.username}**`;
         await channel.send({
-          content: `🔔 ${mention}`,
-          embeds: [embed],
+          content: `🔔 ${mention} — this is your XP reminder.`,
+          ...(card ? { files: [reminderAttachment(card)] } : { embeds: [embed] }),
           allowedMentions: clan.pingReminders ? { users: [target.id] } : { parse: [] },
         });
         delivered = true;
@@ -192,6 +242,34 @@ export async function recentReminder(
     .orderBy(desc(remindersTable.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+export interface ReminderRecord {
+  createdAt: Date;
+  sentByUsername: string | null;
+  auto: boolean;
+  channel: string;
+  delivered: boolean;
+}
+
+/** The most recent reminders for a member — powers the member hub's history. */
+export async function listRecentReminders(
+  guildId: string,
+  userId: string,
+  limit = 5
+): Promise<ReminderRecord[]> {
+  return db
+    .select({
+      createdAt: remindersTable.createdAt,
+      sentByUsername: remindersTable.sentByUsername,
+      auto: remindersTable.auto,
+      channel: remindersTable.channel,
+      delivered: remindersTable.delivered,
+    })
+    .from(remindersTable)
+    .where(and(eq(remindersTable.guildId, guildId), eq(remindersTable.userId, userId)))
+    .orderBy(desc(remindersTable.createdAt))
+    .limit(limit);
 }
 
 /** How many reminders this user already received this tracking week. */

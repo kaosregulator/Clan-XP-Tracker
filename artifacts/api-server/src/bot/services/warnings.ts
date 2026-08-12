@@ -2,13 +2,14 @@ import { db, warningsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember, Warning } from "@workspace/db";
 import { eq, and, isNull, desc, gte, sql } from "drizzle-orm";
 import PQueue from "p-queue";
-import { EmbedBuilder, type Client, type Guild, type User } from "discord.js";
+import { EmbedBuilder, AttachmentBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
 import { ensureMember, identityFromUser } from "./config";
 import { logAction, sendLog } from "./logging";
 import { recordWeeklyWarning } from "./progress";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { createNotification, resolveRelated } from "./notifications";
+import { renderOffThread } from "../canvas/render-pool";
 
 /**
  * Where a warning is delivered. Both default to the clan settings when
@@ -35,6 +36,31 @@ export interface IssueWarningInput {
 export interface IssueWarningResult {
   warning: Warning;
   activeCount: number;
+}
+
+/** Render the XP warning canvas card with the member's avatar, best-effort. */
+async function renderWarningCardSafe(
+  clan: Clan,
+  target: User,
+  activeCount: number
+): Promise<Buffer | null> {
+  try {
+    return await renderOffThread("warningCard", {
+      communityName: clan.clanName,
+      memberName: target.username,
+      avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
+      count: activeCount,
+      threshold: clan.escalationThreshold,
+    });
+  } catch (err) {
+    logger.warn({ err }, "Warning card render failed — falling back to embed");
+    return null;
+  }
+}
+
+/** A fresh attachment for each send — Buffers must not be shared across sends. */
+function warningAttachment(card: Buffer): AttachmentBuilder {
+  return new AttachmentBuilder(card, { name: "xp-warning.png" });
 }
 
 /** Issue a warning: record it, bump the count, assign roles, log, optionally DM. */
@@ -81,13 +107,18 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   let channelPosted = false;
   let dmSent = false;
 
+  // The XP warning canvas card (red, avatar attached) is the primary visual in
+  // both the channel and the DM. Rendered once; a fresh attachment is built per
+  // send because Buffers can't be shared across two Discord messages.
+  const card = await renderWarningCardSafe(clan, target, activeCount);
+
   // Post to the dedicated warning channel when one is configured. The post
   // pings the member and shows their avatar so it reads as a real callout.
   if (deliverChannel && clan.warningChannelId) {
     try {
       const channel = await client.channels.fetch(clan.warningChannelId);
       if (channel?.isTextBased() && "send" in channel) {
-        const embed = new EmbedBuilder()
+        const fallbackEmbed = new EmbedBuilder()
           .setColor(0xed4245)
           .setAuthor({
             name: `XP Warning • ${target.username}`,
@@ -103,8 +134,8 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
           .setFooter({ text: `Warned by ${input.moderatorUsername}` })
           .setTimestamp();
         await channel.send({
-          content: `⚠️ <@${target.id}>`,
-          embeds: [embed],
+          content: `⚠️ <@${target.id}> — this is your XP warning.`,
+          ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
           allowedMentions: { users: [target.id] },
         });
         channelPosted = true;
@@ -115,6 +146,8 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
+    // The card carries the callout; the message text keeps the specific reason
+    // (which the public card intentionally omits) in the member's DM.
     const dmEmbed = new EmbedBuilder()
       .setColor(0xed4245)
       .setAuthor({ name: `Warning • ${guild.name}`, iconURL: target.displayAvatarURL() })
@@ -124,7 +157,14 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       )
       .setTimestamp();
     dmSent = await target
-      .send({ embeds: [dmEmbed] })
+      .send(
+        card
+          ? {
+              content: `⚠️ **Reason:** ${input.reason.slice(0, 1800)}\nYou now have **${activeCount}** active warning(s).`,
+              files: [warningAttachment(card)],
+            }
+          : { embeds: [dmEmbed] }
+      )
       .then(() => true)
       .catch(() => false);
   }

@@ -13,10 +13,13 @@
  *                  { id: number; error: string }       (failure)
  */
 import { parentPort } from "node:worker_threads";
+import { ensureBackgroundLoaded } from "./theme";
 import { renderHelpCard } from "./cards/helpCard";
 import { renderWeeklyReview } from "./cards/weeklyReviewCard";
 import { renderCalendar } from "./cards/calendarCard";
 import { renderCommandCenter } from "./cards/commandCenterCard";
+import { renderWarningCard } from "./cards/warningCard";
+import { renderReminderCard } from "./cards/reminderCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -42,6 +45,9 @@ parentPort.on("message", (msg: { id: number; fn: string; params: Record<string, 
 
 async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer> {
   /* eslint-disable @typescript-eslint/no-explicit-any */
+  // The shared brand texture is loaded once and reused by paintBackground /
+  // paintPhotoSurface for every card, so warm it before the first draw.
+  await ensureBackgroundLoaded();
   switch (fn) {
     case "weeklyReview":
       return renderWeeklyReview(p as any);
@@ -51,6 +57,10 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderCalendar(p as any);
     case "commandCenter":
       return renderCommandCenter(p as any);
+    case "warningCard":
+      return renderWarningCard(p as any);
+    case "reminderCard":
+      return renderReminderCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

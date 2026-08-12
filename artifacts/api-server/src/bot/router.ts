@@ -10,7 +10,8 @@ import {
 import { handleXpCommand } from "./features/xp";
 import { handleReviewButton } from "./features/review";
 import { handleDashButton, handleDashSelect } from "./features/dashboard";
-import { handleWarnings, handleHelp, handleWarnRemoveSelect } from "./features/misc";
+import { handleHelp, handleWarnRemoveSelect } from "./features/misc";
+import { handleWarnings, handleHubButton } from "./features/userHub";
 import {
   openCommandCenter,
   handleCommandCenterButton,
@@ -38,6 +39,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case "xp":
         // Plain top-level aliases for the everyday actions — same handler.
         case "xpremind":
+        case "xpreminder":
         case "xpwarn":
         case "entry":
         case "calendar":
@@ -82,6 +84,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleMemberPanelButton(interaction));
         case NS.aud:
           return void (await handleAuditButton(interaction));
+        case NS.hub:
+          return void (await handleHubButton(interaction));
       }
       return;
     }

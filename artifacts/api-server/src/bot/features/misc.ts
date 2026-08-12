@@ -1,75 +1,18 @@
 import {
   EmbedBuilder,
-  ActionRowBuilder,
   AttachmentBuilder,
-  StringSelectMenuBuilder,
   type ChatInputCommandInteraction,
   type StringSelectMenuInteraction,
-  type MessageActionRowComponentBuilder,
 } from "discord.js";
 import { getClan, isOfficer } from "../services/config";
-import { listActive, removeWarning } from "../services/warnings";
-import { formatInZone } from "../services/time";
+import { removeWarning } from "../services/warnings";
 import { renderOffThread } from "../canvas/render-pool";
-import { warnRemoveSelect } from "../ui/ids";
-import { notConfiguredMessage } from "./xp";
 
-/** /warnings [user] — view active XP warnings; officers can remove via a menu. */
-export async function handleWarnings(interaction: ChatInputCommandInteraction) {
-  if (!interaction.inCachedGuild()) return;
-  await interaction.deferReply({ flags: 64 });
-  const clan = await getClan(interaction.guildId);
-  if (!clan) {
-    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
-    return;
-  }
-
-  const target = interaction.options.getUser("user") ?? interaction.user;
-  const officer = isOfficer(interaction.member, clan);
-  if (target.id !== interaction.user.id && !officer) {
-    await interaction.editReply({ content: "Only officers can view other members' warnings." });
-    return;
-  }
-
-  const warns = await listActive(clan.guildId, target.id);
-  const embed = new EmbedBuilder()
-    .setColor(warns.length ? 0xed4245 : 0x3ba55d)
-    .setAuthor({
-      name: `XP warnings — ${target.username}`,
-      iconURL: target.displayAvatarURL(),
-    })
-    .setDescription(
-      warns.length
-        ? warns
-            .map(
-              (w) =>
-                `**#${w.id}** · ${formatInZone(w.issuedAt, clan)}\n> ${w.reason}\n_by ${w.issuedByUsername}_`
-            )
-            .join("\n\n")
-        : "✅ No active warnings."
-    )
-    .setFooter({
-      text: `These are ${clan.activityName} enforcement warnings, not moderation warnings.`,
-    });
-
-  const components: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
-  if (officer && warns.length) {
-    const menu = new StringSelectMenuBuilder()
-      .setCustomId(warnRemoveSelect(target.id))
-      .setPlaceholder("Remove a warning…")
-      .addOptions(
-        warns.slice(0, 25).map((w) => ({
-          label: `#${w.id} — ${w.reason.slice(0, 80)}`,
-          value: String(w.id),
-        }))
-      );
-    components.push(
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(menu)
-    );
-  }
-
-  await interaction.editReply({ embeds: [embed], components });
-}
+/**
+ * /help and the warning-removal select handler. The `/warnings` command itself
+ * now lives in features/userHub.ts (member record vs. officer dashboard); the
+ * remove-warning dropdown it renders is still handled here under NS.warn.
+ */
 
 /** /help — how the officer-managed workflow works. */
 export async function handleHelp(interaction: ChatInputCommandInteraction) {

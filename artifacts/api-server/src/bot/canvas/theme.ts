@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   createCanvas,
   loadImage,
@@ -6,6 +9,7 @@ import {
   type Image,
 } from "@napi-rs/canvas";
 import { ensureFonts, font, sanitizeText } from "./fonts";
+import { logger } from "../../lib/logger";
 
 // The runtime is Node (no DOM lib), so alias the few canvas value/enum types
 // we reference instead of relying on the ambient DOM globals.
@@ -17,24 +21,27 @@ type Gradient = ReturnType<SKRSContext2D["createLinearGradient"]>;
  * primitives — so the member hub, admin hub, profile and dashboards all read
  * as the same polished application.
  */
+// Light "grunge white" theme — one palette shared by every card. The panels
+// (cards/tiles) sit as clean light surfaces on the brand texture, with dark ink
+// text and accents darkened just enough to stay legible on white.
 export const PALETTE = {
-  bg0: "#0b0e17",
-  bg1: "#131826",
-  card: "#171d2e",
-  cardAlt: "#1d2540",
-  border: "#2a3450",
-  borderSoft: "#212a44",
-  text: "#f3f5fb",
-  soft: "#aeb7d4",
-  muted: "#6b7490",
-  blurple: "#5865f2",
-  blurpleSoft: "#7c86f6",
-  violet: "#a855f7",
-  cyan: "#22d3ee",
-  green: "#3ba55d",
-  greenBright: "#57f287",
-  amber: "#faa61a",
-  red: "#ed4245",
+  bg0: "#dfe3ec", // deepest tone (gradient fallbacks)
+  bg1: "#eef1f6", // tile fill
+  card: "#ffffff", // main panel
+  cardAlt: "#e7eaf1", // progress track / secondary fill
+  border: "#d3d8e4",
+  borderSoft: "#e3e7f0",
+  text: "#14161f", // ink
+  soft: "#454b5c", // secondary ink
+  muted: "#7c8397", // tertiary / labels
+  blurple: "#3f51e0",
+  blurpleSoft: "#6f8bff",
+  violet: "#8b3ff0",
+  cyan: "#0e9cbb",
+  green: "#2e9e57",
+  greenBright: "#1fae63",
+  amber: "#c9820a",
+  red: "#e11d2b",
 } as const;
 
 export type RGB = string;
@@ -146,19 +153,81 @@ export function horizontalGradient(
   return g;
 }
 
-/** Paint the standard app background. */
+/* -------------------------------------------------------------- background */
+
+// The shared brand texture, loaded once per worker thread and reused for every
+// card so a card render never touches the disk on the hot path.
+let bgImage: Image | null = null;
+let bgLoadAttempted = false;
+
+/**
+ * Load the standard background texture from disk (bundled under assets/). Call
+ * once before rendering; safe to call repeatedly. The image is optional — if it
+ * is ever missing we fall back to the painted gradient so a card still renders.
+ */
+export async function ensureBackgroundLoaded(): Promise<void> {
+  if (bgLoadAttempted) return;
+  bgLoadAttempted = true;
+  const path = fileURLToPath(new URL("./assets/backgrounds/app-bg.jpg", import.meta.url));
+  if (!existsSync(path)) {
+    logger.warn({ path }, "Canvas background missing — using painted gradient");
+    return;
+  }
+  try {
+    bgImage = await loadImage(await readFile(path));
+  } catch (err) {
+    logger.warn({ err, path }, "Canvas background failed to decode — using painted gradient");
+  }
+}
+
+/** Draw an image cover-fit (fill the box, centre-cropping the overflow). */
+export function drawCover(
+  ctx: SKRSContext2D,
+  img: Image,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+) {
+  const scale = Math.max(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+/**
+ * Paint the brand texture as a *light* surface — the grunge shows through
+ * directly with only a soft white wash so the dark ink text and clean panels
+ * stay crisp. `wash` lets a caller calm the texture down a touch (dashboards
+ * carry more text than the enforcement cards). Falls back to a light gradient
+ * when the texture is unavailable.
+ */
+export function paintPhotoSurface(rc: RenderCanvas, wash = 0.55) {
+  const { ctx, width, height } = rc;
+  if (bgImage) {
+    drawCover(ctx, bgImage, 0, 0, width, height);
+    ctx.fillStyle = `rgba(244,245,248,${wash})`;
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = verticalGradient(ctx, 0, 0, height, [
+      [0, "#f4f5f8"],
+      [1, "#e9ebf1"],
+    ]);
+    ctx.fillRect(0, 0, width, height);
+  }
+}
+
+/**
+ * The standard app background: the grunge-white brand texture behind every
+ * card. Dashboards carry a lot of text, so the texture gets a slightly stronger
+ * wash than the enforcement cards, plus a soft light bloom at the top for depth.
+ */
 export function paintBackground(rc: RenderCanvas) {
   const { ctx, width, height } = rc;
-  ctx.fillStyle = verticalGradient(ctx, 0, 0, height, [
-    [0, PALETTE.bg1],
-    [1, PALETTE.bg0],
-  ]);
-  ctx.fillRect(0, 0, width, height);
-
-  // Soft accent glow in the top-left for depth.
+  paintPhotoSurface(rc, 0.66);
   const glow = ctx.createRadialGradient(width * 0.18, -60, 0, width * 0.18, -60, width * 0.7);
-  glow.addColorStop(0, "rgba(88,101,242,0.20)");
-  glow.addColorStop(1, "rgba(88,101,242,0)");
+  glow.addColorStop(0, "rgba(255,255,255,0.45)");
+  glow.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
 }
@@ -287,7 +356,7 @@ export function pill(
   y: number,
   opts: { color?: string; bg?: string; size?: number; padX?: number; height?: number } = {}
 ): number {
-  const { color = PALETTE.text, bg = "rgba(255,255,255,0.06)", size = 18, padX = 16, height = 34 } =
+  const { color = PALETTE.text, bg = "rgba(20,22,31,0.06)", size = 18, padX = 16, height = 34 } =
     opts;
   ctx.font = font(size, "bold", "display");
   const tw = ctx.measureText(label).width;
@@ -344,7 +413,7 @@ export function drawAvatar(
   y: number,
   size: number,
   fallbackInitial = "?",
-  ring = PALETTE.blurple
+  ring: string = PALETTE.blurple
 ) {
   const cx = x + size / 2;
   const cy = y + size / 2;

@@ -14,6 +14,7 @@ export const NS = {
   tkt: "tkt", // tickets
   mp: "mp", // member panel actions
   aud: "aud", // xp history / audit viewer
+  hub: "hub", // member self-service hub (/warnings for members)
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -122,6 +123,14 @@ export const audPage = (userId: string, page: number) => id(NS.aud, "page", `${u
 
 // Warnings management. Arg carries the target user id.
 export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId);
+
+// Member self-service hub (/warnings). Every action carries the target user id
+// so the handler can re-check ownership before doing anything (buttons are
+// safeguarded: only the member themselves — or an officer — may use them).
+export const hubDispute = (userId: string) => id(NS.hub, "dispute", userId);
+export const hubCalendar = (userId: string) => id(NS.hub, "calendar", userId);
+export const hubHistory = (userId: string) => id(NS.hub, "history", userId);
+export const hubRefresh = (userId: string) => id(NS.hub, "refresh", userId);
 
 // Persistent live command center. Buttons route staff into existing hubs; the
 // category shortcuts open the warning dashboard already filtered.
