@@ -12,6 +12,7 @@ import {
   rollWeek,
 } from "./services/progress";
 import { sendBulkReminders } from "./services/reminders";
+import { autoExpireWarnings } from "./services/warnings";
 import { refreshDashboardNow } from "./services/commandCenter";
 
 const TICK_MS = 60_000;
@@ -146,6 +147,14 @@ async function tick(client: Client) {
       // Once a day, an hour after the reminder window, flag escalations.
       if (reminderTime && hhmm === bumpHour(reminderTime)) {
         await runOfficerMonitoring(client, clan, dateKey);
+      }
+
+      // On the same slow cadence, expire warnings past the configured age so
+      // the warning role auto-removes on the server owner's schedule (hourly,
+      // daily, weekly, monthly, or a custom number of hours). No-op when the
+      // timer is off (warningRemovalHours = 0).
+      if (clan.warningRemovalHours > 0 && new Date().getMinutes() % 10 === 0) {
+        await autoExpireWarnings(client, clan).catch(() => {});
       }
 
       // Keep the persistent command center honest on a slow cadence (every 10

@@ -9,6 +9,7 @@ import {
   ChannelSelectMenuBuilder,
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
+  UserSelectMenuBuilder,
   ChannelType,
   PermissionFlagsBits,
   type BaseMessageOptions,
@@ -18,6 +19,7 @@ import {
   type ChannelSelectMenuInteraction,
   type RoleSelectMenuInteraction,
   type StringSelectMenuInteraction,
+  type UserSelectMenuInteraction,
   type ModalActionRowComponentBuilder,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
@@ -33,6 +35,8 @@ import {
   SETUP_CHANNELS,
   SETUP_ROLES,
   SETUP_NOTIFY,
+  SETUP_WHITELIST,
+  SETUP_CARDS,
   SETUP_BACK,
   SETUP_FINISH,
   SETUP_REMINDER_CHANNEL,
@@ -43,6 +47,11 @@ import {
   SETUP_EXEMPT_ROLES,
   SETUP_LEAVE_ROLES,
   SETUP_WARN_ROLES,
+  SETUP_WHITELIST_USERS,
+  SETUP_CARD_STYLE,
+  SETUP_WARN_REMOVAL,
+  SETUP_WARN_REMOVAL_MODAL,
+  SETUP_WARN_REMOVAL_CUSTOM,
   setupToggle,
   wizGo,
   parseId,
@@ -85,6 +94,46 @@ export const TRACKING_MODES = [
 
 function modeLabel(clan: Clan): string {
   return TRACKING_MODES.find((m) => m.value === clan.trackingMode)?.label ?? "Exact progress";
+}
+
+export const CARD_STYLES = [
+  {
+    value: "canvas",
+    label: "Canvas cards",
+    description: "Branded avatar cards (the new look)",
+    emoji: "🖼️",
+  },
+  {
+    value: "embed",
+    label: "Avatar embed",
+    description: "The classic embed with the member's avatar",
+    emoji: "📇",
+  },
+] as const;
+
+function cardStyleLabel(clan: Clan): string {
+  return CARD_STYLES.find((c) => c.value === clan.cardStyle)?.label ?? "Canvas cards";
+}
+
+/* Warning-role auto-removal presets. Values are hours; 0 = off, -1 = custom.
+ * "monthly" uses 720h (a flat 30 days) so the cadence stays predictable. */
+export const WARN_REMOVAL_PRESETS = [
+  { value: "0", label: "Off — clear only when warnings are gone", emoji: "🚫", hours: 0 },
+  { value: "1", label: "Hourly", emoji: "⏱️", hours: 1 },
+  { value: "24", label: "Daily", emoji: "📆", hours: 24 },
+  { value: "168", label: "Weekly", emoji: "🗓️", hours: 168 },
+  { value: "720", label: "Monthly (30 days)", emoji: "📅", hours: 720 },
+] as const;
+
+/** Human label for a warning-removal interval in hours (0 = off). */
+export function warnRemovalLabel(hours: number): string {
+  if (!hours || hours <= 0) return "off";
+  const preset = WARN_REMOVAL_PRESETS.find((p) => p.hours === hours);
+  if (preset && preset.hours > 0) return preset.label;
+  if (hours % 720 === 0) return `every ${hours / 720} month(s)`;
+  if (hours % 168 === 0) return `every ${hours / 168} week(s)`;
+  if (hours % 24 === 0) return `every ${hours / 24} day(s)`;
+  return `every ${hours} hour(s)`;
 }
 
 function goalLine(clan: Clan): string {
@@ -131,7 +180,9 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         name: `${check(clan.warningThreshold)} Enforcement`,
         value:
           `Warning after **${clan.warningThreshold}** reminder(s) without hitting the goal\n` +
-          `Leadership review at **${clan.escalationThreshold}** active warning(s)`,
+          `Leadership review at **${clan.escalationThreshold}** active warning(s)\n` +
+          `Warning role auto-removal: **${warnRemovalLabel(clan.warningRemovalHours)}**\n` +
+          `Warning/reminder style: **${cardStyleLabel(clan)}**`,
         inline: false,
       },
       {
@@ -148,6 +199,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         value: [
           `Officers: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
           `Admins: ${clan.adminRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
+          `Whitelisted users: ${clan.adminUserIds.map((u) => `<@${u}>`).join(" ") || "_none_"}`,
           `Exempt: ${clan.exemptRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
           `On leave: ${clan.leaveRoleIds.map((r) => `<@&${r}>`).join(" ") || "_none_"}`,
         ].join("\n"),
@@ -173,7 +225,11 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(SETUP_CHANNELS, "Channels"),
       b(SETUP_ROLES, "Roles"),
-      b(SETUP_NOTIFY, "Notifications"),
+      b(SETUP_NOTIFY, "Notifications")
+    ),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(SETUP_WHITELIST, "Whitelist"),
+      b(SETUP_CARDS, "Warnings & Cards"),
       b(SETUP_FINISH, "Finish", ButtonStyle.Success)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
@@ -339,6 +395,98 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
   };
 }
 
+function whitelistPayload(clan: Clan): BaseMessageOptions {
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("✅ Command Whitelist")
+        .setDescription(
+          "Grant staff/admin command access to specific **people** — on top of your admin roles. " +
+            "A whitelisted user can run every admin & officer command (warnings, config, the review, …) " +
+            "without needing a role.\n\n" +
+            "To whitelist a whole **role** instead, add it as an **Admin role** on the **Roles** page.\n\n" +
+            `Currently whitelisted: ${clan.adminUserIds.map((u) => `<@${u}>`).join(" ") || "_none_"}`
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new UserSelectMenuBuilder()
+          .setCustomId(SETUP_WHITELIST_USERS)
+          .setPlaceholder("Whitelisted users (admin command access)")
+          .setMinValues(0)
+          .setMaxValues(25)
+          .setDefaultUsers(clan.adminUserIds)
+      ),
+      backRow(),
+    ],
+  };
+}
+
+function cardsPayload(clan: Clan): BaseMessageOptions {
+  const cardStyle = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_CARD_STYLE)
+    .setPlaceholder("Warning / reminder style…")
+    .addOptions(
+      CARD_STYLES.map((c) => ({
+        value: c.value,
+        label: c.label,
+        description: c.description,
+        emoji: c.emoji,
+        default: c.value === clan.cardStyle,
+      }))
+    );
+
+  // A preset is "selected" only when it exactly matches the stored hours; a
+  // custom value shows as a placeholder so the current interval stays visible.
+  const removalMatches = WARN_REMOVAL_PRESETS.some((p) => p.hours === clan.warningRemovalHours);
+  const removal = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_WARN_REMOVAL)
+    .setPlaceholder(
+      removalMatches
+        ? "Warning role auto-removal…"
+        : `Custom — ${warnRemovalLabel(clan.warningRemovalHours)}`
+    )
+    .addOptions(
+      WARN_REMOVAL_PRESETS.map((p) => ({
+        value: p.value,
+        label: p.label,
+        emoji: p.emoji,
+        default: removalMatches && p.hours === clan.warningRemovalHours,
+      }))
+    );
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("⚠️ Warnings & Cards")
+        .setDescription(
+          "**Warning / reminder style** — pick what posts to the channel & DM:\n" +
+            "• **Canvas cards** — the branded avatar cards.\n" +
+            "• **Avatar embed** — the classic embed with the member's avatar.\n\n" +
+            "**Warning role auto-removal** — the warning role is auto-assigned once a member " +
+            "reaches your warning threshold. Choose when it comes back off:\n" +
+            "• **Off** — cleared only when a member has no active warnings left (default).\n" +
+            "• **Hourly / Daily / Weekly / Monthly** — warnings expire at that age and the role is stripped.\n" +
+            "• **Custom interval…** — enter any number of hours, days, weeks or months.\n\n" +
+            `Currently: style **${cardStyleLabel(clan)}** · auto-removal **${warnRemovalLabel(clan.warningRemovalHours)}**`
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(cardStyle),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(removal),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(SETUP_WARN_REMOVAL_CUSTOM)
+          .setLabel("✏️ Custom interval…")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+  };
+}
+
 /* ---------------------------------------------------------------- modals */
 
 function goalModal(clan: Clan) {
@@ -449,6 +597,71 @@ function scheduleModal(clan: Clan) {
     );
 }
 
+function warnRemovalModal(clan: Clan) {
+  const row = (input: TextInputBuilder) =>
+    new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
+  return new ModalBuilder()
+    .setCustomId(SETUP_WARN_REMOVAL_MODAL)
+    .setTitle("Custom warning-role auto-removal")
+    .addComponents(
+      row(
+        new TextInputBuilder()
+          .setCustomId("amount")
+          .setLabel("Number (0 turns it off)")
+          .setStyle(TextInputStyle.Short)
+          .setValue(String(customAmount(clan.warningRemovalHours)))
+          .setPlaceholder("e.g. 3")
+          .setRequired(true)
+      ),
+      row(
+        new TextInputBuilder()
+          .setCustomId("unit")
+          .setLabel("Unit: hours, days, weeks or months")
+          .setStyle(TextInputStyle.Short)
+          .setValue(customUnit(clan.warningRemovalHours))
+          .setPlaceholder("days")
+          .setRequired(true)
+      )
+    );
+}
+
+/** Best-fit whole amount for the modal's pre-fill, paired with customUnit. */
+function customAmount(hours: number): number {
+  if (!hours || hours <= 0) return 0;
+  if (hours % 720 === 0) return hours / 720;
+  if (hours % 168 === 0) return hours / 168;
+  if (hours % 24 === 0) return hours / 24;
+  return hours;
+}
+
+/** Best-fit unit for the modal's pre-fill, paired with customAmount. */
+function customUnit(hours: number): string {
+  if (!hours || hours <= 0) return "days";
+  if (hours % 720 === 0) return "months";
+  if (hours % 168 === 0) return "weeks";
+  if (hours % 24 === 0) return "days";
+  return "hours";
+}
+
+/** Parse a "number + unit" pair into hours. Returns null when unparseable. */
+function parseRemovalHours(amountRaw: string, unitRaw: string): number | null {
+  const amount = parseInt(amountRaw.replace(/[^0-9]/g, ""), 10);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  if (amount === 0) return 0;
+  const unit = unitRaw.trim().toLowerCase();
+  const per = unit.startsWith("month")
+    ? 720
+    : unit.startsWith("week")
+      ? 168
+      : unit.startsWith("day")
+        ? 24
+        : unit.startsWith("hour") || unit.startsWith("hr")
+          ? 1
+          : null;
+  if (per === null) return null;
+  return amount * per;
+}
+
 /* -------------------------------------------------------------- handlers */
 
 async function guard(
@@ -457,7 +670,8 @@ async function guard(
     | ModalSubmitInteraction
     | ChannelSelectMenuInteraction
     | RoleSelectMenuInteraction
-    | StringSelectMenuInteraction,
+    | StringSelectMenuInteraction
+    | UserSelectMenuInteraction,
   deferred = false
 ): Promise<Clan | null> {
   if (!interaction.inCachedGuild()) return null;
@@ -500,12 +714,16 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
   if (action.startsWith("wiz")) return void (await handleWizardButton(interaction));
 
   // Modals must be the first response — Discord forbids deferring beforehand.
-  if (action === "goal" || action === "schedule") {
+  if (action === "goal" || action === "schedule" || action === "warnRemovalCustom") {
     const clan = await guard(interaction);
     if (!clan) return;
-    return void (await interaction.showModal(
-      action === "goal" ? goalModal(clan) : scheduleModal(clan)
-    ));
+    const modal =
+      action === "goal"
+        ? goalModal(clan)
+        : action === "schedule"
+          ? scheduleModal(clan)
+          : warnRemovalModal(clan);
+    return void (await interaction.showModal(modal));
   }
 
   await interaction.deferUpdate();
@@ -521,6 +739,10 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(rolesPayload(clan)));
     case "notify":
       return void (await interaction.editReply(notifyPayload(clan)));
+    case "whitelist":
+      return void (await interaction.editReply(whitelistPayload(clan)));
+    case "cards":
+      return void (await interaction.editReply(cardsPayload(clan)));
     case "back":
       return void (await interaction.editReply(setupMainPayload(clan)));
     case "toggle": {
@@ -550,6 +772,24 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
     const key = s.trim().slice(0, 3).toLowerCase();
     return key ? DAY_NAMES.findIndex((d) => d.toLowerCase().startsWith(key)) : -1;
   };
+
+  // The custom warning-removal interval re-renders the Warnings & Cards panel,
+  // not the main summary, so it's handled on its own path.
+  if (action === "warnRemovalModal") {
+    const hours = parseRemovalHours(f("amount"), f("unit"));
+    if (hours === null) {
+      await interaction.editReply({
+        embeds: [],
+        components: [],
+        content:
+          "⚠️ Couldn't read that interval. Enter a **number** and a **unit** (hours, days, weeks or months) — e.g. `3` and `days`. Reopen **Warnings & Cards** to try again.",
+      });
+      return;
+    }
+    const updated = (await updateClan(clan.guildId, { warningRemovalHours: hours })) ?? clan;
+    await interaction.editReply(cardsPayload(updated));
+    return;
+  }
 
   let patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {};
 
@@ -596,15 +836,24 @@ export async function handleSetupSelect(
     | ChannelSelectMenuInteraction
     | RoleSelectMenuInteraction
     | StringSelectMenuInteraction
+    | UserSelectMenuInteraction
 ) {
   // Guided-wizard selects manage their own defer/guard/persist flow.
   if (parseId(interaction.customId).action.startsWith("wiz")) {
-    return void (await handleWizardSelect(interaction));
+    return void (await handleWizardSelect(interaction as StringSelectMenuInteraction));
   }
   await interaction.deferUpdate();
   const clan = await guard(interaction, true);
   if (!clan) return;
   const { action } = parseId(interaction.customId);
+
+  if (interaction.isUserSelectMenu() && action === "whitelistUsers") {
+    // Never whitelist a bot; user-select can technically include the bot user.
+    const userIds = interaction.users.filter((u) => !u.bot).map((u) => u.id);
+    await updateClan(clan.guildId, { adminUserIds: userIds });
+    await interaction.editReply(whitelistPayload((await getClan(clan.guildId)) ?? clan));
+    return;
+  }
 
   if (interaction.isChannelSelectMenu()) {
     const channelId = interaction.values[0] ?? null;
@@ -643,5 +892,23 @@ export async function handleSetupSelect(
     const mode = interaction.values[0] ?? "exact";
     const updated = (await updateClan(clan.guildId, { trackingMode: mode })) ?? clan;
     await interaction.editReply(modePayload(updated));
+    return;
+  }
+
+  if (interaction.isStringSelectMenu() && action === "cardStyle") {
+    const style = interaction.values[0] === "embed" ? "embed" : "canvas";
+    const updated = (await updateClan(clan.guildId, { cardStyle: style })) ?? clan;
+    await interaction.editReply(cardsPayload(updated));
+    return;
+  }
+
+  if (interaction.isStringSelectMenu() && action === "warnRemoval") {
+    const hours = parseInt(interaction.values[0] ?? "0", 10);
+    const updated =
+      (await updateClan(clan.guildId, {
+        warningRemovalHours: Number.isFinite(hours) && hours >= 0 ? hours : 0,
+      })) ?? clan;
+    await interaction.editReply(cardsPayload(updated));
+    return;
   }
 }

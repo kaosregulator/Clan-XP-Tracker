@@ -55,6 +55,8 @@ export const SETUP_SCHEDULE_MODAL = id(NS.setup, "scheduleModal");
 export const SETUP_CHANNELS = id(NS.setup, "channels");
 export const SETUP_ROLES = id(NS.setup, "roles");
 export const SETUP_NOTIFY = id(NS.setup, "notify");
+export const SETUP_WHITELIST = id(NS.setup, "whitelist");
+export const SETUP_CARDS = id(NS.setup, "cards");
 export const SETUP_BACK = id(NS.setup, "back");
 export const SETUP_FINISH = id(NS.setup, "finish");
 // Channel selects
@@ -67,6 +69,13 @@ export const SETUP_ADMIN_ROLES = id(NS.setup, "adminRoles");
 export const SETUP_EXEMPT_ROLES = id(NS.setup, "exemptRoles");
 export const SETUP_LEAVE_ROLES = id(NS.setup, "leaveRoles");
 export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
+// Whitelist: individual users granted admin/staff command access.
+export const SETUP_WHITELIST_USERS = id(NS.setup, "whitelistUsers");
+// Enforcement cards & warning-role auto-removal.
+export const SETUP_CARD_STYLE = id(NS.setup, "cardStyle");
+export const SETUP_WARN_REMOVAL = id(NS.setup, "warnRemoval");
+export const SETUP_WARN_REMOVAL_CUSTOM = id(NS.setup, "warnRemovalCustom");
+export const SETUP_WARN_REMOVAL_MODAL = id(NS.setup, "warnRemovalModal");
 // Notification toggles (arg = key)
 export const setupToggle = (key: string) => id(NS.setup, "toggle", key);
 

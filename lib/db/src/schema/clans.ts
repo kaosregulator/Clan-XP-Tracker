@@ -68,6 +68,26 @@ export const clansTable = pgTable("clans", {
   warningRoleIds: text("warning_role_ids").array().notNull().default([]),
   reminderRoleId: text("reminder_role_id"),
 
+  // Individual users whitelisted for admin/staff commands, on top of the
+  // configured admin roles. Lets a server owner grant a single trusted person
+  // full command access without giving them a role.
+  adminUserIds: text("admin_user_ids").array().notNull().default([]),
+
+  /* ----------------------------------------------------------------------
+   * Enforcement card style & warning-role auto-removal.
+   * -------------------------------------------------------------------- */
+
+  // Which visual the warning/reminder posts use in the channel & DM:
+  //   "canvas" — the branded avatar cards (default)
+  //   "embed"  — the classic avatar embed (thumbnail + text)
+  cardStyle: text("card_style").notNull().default("canvas"),
+
+  // Auto-remove the warning role after this many hours. 0 disables the timer
+  // and keeps the default behaviour (the role is cleared only once a member
+  // has no active warnings left). When > 0 the scheduler expires warnings once
+  // they reach this age, which also strips the warning role.
+  warningRemovalHours: integer("warning_removal_hours").notNull().default(0),
+
   // Patriot / Guardian (alt account) system. null max = unlimited.
   altAccountsEnabled: boolean("alt_accounts_enabled").notNull().default(false),
   maxAltAccounts: integer("max_alt_accounts"),
