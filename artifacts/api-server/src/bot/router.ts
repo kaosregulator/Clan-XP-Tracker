@@ -93,6 +93,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     if (interaction.isUserSelectMenu()) {
       const { ns } = parseId(interaction.customId);
       if (ns === NS.cc) return void (await handleCommandCenterSelect(interaction));
+      if (ns === NS.setup) return void (await handleSetupSelect(interaction));
       return;
     }
 

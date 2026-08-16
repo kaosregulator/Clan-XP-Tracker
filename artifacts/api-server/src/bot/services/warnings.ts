@@ -1,6 +1,6 @@
 import { db, warningsTable, clanMembersTable } from "@workspace/db";
 import type { Clan, ClanMember, Warning } from "@workspace/db";
-import { eq, and, isNull, desc, gte, sql } from "drizzle-orm";
+import { eq, and, isNull, desc, gte, lt, sql } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, AttachmentBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
@@ -109,8 +109,11 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
 
   // The XP warning canvas card (red, avatar attached) is the primary visual in
   // both the channel and the DM. Rendered once; a fresh attachment is built per
-  // send because Buffers can't be shared across two Discord messages.
-  const card = await renderWarningCardSafe(clan, target, activeCount);
+  // send because Buffers can't be shared across two Discord messages. When the
+  // server picked the classic embed style, skip the card entirely and let the
+  // avatar embed (below) carry the callout.
+  const card =
+    clan.cardStyle === "embed" ? null : await renderWarningCardSafe(clan, target, activeCount);
 
   // Post to the dedicated warning channel when one is configured. The post
   // pings the member and shows their avatar so it reads as a real callout.
@@ -448,4 +451,56 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
   await resolveRelated(guild.id, "escalation", warningId);
 
   return warning;
+}
+
+/**
+ * Auto-remove the warning role on the schedule a server owner configured.
+ *
+ * When `clan.warningRemovalHours` is > 0, every active warning older than that
+ * many hours is expired (marked removed), which decrements the member's count
+ * and — via removeWarning — strips the warning role once they have no active
+ * warnings left. This is the timer counterpart to the "clear on last warning"
+ * default: instead of lingering until manually removed, a warning ages out.
+ *
+ * Best-effort and idempotent: safe to call every scheduler tick. Returns how
+ * many warnings were expired so the caller can log a summary.
+ */
+export async function autoExpireWarnings(client: Client, clan: Clan): Promise<number> {
+  if (!clan.warningRemovalHours || clan.warningRemovalHours <= 0) return 0;
+
+  const cutoff = new Date(Date.now() - clan.warningRemovalHours * 3600_000);
+  const stale = await db
+    .select()
+    .from(warningsTable)
+    .where(
+      and(
+        eq(warningsTable.guildId, clan.guildId),
+        isNull(warningsTable.removedAt),
+        lt(warningsTable.issuedAt, cutoff)
+      )
+    );
+  if (!stale.length) return 0;
+
+  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
+  if (!guild) return 0;
+
+  let removed = 0;
+  for (const w of stale) {
+    const res = await removeWarning({
+      guild,
+      clan,
+      warningId: w.id,
+      moderatorId: "system",
+      moderatorUsername: "Auto-removal",
+    });
+    if (res) removed++;
+  }
+
+  if (removed > 0) {
+    logger.info(
+      { event: "warnings_auto_expired", guildId: clan.guildId, removed, hours: clan.warningRemovalHours },
+      `Auto-expired ${removed} warning(s) older than ${clan.warningRemovalHours}h`
+    );
+  }
+  return removed;
 }

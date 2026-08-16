@@ -66,9 +66,9 @@ export async function updateClan(
 }
 
 /**
- * True when the member may manage XP — an officer role, an admin role, or a
- * guild manager. Officers run the weekly workflow (update progress, remind,
- * warn, review).
+ * True when the member may manage XP — an officer role, an admin role, a
+ * whitelisted user, or a guild manager. Officers run the weekly workflow
+ * (update progress, remind, warn, review).
  */
 export function isOfficer(member: GuildMember | null, clan: Clan | null): boolean {
   if (!member) return false;
@@ -79,6 +79,7 @@ export function isOfficer(member: GuildMember | null, clan: Clan | null): boolea
     return true;
   }
   if (!clan) return false;
+  if (clan.adminUserIds.includes(member.id)) return true;
   return (
     clan.staffRoleIds.some((roleId) => member.roles.cache.has(roleId)) ||
     clan.adminRoleIds.some((roleId) => member.roles.cache.has(roleId))
@@ -86,8 +87,8 @@ export function isOfficer(member: GuildMember | null, clan: Clan | null): boolea
 }
 
 /**
- * True when the member may change configuration — a configured admin role or
- * a guild manager. A stricter tier than isOfficer.
+ * True when the member may change configuration — a configured admin role, a
+ * whitelisted user, or a guild manager. A stricter tier than isOfficer.
  */
 export function isAdmin(member: GuildMember | null, clan: Clan | null): boolean {
   if (!member) return false;
@@ -98,6 +99,7 @@ export function isAdmin(member: GuildMember | null, clan: Clan | null): boolean 
     return true;
   }
   if (!clan) return false;
+  if (clan.adminUserIds.includes(member.id)) return true;
   return clan.adminRoleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 

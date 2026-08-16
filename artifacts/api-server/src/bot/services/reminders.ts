@@ -100,7 +100,9 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   const embed = reminderEmbed(clan, member, target);
   // The canvas card is the primary visual (matches the warning card); the embed
   // stays as a fallback when a render fails so a reminder always gets through.
-  const card = await renderReminderCardSafe(clan, target, input.note);
+  // When the server picked the classic embed style, skip the card entirely.
+  const card =
+    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, input.note);
 
   // Delivery targets: explicit override wins; otherwise the clan defaults
   // (DM when dmReminders is on, and the reminder channel when configured).
