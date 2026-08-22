@@ -4,9 +4,18 @@ import { eq, and, isNull, desc, gte, lt, sql } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, AttachmentBuilder, type Client, type Guild, type User } from "discord.js";
 import { logger } from "../../lib/logger";
-import { ensureMember, identityFromUser } from "./config";
+import { ensureMember, identityFromUser, getMember } from "./config";
 import { logAction, sendLog } from "./logging";
-import { recordWeeklyWarning } from "./progress";
+import { recordWeeklyWarning, isRequirementSatisfied, listTracked } from "./progress";
+import {
+  memberWarningBody,
+  memberWarningDmContent,
+  memberWarningCanvasMessage,
+  sanitizeMemberReason,
+  periodLabel,
+  periodAdjective,
+  staffProgressDetail,
+} from "./tracking";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { createNotification, resolveRelated } from "./notifications";
 import { renderOffThread } from "../canvas/render-pool";
@@ -29,7 +38,16 @@ export interface IssueWarningInput {
   target: User;
   moderatorId: string;
   moderatorUsername: string;
+  /**
+   * Staff/audit reason — stored on the warning row and shown in staff logs.
+   * May include progress fractions, reminder counts, etc.
+   */
   reason: string;
+  /**
+   * Optional member-facing reason. When omitted, `reason` is sanitized (any
+   * staff accounting is stripped) before it reaches the member.
+   */
+  memberReason?: string | null;
   deliver?: WarnDelivery;
 }
 
@@ -38,19 +56,19 @@ export interface IssueWarningResult {
   activeCount: number;
 }
 
-/** Render the XP warning canvas card with the member's avatar, best-effort. */
+/** Render the XP warning canvas card — member-safe, no count/threshold badge. */
 async function renderWarningCardSafe(
   clan: Clan,
   target: User,
-  activeCount: number
+  memberReason: string
 ): Promise<Buffer | null> {
   try {
     return await renderOffThread("warningCard", {
       communityName: clan.clanName,
       memberName: target.username,
       avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
-      count: activeCount,
-      threshold: clan.escalationThreshold,
+      message: memberWarningCanvasMessage(memberReason),
+      // Intentionally omit count/threshold — those are staff-only.
     });
   } catch (err) {
     logger.warn({ err }, "Warning card render failed — falling back to embed");
@@ -63,11 +81,25 @@ function warningAttachment(card: Buffer): AttachmentBuilder {
   return new AttachmentBuilder(card, { name: "xp-warning.png" });
 }
 
+/** Member-facing fallback embed — warning + reason only. */
+function memberWarningEmbed(guildName: string, target: User, memberReason: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xed4245)
+    .setAuthor({ name: `⚠️ XP WARNING • ${guildName}`, iconURL: target.displayAvatarURL() })
+    .setThumbnail(target.displayAvatarURL())
+    .setDescription(memberWarningBody(memberReason))
+    .setTimestamp();
+}
+
 /** Issue a warning: record it, bump the count, assign roles, log, optionally DM. */
 export async function issueWarning(input: IssueWarningInput): Promise<IssueWarningResult> {
   const { client, clan, guild, target } = input;
 
   await ensureMember(guild.id, identityFromUser(target));
+
+  const memberFacingReason = sanitizeMemberReason(input.memberReason ?? input.reason);
+  // Persist the staff reason (full accounting) on the row for audits / officer views.
+  const staffReason = input.reason.trim() || memberFacingReason;
 
   const [warning] = await db
     .insert(warningsTable)
@@ -78,7 +110,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       avatarUrl: target.displayAvatarURL(),
       issuedBy: input.moderatorId,
       issuedByUsername: input.moderatorUsername,
-      reason: input.reason,
+      reason: staffReason,
     })
     .returning();
 
@@ -87,10 +119,12 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     .set({ warningsCount: sql`${clanMembersTable.warningsCount} + 1` })
     .where(and(eq(clanMembersTable.guildId, guild.id), eq(clanMembersTable.userId, target.id)));
 
-  // XP-enforcement bookkeeping: count this warning against the current week.
+  // XP-enforcement bookkeeping: count this warning against the current period.
   await recordWeeklyWarning(clan, target.id);
 
   const activeCount = await countActive(guild.id, target.id);
+  const memberRow = await getMember(guild.id, target.id);
+  const staffDetail = memberRow ? staffProgressDetail(clan, memberRow) : null;
 
   // Assign configured warning roles (best-effort).
   if (clan.warningRoleIds.length) {
@@ -107,35 +141,19 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   let channelPosted = false;
   let dmSent = false;
 
-  // The XP warning canvas card (red, avatar attached) is the primary visual in
-  // both the channel and the DM. Rendered once; a fresh attachment is built per
-  // send because Buffers can't be shared across two Discord messages. When the
-  // server picked the classic embed style, skip the card entirely and let the
-  // avatar embed (below) carry the callout.
+  // Member-facing card: no warning-count badge, no escalation threshold.
   const card =
-    clan.cardStyle === "embed" ? null : await renderWarningCardSafe(clan, target, activeCount);
+    clan.cardStyle === "embed"
+      ? null
+      : await renderWarningCardSafe(clan, target, memberFacingReason);
 
-  // Post to the dedicated warning channel when one is configured. The post
-  // pings the member and shows their avatar so it reads as a real callout.
+  // Post to the dedicated warning channel when one is configured. This is a
+  // MEMBER-facing surface — never include staff accounting.
   if (deliverChannel && clan.warningChannelId) {
     try {
       const channel = await client.channels.fetch(clan.warningChannelId);
       if (channel?.isTextBased() && "send" in channel) {
-        const fallbackEmbed = new EmbedBuilder()
-          .setColor(0xed4245)
-          .setAuthor({
-            name: `XP Warning • ${target.username}`,
-            iconURL: target.displayAvatarURL(),
-          })
-          .setThumbnail(target.displayAvatarURL())
-          .setDescription(input.reason.slice(0, 4096))
-          .addFields({
-            name: "Active warnings",
-            value: `${activeCount}`,
-            inline: true,
-          })
-          .setFooter({ text: `Warned by ${input.moderatorUsername}` })
-          .setTimestamp();
+        const fallbackEmbed = memberWarningEmbed(guild.name, target, memberFacingReason);
         await channel.send({
           content: `⚠️ <@${target.id}> — this is your XP warning.`,
           ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
@@ -149,21 +167,12 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
-    // The card carries the callout; the message text keeps the specific reason
-    // (which the public card intentionally omits) in the member's DM.
-    const dmEmbed = new EmbedBuilder()
-      .setColor(0xed4245)
-      .setAuthor({ name: `Warning • ${guild.name}`, iconURL: target.displayAvatarURL() })
-      .setThumbnail(target.displayAvatarURL())
-      .setDescription(
-        `You've received a warning.\n\n**Reason:** ${input.reason}\n\nYou now have **${activeCount}** active warning(s).`
-      )
-      .setTimestamp();
+    const dmEmbed = memberWarningEmbed(guild.name, target, memberFacingReason);
     dmSent = await target
       .send(
         card
           ? {
-              content: `⚠️ **Reason:** ${input.reason.slice(0, 1800)}\nYou now have **${activeCount}** active warning(s).`,
+              content: memberWarningDmContent(memberFacingReason),
               files: [warningAttachment(card)],
             }
           : { embeds: [dmEmbed] }
@@ -172,23 +181,59 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       .catch(() => false);
   }
 
-  // Describe how the member was actually notified, for the log trail.
   const delivery =
     [channelPosted ? "warn channel" : null, dmSent ? "DM" : null].filter(Boolean).join(" + ") ||
     (deliverChannel || deliverDm ? "not delivered" : "silent");
 
-  // Audit row (DB) — the durable record of who warned whom.
+  // Audit row (DB) — durable staff record of who warned whom, with accounting.
   await logAction(guild.id, {
     action: "warning_issued",
     targetUserId: target.id,
     targetUsername: target.username,
     moderatorId: input.moderatorId,
     moderatorUsername: input.moderatorUsername,
-    details: { reason: input.reason, warningId: warning?.id, activeCount, delivery },
+    details: {
+      reason: staffReason,
+      memberReason: memberFacingReason,
+      warningId: warning?.id,
+      activeCount,
+      delivery,
+      period: periodAdjective(clan),
+      progress: staffDetail?.progress ?? null,
+      requirement: staffDetail?.requirement ?? null,
+      missing: staffDetail?.missing ?? null,
+      remindersThisPeriod: staffDetail?.remindersThisPeriod ?? null,
+      escalationThreshold: clan.escalationThreshold,
+    },
   });
 
-  // Full log embed → the dedicated log channel (separate from the public warn
-  // channel where the member is actually pinged).
+  // Full staff log embed — CAN include progress / accounting.
+  const staffFields = [
+    { name: "Reason (staff)", value: staffReason.slice(0, 1024) },
+    { name: "Active warnings", value: `${activeCount}`, inline: true },
+    { name: "Delivered via", value: delivery, inline: true },
+    { name: "Tracking period", value: periodLabel(clan), inline: true },
+  ];
+  if (staffDetail) {
+    staffFields.push(
+      {
+        name: "Progress",
+        value: `${staffDetail.progress.toLocaleString()}/${staffDetail.requirement.toLocaleString()}`,
+        inline: true,
+      },
+      {
+        name: "Missing",
+        value: `${staffDetail.missing.toLocaleString()}`,
+        inline: true,
+      },
+      {
+        name: "Reminders this period",
+        value: `${staffDetail.remindersThisPeriod}`,
+        inline: true,
+      }
+    );
+  }
+
   await sendLog(
     client,
     clan,
@@ -196,16 +241,11 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       .setColor(0xed4245)
       .setAuthor({ name: `Warning issued • ${target.username}`, iconURL: target.displayAvatarURL() })
       .setDescription(`<@${target.id}> was warned by <@${input.moderatorId}>.`)
-      .addFields(
-        { name: "Reason", value: input.reason.slice(0, 1024) },
-        { name: "Active warnings", value: `${activeCount}`, inline: true },
-        { name: "Delivered via", value: delivery, inline: true }
-      )
+      .addFields(...staffFields)
       .setFooter({ text: `Moderator: ${input.moderatorUsername} · ${input.moderatorId}` })
       .setTimestamp()
   );
 
-  // Verifiable structured log: who warned whom, and how it was delivered.
   logger.info(
     {
       event: "warning_issued",
@@ -218,18 +258,20 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       activeCount,
       channelPosted,
       dmSent,
+      period: periodAdjective(clan),
+      progress: staffDetail?.progress ?? null,
+      requirement: staffDetail?.requirement ?? null,
     },
     `Warning issued to ${target.username} by ${input.moderatorUsername} (active: ${activeCount})`
   );
 
   scheduleDashboardRefresh(guild.id);
 
-  // Staff notification center: surface the warning and any escalation.
   await createNotification({
     guildId: guild.id,
     type: "warning",
     title: `Warning issued — ${target.username}`,
-    body: `${input.reason.slice(0, 300)} (now ${activeCount} active)`,
+    body: `${staffReason.slice(0, 300)} (now ${activeCount} active)`,
     targetUserId: target.id,
     targetUsername: target.username,
     relatedId: warning?.id ?? null,
@@ -301,7 +343,10 @@ export async function sendBulkWarnings(opts: {
   targets: ClanMember[];
   moderatorId: string;
   moderatorUsername: string;
+  /** Staff/audit reason builder — may include accounting. */
   reason: (member: ClanMember) => string;
+  /** Optional member-facing reason builder — sanitized if omitted. */
+  memberReason?: (member: ClanMember) => string;
   deliver?: WarnDelivery;
   skipIfWarnedRecently?: boolean;
 }): Promise<BulkWarnResult> {
@@ -326,6 +371,7 @@ export async function sendBulkWarnings(opts: {
         moderatorId: opts.moderatorId,
         moderatorUsername: opts.moderatorUsername,
         reason: opts.reason(member),
+        memberReason: opts.memberReason?.(member) ?? null,
         deliver: opts.deliver,
       });
       issued++;
@@ -340,9 +386,8 @@ export async function sendBulkWarnings(opts: {
 
 /**
  * Post a single warning announcement that pings a whole role, without issuing
- * per-member warnings. Used by `/xp role warn` in "announce" mode when the
- * officer just wants one visible callout instead of a record against each
- * member. Returns whether the message was posted.
+ * per-member warnings. Used by `/xp role warn` in "announce" mode. Member-
+ * facing — reason is sanitized before posting.
  */
 export async function postWarningAnnouncement(opts: {
   client: Client;
@@ -358,9 +403,8 @@ export async function postWarningAnnouncement(opts: {
     if (!channel?.isTextBased() || !("send" in channel)) return false;
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
-      .setAuthor({ name: `XP Warning • ${clan.clanName}` })
-      .setDescription(opts.reason.slice(0, 4096))
-      .setFooter({ text: `Warned by ${opts.moderatorUsername}` })
+      .setAuthor({ name: `⚠️ XP WARNING • ${clan.clanName}` })
+      .setDescription(memberWarningBody(opts.reason))
       .setTimestamp();
     await channel.send({
       content: `⚠️ <@&${opts.roleId}>`,
@@ -446,7 +490,6 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
   });
 
   scheduleDashboardRefresh(guild.id);
-  // Its notifications no longer need attention.
   await resolveRelated(guild.id, "warning", warningId);
   await resolveRelated(guild.id, "escalation", warningId);
 
@@ -459,8 +502,7 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
  * When `clan.warningRemovalHours` is > 0, every active warning older than that
  * many hours is expired (marked removed), which decrements the member's count
  * and — via removeWarning — strips the warning role once they have no active
- * warnings left. This is the timer counterpart to the "clear on last warning"
- * default: instead of lingering until manually removed, a warning ages out.
+ * warnings left. This is the timer counterpart to requirement-based clearance.
  *
  * Best-effort and idempotent: safe to call every scheduler tick. Returns how
  * many warnings were expired so the caller can log a summary.
@@ -503,4 +545,106 @@ export async function autoExpireWarnings(client: Client, clan: Clan): Promise<nu
     );
   }
   return removed;
+}
+
+/**
+ * Clear warning roles for members who have **satisfied the configured
+ * activity requirement** for the current tracking period.
+ *
+ * Eligibility is driven ONLY by requirement satisfaction
+ * (`isRequirementSatisfied`), never by "an XP ledger row exists" or "XP was
+ * sent". Completing the requirement expires active warnings (which strips the
+ * role once none remain). Incomplete members keep the role.
+ *
+ * Safe to call after progress writes and on the scheduler cadence.
+ */
+export async function clearWarningRolesForSatisfiedMembers(
+  client: Client,
+  clan: Clan
+): Promise<number> {
+  if (!clan.warningRoleIds.length) return 0;
+
+  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
+  if (!guild) return 0;
+
+  const members = await listTracked(clan);
+  let cleared = 0;
+
+  for (const member of members) {
+    // XP bookkeeping alone is not enough — the configured requirement must be met.
+    if (!isRequirementSatisfied(clan, member)) continue;
+    if (member.exempt || member.onLeave) continue;
+
+    const active = await listActive(clan.guildId, member.userId);
+    if (!active.length) {
+      // Role may linger with zero active warnings — strip it if present.
+      const gm = await guild.members.fetch(member.userId).catch(() => null);
+      if (gm && clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) {
+        await gm.roles.remove(clan.warningRoleIds).catch(() => {});
+        cleared++;
+      }
+      continue;
+    }
+
+    for (const w of active) {
+      await removeWarning({
+        guild,
+        clan,
+        warningId: w.id,
+        moderatorId: "system",
+        moderatorUsername: "Auto-removal (requirement met)",
+      });
+    }
+    cleared++;
+  }
+
+  if (cleared > 0) {
+    logger.info(
+      {
+        event: "warning_roles_cleared_on_requirement",
+        guildId: clan.guildId,
+        cleared,
+        period: periodAdjective(clan),
+      },
+      `Cleared warning role(s) for ${cleared} member(s) who met the ${periodAdjective(clan)} requirement`
+    );
+  }
+  return cleared;
+}
+
+/**
+ * After a single member's progress is updated: if they just satisfied the
+ * requirement, expire their active warnings / strip the warning role.
+ * No-ops when the member is still short of the goal — including the case
+ * where an XP ledger entry exists but does not meet the requirement.
+ */
+export async function clearWarningRoleIfRequirementMet(
+  guild: Guild,
+  clan: Clan,
+  userId: string
+): Promise<boolean> {
+  if (!clan.warningRoleIds.length) return false;
+  const member = await getMember(clan.guildId, userId);
+  if (!member || !isRequirementSatisfied(clan, member)) return false;
+
+  const active = await listActive(clan.guildId, userId);
+  if (!active.length) {
+    const gm = await guild.members.fetch(userId).catch(() => null);
+    if (gm && clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) {
+      await gm.roles.remove(clan.warningRoleIds).catch(() => {});
+      return true;
+    }
+    return false;
+  }
+
+  for (const w of active) {
+    await removeWarning({
+      guild,
+      clan,
+      warningId: w.id,
+      moderatorId: "system",
+      moderatorUsername: "Auto-removal (requirement met)",
+    });
+  }
+  return true;
 }

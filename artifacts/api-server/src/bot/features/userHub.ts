@@ -201,8 +201,7 @@ export async function buildMemberHub(
         new ButtonBuilder()
           .setCustomId(hubDispute(target.id))
           .setStyle(ButtonStyle.Danger)
-          .setLabel("⚖️ Dispute a warning")
-          .setDisabled(warns.length === 0),
+          .setLabel("⚖️ Open dispute"),
         new ButtonBuilder()
           .setCustomId(hubCalendar(target.id))
           .setStyle(ButtonStyle.Primary)

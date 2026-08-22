@@ -3,9 +3,17 @@ import type { Clan, ClanMember } from "@workspace/db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import PQueue from "p-queue";
 import { EmbedBuilder, AttachmentBuilder, type Client, type User } from "discord.js";
-import { weekKey, nextWeeklyReset, discordRelative } from "./time";
+import { discordRelative } from "./time";
 import { logAction, sendLog } from "./logging";
-import { recordWeeklyReminder, currentProgress, effectiveGoal } from "./progress";
+import { recordWeeklyReminder, currentProgress, effectiveGoal, periodKey } from "./progress";
+import {
+  memberReminderBody,
+  periodAdjective,
+  periodLabel,
+  nextPeriodReset,
+  staffProgressDetail,
+  containsStaffAccounting,
+} from "./tracking";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { renderOffThread } from "../canvas/render-pool";
 import { logger } from "../../lib/logger";
@@ -28,7 +36,7 @@ export interface SendReminderInput {
   auto: boolean;
   moderatorId?: string | null;
   moderatorUsername?: string | null;
-  /** Optional officer note shown on the reminder card in place of the default copy. */
+  /** Optional officer note shown on the reminder card — sanitized for members. */
   note?: string | null;
   /** Explicit channel/DM override; falls back to clan settings when omitted. */
   deliver?: ReminderDelivery;
@@ -49,7 +57,8 @@ async function renderReminderCardSafe(
       communityName: clan.clanName,
       memberName: target.username,
       avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
-      message: note ?? null,
+      message: memberReminderBody(clan, note),
+      periodLabel: periodAdjective(clan),
     });
   } catch (err) {
     logger.warn({ err }, "Reminder card render failed — falling back to embed");
@@ -62,47 +71,45 @@ function reminderAttachment(card: Buffer): AttachmentBuilder {
   return new AttachmentBuilder(card, { name: "xp-reminder.png" });
 }
 
-/** A simple reminder card: the member's avatar and a "go do your XP" nudge. */
-function reminderEmbed(clan: Clan, member: ClanMember | null, target: User): EmbedBuilder {
-  const deadline = discordRelative(nextWeeklyReset(clan));
+/**
+ * Member-facing reminder embed fallback. Period-aware, no progress fractions,
+ * no remaining XP amounts, no reminder counts.
+ */
+function reminderEmbed(clan: Clan, target: User, note?: string | null): EmbedBuilder {
+  const deadline = discordRelative(nextPeriodReset(clan));
+  const body = memberReminderBody(clan, note);
   return new EmbedBuilder()
     .setColor(0xfaa61a)
-    .setAuthor({ name: `Reminder • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
+    .setAuthor({ name: `🔔 XP REMINDER • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
     .setThumbnail(target.displayAvatarURL())
     .setDescription(
-      `This is your reminder to get your ${clan.activityName} in for ${clan.gameName}. 💪\n\n` +
-        `${remainingLine(clan, member)}` +
-        `The week resets ${deadline}. Just a friendly nudge — not a warning.`
+      `${body}\n\nThe ${periodAdjective(clan)} period resets ${deadline}. Just a friendly nudge — not a warning.`
     )
     .setTimestamp();
 }
 
-/** Optional one-liner of context, phrased as "still to earn", not "incomplete". */
-function remainingLine(clan: Clan, member: ClanMember | null): string {
-  if (!member || clan.trackingMode === "complete") return "";
-  const remaining = Math.max(0, effectiveGoal(clan, member) - currentProgress(clan, member));
-  if (remaining <= 0) return "";
-  return `You still have **${remaining.toLocaleString()}** ${clan.activityName} to earn this week.\n\n`;
-}
-
 /**
- * Send one weekly-progress reminder and record it. Delivery follows the
+ * Send one period-progress reminder and record it. Delivery follows the
  * clan's settings: DM when dmReminders is on, falling back to (or configured
  * as) a post in the reminder channel with an optional ping. Recorded even
  * when nothing could be delivered so reminder counts — and therefore warning
  * eligibility — stay honest.
+ *
+ * Member surfaces never include staff accounting. Staff logs do.
  */
 export async function sendReminder(input: SendReminderInput): Promise<SendReminderResult> {
   const { client, clan, target, member } = input;
   let delivered = false;
   let channelUsed = "none";
 
-  const embed = reminderEmbed(clan, member, target);
+  const safeNote =
+    input.note && !containsStaffAccounting(input.note) ? input.note : null;
+  const embed = reminderEmbed(clan, target, safeNote);
   // The canvas card is the primary visual (matches the warning card); the embed
   // stays as a fallback when a render fails so a reminder always gets through.
   // When the server picked the classic embed style, skip the card entirely.
   const card =
-    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, input.note);
+    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, safeNote);
 
   // Delivery targets: explicit override wins; otherwise the clan defaults
   // (DM when dmReminders is on, and the reminder channel when configured).
@@ -140,12 +147,13 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     }
   }
 
+  const pk = periodKey(clan);
   await db.insert(remindersTable).values({
     guildId: clan.guildId,
     userId: target.id,
     username: target.username,
-    // Weekly model: the activity period a reminder belongs to is the week key.
-    activityDate: weekKey(clan),
+    // The activity period a reminder belongs to is the current period key.
+    activityDate: pk,
     auto: input.auto,
     sentBy: input.moderatorId ?? null,
     sentByUsername: input.moderatorUsername ?? null,
@@ -160,13 +168,26 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     .set({ remindersCount: sql`${clanMembersTable.remindersCount} + 1` })
     .where(and(eq(clanMembersTable.guildId, clan.guildId), eq(clanMembersTable.userId, target.id)));
 
+  const staffDetail = member
+    ? staffProgressDetail(clan, member)
+    : null;
+
   await logAction(clan.guildId, {
     action: "reminder_sent",
     targetUserId: target.id,
     targetUsername: target.username,
     moderatorId: input.moderatorId ?? null,
     moderatorUsername: input.moderatorUsername ?? null,
-    details: { auto: input.auto, delivered, via: channelUsed },
+    details: {
+      auto: input.auto,
+      delivered,
+      via: channelUsed,
+      period: periodAdjective(clan),
+      periodKey: pk,
+      progress: staffDetail?.progress ?? null,
+      requirement: staffDetail?.requirement ?? null,
+      missing: staffDetail?.missing ?? null,
+    },
   });
 
   const by = input.auto
@@ -175,8 +196,31 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       ? `by <@${input.moderatorId}>`
       : "manually";
 
-  // Full log embed → the dedicated log channel (separate from the public
-  // reminder channel where the member is actually pinged).
+  // Full staff log embed → the dedicated log channel (never shown to the member).
+  const staffFields = [
+    { name: "Delivered via", value: delivered ? channelUsed : "not delivered", inline: true },
+    { name: "Tracking period", value: periodLabel(clan), inline: true },
+  ];
+  if (staffDetail) {
+    staffFields.push(
+      {
+        name: "Progress",
+        value: `${staffDetail.progress.toLocaleString()}/${staffDetail.requirement.toLocaleString()}`,
+        inline: true,
+      },
+      {
+        name: "Missing",
+        value: `${staffDetail.missing.toLocaleString()}`,
+        inline: true,
+      },
+      {
+        name: "Reminders this period",
+        value: `${staffDetail.remindersThisPeriod + 1}`,
+        inline: true,
+      }
+    );
+  }
+
   await sendLog(
     client,
     clan,
@@ -187,7 +231,7 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
         `<@${target.id}> was reminded ${by}.` +
           (delivered ? "" : " (not delivered — DMs closed & no reminder channel)")
       )
-      .addFields({ name: "Delivered via", value: delivered ? channelUsed : "not delivered", inline: true })
+      .addFields(...staffFields)
       .setFooter({
         text: input.auto
           ? "Automatic reminder"
@@ -196,7 +240,6 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       .setTimestamp()
   );
 
-  // Verifiable structured log: who reminded whom, and how it was delivered.
   logger.info(
     {
       event: "reminder_sent",
@@ -208,6 +251,10 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       moderatorUsername: input.moderatorUsername ?? null,
       channel: channelUsed,
       delivered,
+      period: periodAdjective(clan),
+      progress: staffDetail?.progress ?? null,
+      requirement: staffDetail?.requirement ?? (member ? effectiveGoal(clan, member) : null),
+      currentProgress: member ? currentProgress(clan, member) : null,
     },
     `Reminder ${delivered ? "delivered" : "recorded (undelivered)"} to ${target.username} ${input.auto ? "automatically" : `by ${input.moderatorUsername ?? "unknown"}`}`
   );
@@ -274,7 +321,7 @@ export async function listRecentReminders(
     .limit(limit);
 }
 
-/** How many reminders this user already received this tracking week. */
+/** How many reminders this user already received this tracking period. */
 export async function remindersThisWeek(clan: Clan, userId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -283,7 +330,7 @@ export async function remindersThisWeek(clan: Clan, userId: string): Promise<num
       and(
         eq(remindersTable.guildId, clan.guildId),
         eq(remindersTable.userId, userId),
-        eq(remindersTable.activityDate, weekKey(clan))
+        eq(remindersTable.activityDate, periodKey(clan))
       )
     );
   return row?.count ?? 0;

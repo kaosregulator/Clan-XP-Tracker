@@ -1,7 +1,7 @@
 import { db, auditLogsTable } from "@workspace/db";
 import type { AuditLog, Clan } from "@workspace/db";
 import { and, eq, desc, sql } from "drizzle-orm";
-import type { Client, EmbedBuilder } from "discord.js";
+import type { Client, EmbedBuilder, AttachmentBuilder } from "discord.js";
 import { logger } from "../../lib/logger";
 
 export interface AuditInput {
@@ -45,15 +45,25 @@ export async function auditForUser(
   return { rows, total: countRow?.count ?? 0 };
 }
 
-/** Post an embed to the clan's configured log channel, if any. Best-effort. */
-export async function sendLog(client: Client, clan: Clan, embed: EmbedBuilder): Promise<void> {
-  if (!clan.logChannelId) return;
+/** Post an embed (and optional files) to the clan's log channel. Best-effort. */
+export async function sendLog(
+  client: Client,
+  clan: Clan,
+  embed: EmbedBuilder,
+  files?: AttachmentBuilder[]
+): Promise<{ channelId: string; messageId: string } | null> {
+  if (!clan.logChannelId) return null;
   try {
     const channel = await client.channels.fetch(clan.logChannelId);
     if (channel?.isTextBased() && "send" in channel) {
-      await channel.send({ embeds: [embed] });
+      const msg = await channel.send({
+        embeds: [embed],
+        ...(files?.length ? { files } : {}),
+      });
+      return { channelId: channel.id, messageId: msg.id };
     }
   } catch (err) {
     logger.error({ err, channel: clan.logChannelId }, "Failed to send log message");
   }
+  return null;
 }

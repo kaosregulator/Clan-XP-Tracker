@@ -350,17 +350,49 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setDMPermission(false)
     .toJSON(),
 
-  // Member self-service: dispute one of your own warnings.
+  // Member self-service: open a private XP dispute ticket.
+  // Evidence uses Discord's native attachment option (device upload) — never a URL.
   new SlashCommandBuilder()
     .setName("dispute")
-    .setDescription("Dispute one of your own XP warnings")
+    .setDescription("Open a private XP dispute ticket with staff")
+    .addStringOption((o) =>
+      o
+        .setName("type")
+        .setDescription("What are you disputing?")
+        .setRequired(true)
+        .addChoices(
+          { name: "XP warning", value: "warning" },
+          { name: "XP record", value: "xp_record" },
+          { name: "Role action", value: "role_action" }
+        )
+    )
+    .addStringOption((o) =>
+      o
+        .setName("explanation")
+        .setDescription("Explain why this should be reconsidered")
+        .setRequired(true)
+        .setMaxLength(1000)
+    )
+    .addAttachmentOption((o) =>
+      o
+        .setName("evidence")
+        .setDescription("Optional image from your device (Discord upload — not a URL)")
+        .setRequired(false)
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("warning_id")
+        .setDescription("Warning number (required when type is XP warning)")
+        .setRequired(false)
+        .setMinValue(1)
+    )
     .setDMPermission(false)
     .toJSON(),
 
   // Officer hubs for the enforcement workflow.
   new SlashCommandBuilder()
     .setName("disputes")
-    .setDescription("Review member warning disputes (officers)")
+    .setDescription("List open XP dispute tickets (officers)")
     .setDMPermission(false)
     .toJSON(),
 
