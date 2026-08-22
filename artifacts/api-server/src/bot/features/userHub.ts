@@ -317,9 +317,20 @@ export async function handleHubButton(interaction: ButtonInteraction) {
   if (!interaction.inCachedGuild()) return;
   const { action, arg } = parseId(interaction.customId);
   const userId = String(arg ?? "");
+  const updatesSourceMessage = action === "refresh";
+
+  // Discord interactions must be acknowledged before the clan lookup. The
+  // query can be slow on a cold connection, and this handler otherwise left
+  // every member-hub button showing "Bot is thinking…".
+  if (updatesSourceMessage) {
+    await interaction.deferUpdate();
+  } else {
+    await interaction.deferReply({ flags: 64 });
+  }
+
   const clan = await getClan(interaction.guildId);
   if (!clan) {
-    await interaction.reply({ ...notConfiguredMessage(false), flags: 64 });
+    await interaction.editReply(notConfiguredMessage(false));
     return;
   }
 
@@ -327,7 +338,7 @@ export async function handleHubButton(interaction: ButtonInteraction) {
   const officer = isOfficer(interaction.member, clan);
   // Safeguard: only the member the hub belongs to — or an officer — may act.
   if (!isOwner && !officer) {
-    await interaction.reply({ content: "These controls aren't yours to use.", flags: 64 });
+    await interaction.editReply({ content: "These controls aren't yours to use." });
     return;
   }
 
@@ -335,17 +346,15 @@ export async function handleHubButton(interaction: ButtonInteraction) {
     case "dispute": {
       // Disputing is a personal action: only the member can dispute their own.
       if (!isOwner) {
-        await interaction.reply({
+        await interaction.editReply({
           content: "Only the member can dispute their own warnings. Officers review from /disputes.",
-          flags: 64,
         });
         return;
       }
-      await interaction.reply({ ...(await buildDisputePicker(clan, userId)), flags: 64 });
+      await interaction.editReply(await buildDisputePicker(clan, userId));
       return;
     }
     case "calendar": {
-      await interaction.deferReply({ flags: 64 });
       const member = await getMember(clan.guildId, userId);
       if (!member) {
         await interaction.editReply({ content: "No tracked XP yet — nothing to show on the calendar." });
@@ -360,7 +369,6 @@ export async function handleHubButton(interaction: ButtonInteraction) {
       return;
     }
     case "history": {
-      await interaction.deferReply({ flags: 64 });
       const rows = await memberHistory(clan, userId, 10);
       if (!rows.length) {
         await interaction.editReply({
@@ -373,7 +381,6 @@ export async function handleHubButton(interaction: ButtonInteraction) {
       return;
     }
     case "refresh": {
-      await interaction.deferUpdate();
       const target = await resolveTarget(interaction, userId);
       await interaction.editReply(
         await buildMemberHub(clan, target, { officerView: officer && !isOwner })
