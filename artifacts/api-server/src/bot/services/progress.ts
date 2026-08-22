@@ -7,16 +7,26 @@ import {
   type XpWeekHistory,
 } from "@workspace/db";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
-import { weekKey } from "./time";
 import { logAction } from "./logging";
 import { ensureMember, type MemberIdentity } from "./config";
 import { scheduleDashboardRefresh } from "./commandCenter";
+import {
+  getRequirement,
+  getMemberProgress,
+  isRequirementSatisfied,
+  periodKey,
+  getTrackingPeriod,
+  periodAdjective,
+} from "./tracking";
 
 /**
- * The progress engine. Every surface — /xp commands, the weekly review, the
- * warning dashboard, the scheduler — reads and writes weekly progress through
+ * The progress engine. Every surface — /xp commands, the review card, the
+ * warning dashboard, the scheduler — reads and writes period progress through
  * this module so goal math, status, reminder/warning eligibility and history
  * are computed exactly one way.
+ *
+ * Period identity (daily vs weekly) comes from `tracking.ts` — do not add a
+ * second progress calculation elsewhere.
  */
 
 export type MemberStatus =
@@ -34,31 +44,34 @@ export const STATUS_LABEL: Record<MemberStatus, string> = {
   leave: "🌙 On leave",
 };
 
-/** The goal this member is measured against this week. */
+/**
+ * The goal this member is measured against for the configured tracking period.
+ * Thin wrapper over `getRequirement` so existing call sites stay stable.
+ */
 export function effectiveGoal(clan: Clan, member: ClanMember | null): number {
-  if (clan.trackingMode === "complete") return 1;
-  const goal = member?.weeklyGoalOverride ?? clan.weeklyGoal;
-  return Math.max(1, goal);
+  return getRequirement(clan, member);
 }
 
 /**
- * The member's progress within the CURRENT week. A stale weekKey (row not yet
- * touched since the weekly reset) reads as zero, so a missed scheduler run can
- * never carry last week's numbers forward.
+ * The member's progress within the CURRENT tracking period. A stale period key
+ * (row not yet touched since the last reset) reads as zero, so a missed
+ * scheduler run can never carry the previous period's numbers forward.
  */
 export function currentProgress(clan: Clan, member: ClanMember): number {
-  return member.weekKey === weekKey(clan) ? member.weeklyProgress : 0;
+  return getMemberProgress(clan, member);
 }
 
 export function statusOf(clan: Clan, member: ClanMember): MemberStatus {
   if (member.onLeave) return "leave";
   if (member.exempt) return "exempt";
-  const progress = currentProgress(clan, member);
-  if (progress >= effectiveGoal(clan, member)) return "complete";
-  return progress > 0 ? "inProgress" : "notStarted";
+  if (isRequirementSatisfied(clan, member)) return "complete";
+  return currentProgress(clan, member) > 0 ? "inProgress" : "notStarted";
 }
 
-/** Human progress string in the server's tracking mode. */
+/**
+ * Staff/officer progress string in the server's tracking mode.
+ * Never send this to a member-facing surface — use tracking.member* helpers.
+ */
 export function formatProgress(clan: Clan, member: ClanMember): string {
   const progress = currentProgress(clan, member);
   const goal = effectiveGoal(clan, member);
@@ -68,6 +81,8 @@ export function formatProgress(clan: Clan, member: ClanMember): string {
   const unit = clan.trackingMode === "exact" ? ` ${clan.activityName}` : "";
   return `${progress.toLocaleString()}/${goal.toLocaleString()}${unit}`;
 }
+
+export { getRequirement, getMemberProgress, isRequirementSatisfied, periodKey, getTrackingPeriod };
 
 /* -------------------------------------------------------- progress writes */
 
@@ -95,8 +110,10 @@ export interface ApplyResult {
 
 /**
  * Apply one progress change for one member. Ensures the member row exists,
- * stamps the current week (resetting weekly counters when the week rolled
- * over underneath the row), records who updated it and writes an audit entry.
+ * stamps the current period key (resetting period counters when the period
+ * rolled over underneath the row), records who updated it and writes an audit
+ * entry. Satisfying the requirement here is what drives auto warning-role
+ * clearance — not the mere existence of an XP ledger row.
  */
 export async function applyProgress(
   clan: Clan,
@@ -105,7 +122,7 @@ export async function applyProgress(
   officer: Officer
 ): Promise<ApplyResult> {
   const row = await ensureMember(clan.guildId, identity);
-  const wk = weekKey(clan);
+  const wk = periodKey(clan);
   const sameWeek = row.weekKey === wk;
   const before = sameWeek ? row.weeklyProgress : 0;
   const goal = effectiveGoal(clan, row);
@@ -161,7 +178,14 @@ export async function applyProgress(
     targetUsername: identity.username,
     moderatorId: officer.id,
     moderatorUsername: officer.username,
-    details: { before, after, goal, weekKey: wk },
+    details: {
+      before,
+      after,
+      goal,
+      weekKey: wk,
+      period: getTrackingPeriod(clan),
+      requirementSatisfied: isComplete,
+    },
   });
 
   scheduleDashboardRefresh(clan.guildId);
@@ -279,11 +303,13 @@ export interface WeeklySnapshot {
   completionRate: number; // 0..1 over active members
   remindersThisWeek: number;
   warningsThisWeek: number;
+  /** Configured tracking period for this snapshot. */
+  period: "daily" | "weekly";
 }
 
-/** Aggregate the current week from the tracked roster. */
+/** Aggregate the current tracking period from the tracked roster. */
 export function snapshotFrom(clan: Clan, members: ClanMember[]): WeeklySnapshot {
-  const wk = weekKey(clan);
+  const wk = periodKey(clan);
   const snap: WeeklySnapshot = {
     weekKey: wk,
     tracked: members.length,
@@ -296,6 +322,7 @@ export function snapshotFrom(clan: Clan, members: ClanMember[]): WeeklySnapshot 
     completionRate: 0,
     remindersThisWeek: 0,
     warningsThisWeek: 0,
+    period: getTrackingPeriod(clan),
   };
   for (const m of members) {
     const status = statusOf(clan, m);
@@ -329,19 +356,19 @@ export function reminderTargets(clan: Clan, members: ClanMember[]): ClanMember[]
 }
 
 /**
- * Members eligible for an XP enforcement warning: still short of goal after
- * the configured number of reminders this week.
+ * Members eligible for an XP enforcement warning: still short of the
+ * configured requirement after the configured number of reminders this period.
  */
 export function warningTargets(clan: Clan, members: ClanMember[]): ClanMember[] {
-  const wk = weekKey(clan);
+  const wk = periodKey(clan);
   return reminderTargets(clan, members).filter(
     (m) => m.weekKey === wk && m.weekReminders >= clan.warningThreshold
   );
 }
 
-/** Bump the weekly reminder counter (called by the reminder service). */
+/** Bump the period reminder counter (called by the reminder service). */
 export async function recordWeeklyReminder(clan: Clan, userId: string): Promise<void> {
-  const wk = weekKey(clan);
+  const wk = periodKey(clan);
   await db
     .update(clanMembersTable)
     .set({
@@ -351,9 +378,9 @@ export async function recordWeeklyReminder(clan: Clan, userId: string): Promise<
     .where(and(eq(clanMembersTable.guildId, clan.guildId), eq(clanMembersTable.userId, userId)));
 }
 
-/** Bump the weekly warning counter (called when an XP warning is issued). */
+/** Bump the period warning counter (called when an XP warning is issued). */
 export async function recordWeeklyWarning(clan: Clan, userId: string): Promise<void> {
-  const wk = weekKey(clan);
+  const wk = periodKey(clan);
   await db
     .update(clanMembersTable)
     .set({
@@ -371,9 +398,10 @@ export interface RollResult {
 }
 
 /**
- * Close out the tracking week: archive every member's outcome into
- * xp_week_history (idempotent per member+week) and zero the live weekly
- * fields. Used by the scheduler at the week boundary and by "Reset Week".
+ * Close out the tracking period: archive every member's outcome into
+ * xp_week_history (idempotent per member+period key) and zero the live
+ * progress fields. Used by the scheduler at the period boundary and by
+ * "Reset Week" / period reset actions.
  */
 export async function rollWeek(clan: Clan, officer?: Officer): Promise<RollResult> {
   const members = await listTracked(clan);
@@ -425,12 +453,17 @@ export async function rollWeek(clan: Clan, officer?: Officer): Promise<RollResul
     action: "week_reset",
     moderatorId: officer?.id ?? null,
     moderatorUsername: officer?.username ?? null,
-    details: { archived, closedWeeks: [...closingKeys] },
+    details: {
+      archived,
+      closedWeeks: [...closingKeys],
+      period: getTrackingPeriod(clan),
+      periodLabel: periodAdjective(clan),
+    },
   });
 
   scheduleDashboardRefresh(clan.guildId);
 
-  return { archived, weekKey: weekKey(clan) };
+  return { archived, weekKey: periodKey(clan) };
 }
 
 /** A member's archived weekly history, newest first. */

@@ -50,6 +50,7 @@ export const dashPage = (filter: string, page: number) => id(NS.dash, "page", `$
 export const SETUP_GOAL = id(NS.setup, "goal");
 export const SETUP_GOAL_MODAL = id(NS.setup, "goalModal");
 export const SETUP_MODE = id(NS.setup, "mode");
+export const SETUP_PERIOD = id(NS.setup, "period");
 export const SETUP_SCHEDULE = id(NS.setup, "schedule");
 export const SETUP_SCHEDULE_MODAL = id(NS.setup, "scheduleModal");
 export const SETUP_CHANNELS = id(NS.setup, "channels");

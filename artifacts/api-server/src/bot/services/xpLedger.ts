@@ -3,7 +3,7 @@ import type { Clan, ClanMember } from "@workspace/db";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import dayjs from "dayjs";
 import { activityDate, weekKey } from "./time";
-import { effectiveGoal } from "./progress";
+import { effectiveGoal, periodKey, getTrackingPeriod } from "./progress";
 import { ensureMember, type MemberIdentity } from "./config";
 import { logAction } from "./logging";
 import { scheduleDashboardRefresh } from "./commandCenter";
@@ -19,6 +19,18 @@ function addDays(date: string, n: number): string {
 function weekBounds(clan: Clan): { start: string; end: string } {
   const start = weekKey(clan);
   return { start, end: addDays(start, 7) };
+}
+
+/**
+ * Bounds of the clan's current tracking period for ledger → progress sync.
+ * Daily period = the activity day only; weekly = the full week window.
+ */
+function periodBounds(clan: Clan): { start: string; end: string } {
+  if (getTrackingPeriod(clan) === "daily") {
+    const start = activityDate(clan);
+    return { start, end: addDays(start, 1) };
+  }
+  return weekBounds(clan);
 }
 
 /* --------------------------------------------------------------- recording */
@@ -79,9 +91,12 @@ export async function recordEntry(
 
   const dayTotal = row?.amount ?? 0;
 
-  // Recompute the current week's live progress from the ledger when this entry
-  // touches it (a backfilled past week leaves the live fields alone).
-  const { start, end } = weekBounds(clan);
+  // Recompute live period progress from the ledger when this entry touches the
+  // current tracking period. An XP transaction alone does NOT imply the
+  // requirement is met — progress is the sum/amount for the period, and
+  // isRequirementSatisfied compares it to getRequirement separately.
+  // A backfilled past period leaves the live fields alone.
+  const { start, end } = periodBounds(clan);
   const inCurrentWeek = date >= start && date < end;
   let weekTotal = 0;
   if (inCurrentWeek) {
@@ -103,7 +118,7 @@ export async function recordEntry(
     await db
       .update(clanMembersTable)
       .set({
-        weekKey: weekKey(clan),
+        weekKey: periodKey(clan),
         weeklyProgress: weekTotal,
         weeklyCompletedAt:
           weekTotal >= goal ? (member.weeklyCompletedAt ?? new Date()) : null,
@@ -125,7 +140,18 @@ export async function recordEntry(
     targetUsername: identity.username,
     moderatorId: officer.id,
     moderatorUsername: officer.username,
-    details: { date, amount, mode, dayTotal, weekTotal, inCurrentWeek },
+    details: {
+      date,
+      amount,
+      mode,
+      dayTotal,
+      weekTotal,
+      inCurrentWeek,
+      period: getTrackingPeriod(clan),
+      periodKey: periodKey(clan),
+      // Explicit: ledger write ≠ requirement completion.
+      requirementMet: inCurrentWeek && weekTotal >= effectiveGoal(clan, null),
+    },
   });
 
   scheduleDashboardRefresh(clan.guildId);

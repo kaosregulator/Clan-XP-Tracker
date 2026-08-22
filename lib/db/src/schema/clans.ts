@@ -118,36 +118,48 @@ export const clansTable = pgTable("clans", {
    * -------------------------------------------------------------------- */
 
   // How progress is tracked:
-  //   "exact"    — numeric progress toward weeklyGoal (4200 / 5000)
-  //   "complete" — a simple done / not-done flag per week
+  //   "exact"    — numeric progress toward the period requirement (4200 / 5000)
+  //   "complete" — a simple done / not-done flag per tracking period
   //   "custom"   — numeric progress toward a small custom goal (8 / 10)
   trackingMode: text("tracking_mode").notNull().default("exact"),
 
-  // The weekly requirement everyone is measured against. Unit label comes
-  // from activityName ("XP", "Activities", ...). Per-member overrides live on
-  // clan_members.weeklyGoalOverride.
+  // The tracking window requirement progress is measured against:
+  //   "weekly" — one requirement per week (weekStartDay → next weekStartDay)
+  //   "daily"  — one requirement per activity day (resetTime → next resetTime)
+  // Defaults to weekly so existing servers keep their current behaviour.
+  trackingPeriod: text("tracking_period").notNull().default("weekly"),
+
+  // The period requirement everyone is measured against when trackingPeriod is
+  // "weekly" (and the fallback amount when "daily" has no dailyTarget). Unit
+  // label comes from activityName ("XP", "Activities", ...). Per-member
+  // overrides live on clan_members.weeklyGoalOverride.
   weeklyGoal: integer("weekly_goal").notNull().default(5000),
 
-  // The per-day XP a member is expected to earn. Drives the daily-ledger
-  // calendar: a day counts as "done" when its entry meets this target, and
-  // "missed" when it falls short (0 disables the daily check entirely).
+  // The per-day requirement. When trackingPeriod is "daily" this is the
+  // authoritative goal (falling back to weeklyGoal when 0). When the period
+  // is "weekly" it still drives the daily-ledger calendar: a day counts as
+  // "done" when its entry meets this target, and "missed" when it falls
+  // short (0 disables the calendar daily check entirely).
   dailyTarget: integer("daily_target").notNull().default(0),
 
   // Day the tracking week starts, 0 = Sunday … 6 = Saturday. The weekly reset
-  // fires at resetTime on this day in the clan timezone.
+  // fires at resetTime on this day in the clan timezone (weekly period only).
   weekStartDay: integer("week_start_day").notNull().default(1),
-  // Automatically archive + reset progress at the week boundary.
+  // Automatically archive + reset progress at the period boundary (week start
+  // for weekly; every day at resetTime for daily).
   autoWeeklyReset: boolean("auto_weekly_reset").notNull().default(true),
-  // Keep per-member weekly snapshots in xp_week_history on reset.
+  // Keep per-member period snapshots in xp_week_history on reset.
   archiveWeeks: boolean("archive_weeks").notNull().default(true),
 
   // Reminder schedule: days of week (0-6) reminders fire, at the first
-  // reminderTimes entry. remindersEnabled is the master switch.
+  // reminderTimes entry. remindersEnabled is the master switch. For a daily
+  // period, leave all 7 days selected (or the days you want nudged).
   reminderDays: integer("reminder_days").array().notNull().default([3, 5]),
 
   // Escalation thresholds (XP enforcement, not moderation):
-  // after warningThreshold reminders in a week a warning is suggested; after
-  // escalationThreshold active warnings the member is flagged for leadership.
+  // after warningThreshold reminders in the current tracking period a warning
+  // is suggested; after escalationThreshold active warnings the member is
+  // flagged for leadership.
   warningThreshold: integer("warning_threshold").notNull().default(3),
   escalationThreshold: integer("escalation_threshold").notNull().default(2),
 

@@ -26,8 +26,15 @@ import {
   sendBulkWarnings,
   postWarningAnnouncement,
   recentWarning,
+  clearWarningRoleIfRequirementMet,
   type WarnDelivery,
 } from "../services/warnings";
+import {
+  staffWarningReason,
+  memberSafeWarningReason,
+  periodAdjective,
+  sanitizeMemberReason,
+} from "../services/tracking";
 import { roleMemberIdentities } from "../services/roles";
 import { addMemberNote } from "../services/notes";
 import {
@@ -164,6 +171,10 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
   if (change) {
     const res = await applyProgress(clan, identity, change, officer(interaction));
     const line = formatProgress(clan, res.member);
+    // Requirement satisfaction (not mere XP ledger presence) clears the warning role.
+    if (res.completedNow) {
+      await clearWarningRoleIfRequirementMet(interaction.guild, clan, target.id).catch(() => {});
+    }
     await interaction.editReply({
       content:
         `${res.completedNow ? "🎉" : "✅"} **${target.displayName ?? target.username}** — ${line}` +
@@ -297,11 +308,11 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       const destination = interaction.options.getString("destination");
       const deliver = warnDelivery(destination);
       const member = await getMember(clan.guildId, target.id);
+      // Staff reason keeps accounting for logs/DB; memberReason is sanitized
+      // on delivery so members never see 0/1, missing XP, reminder counts, etc.
       const reason =
         message ||
-        (member
-          ? `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, member).toLocaleString()} / ${effectiveGoal(clan, member).toLocaleString()}).`
-          : `Missed the weekly ${clan.activityName} goal.`);
+        (member ? staffWarningReason(clan, member) : `Missed the ${periodAdjective(clan)} ${clan.activityName} goal.`);
       const { activeCount } = await issueWarning({
         client: interaction.client,
         clan,
@@ -310,6 +321,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         moderatorId: interaction.user.id,
         moderatorUsername: interaction.user.username,
         reason,
+        memberReason: message ? null : memberSafeWarningReason(clan),
         deliver,
       });
       const wantsChannel = deliver?.channel ?? true;
@@ -338,6 +350,11 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         return;
       }
       const res = await recordEntry(clan, identity, { date: parsed.date, amount, mode, note }, officer(interaction));
+      // Ledger write alone does not clear the role — only requirement satisfaction does.
+      const memberAfter = await getMember(clan.guildId, target.id);
+      if (memberAfter) {
+        await clearWarningRoleIfRequirementMet(interaction.guild, clan, target.id).catch(() => {});
+      }
       const totals = await periodTotals(clan, target.id);
       const dayLabel = parsed.date === activityDate(clan) ? "today" : `**${parsed.date}**`;
       await interaction.editReply({
@@ -472,7 +489,8 @@ async function handleRoleAction(
       // warnings recorded.
       if (mode === "announce") {
         const reason =
-          message || `Members of this role are behind on the weekly ${clan.activityName} goal.`;
+          message ||
+          `Members of this role are behind on the ${periodAdjective(clan)} ${clan.activityName} requirement.`;
         const posted = await postWarningAnnouncement({
           client: interaction.client,
           clan,
@@ -514,8 +532,9 @@ async function handleRoleAction(
         deliver,
         skipIfWarnedRecently: true,
         reason: (m) =>
-          message ||
-          `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, m).toLocaleString()} / ${effectiveGoal(clan, m).toLocaleString()}).`,
+          message || staffWarningReason(clan, m),
+        memberReason: () =>
+          message ? sanitizeMemberReason(message) : memberSafeWarningReason(clan),
       });
       await interaction.editReply({
         content:

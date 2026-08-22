@@ -26,10 +26,12 @@ import {
 import type { Clan } from "@workspace/db";
 import { ensureClan, updateClan, isAdmin, getClan } from "../services/config";
 import { parseHm, weekRangeLabel, weekKey } from "../services/time";
+import { getTrackingPeriod, periodLabel, periodAdjective } from "../services/tracking";
 import {
   SETUP_GOAL,
   SETUP_GOAL_MODAL,
   SETUP_MODE,
+  SETUP_PERIOD,
   SETUP_SCHEDULE,
   SETUP_SCHEDULE_MODAL,
   SETUP_CHANNELS,
@@ -81,7 +83,7 @@ export const TRACKING_MODES = [
   {
     value: "complete",
     label: "Complete / Not complete",
-    description: "A simple done-or-not flag each week",
+    description: "A simple done-or-not flag each tracking period",
     emoji: "✅",
   },
   {
@@ -92,8 +94,27 @@ export const TRACKING_MODES = [
   },
 ] as const;
 
+export const TRACKING_PERIODS = [
+  {
+    value: "weekly",
+    label: "Weekly",
+    description: "One requirement per week (resets on week-start day)",
+    emoji: "🗓️",
+  },
+  {
+    value: "daily",
+    label: "Daily",
+    description: "One requirement per day (resets every day at reset time)",
+    emoji: "📆",
+  },
+] as const;
+
 function modeLabel(clan: Clan): string {
   return TRACKING_MODES.find((m) => m.value === clan.trackingMode)?.label ?? "Exact progress";
+}
+
+function periodSetupLabel(clan: Clan): string {
+  return TRACKING_PERIODS.find((p) => p.value === clan.trackingPeriod)?.label ?? "Weekly";
 }
 
 export const CARD_STYLES = [
@@ -137,8 +158,13 @@ export function warnRemovalLabel(hours: number): string {
 }
 
 function goalLine(clan: Clan): string {
+  const period = periodAdjective(clan);
   if (clan.trackingMode === "complete") {
-    return `Complete the weekly **${clan.activityName}** requirement`;
+    return `Complete the ${period} **${clan.activityName}** requirement`;
+  }
+  if (getTrackingPeriod(clan) === "daily") {
+    const goal = clan.dailyTarget > 0 ? clan.dailyTarget : clan.weeklyGoal;
+    return `**${goal.toLocaleString()} ${clan.activityName}** per day`;
   }
   return `**${clan.weeklyGoal.toLocaleString()} ${clan.activityName}** per week`;
 }
@@ -155,20 +181,27 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
     .setTitle(`⚙️ Configuration — ${clan.clanName}`)
     .setDescription(
       `Officers verify XP in **${clan.gameName}** and update the bot. Members never submit anything.\n` +
-        `Current week: **${weekRangeLabel(weekKey(clan))}**`
+        `Tracking period: **${periodLabel(clan)}**` +
+        (getTrackingPeriod(clan) === "weekly"
+          ? ` · Current week: **${weekRangeLabel(weekKey(clan))}**`
+          : "")
     )
     .addFields(
       {
-        name: `${check(clan.weeklyGoal || clan.trackingMode === "complete")} Weekly Requirement`,
+        name: `${check(clan.weeklyGoal || clan.trackingMode === "complete")} ${periodLabel(clan)} Requirement`,
         value:
-          `${goalLine(clan)}\nTracking mode: **${modeLabel(clan)}**\n` +
-          `Daily target: **${clan.dailyTarget > 0 ? `${clan.dailyTarget.toLocaleString()} ${clan.activityName}/day` : "off"}**`,
+          `${goalLine(clan)}\nTracking mode: **${modeLabel(clan)}** · Period: **${periodSetupLabel(clan)}**\n` +
+          (getTrackingPeriod(clan) === "weekly"
+            ? `Daily calendar target: **${clan.dailyTarget > 0 ? `${clan.dailyTarget.toLocaleString()} ${clan.activityName}/day` : "off"}**`
+            : `Daily requirement source: **${clan.dailyTarget > 0 ? "daily target" : "goal amount"}**`),
         inline: false,
       },
       {
         name: `${check(true)} Schedule`,
         value:
-          `Week starts **${DAY_NAMES[clan.weekStartDay] ?? "Monday"}** at **${clan.resetTime}** (${clan.timezone})\n` +
+          (getTrackingPeriod(clan) === "weekly"
+            ? `Week starts **${DAY_NAMES[clan.weekStartDay] ?? "Monday"}** at **${clan.resetTime}** (${clan.timezone})\n`
+            : `Resets every day at **${clan.resetTime}** (${clan.timezone})\n`) +
           `Auto reset: **${clan.autoWeeklyReset ? "on" : "off"}** · Archive history: **${clan.archiveWeeks ? "on" : "off"}**\n` +
           `Reminders: **${clan.remindersEnabled ? "on" : "OFF"}**` +
           (clan.remindersEnabled
@@ -209,7 +242,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
     .setFooter({
       text: clan.setupComplete
         ? "Everything is live — tweak any section anytime."
-        : "Set a weekly goal and officer roles, then press Finish.",
+        : "Set a requirement, tracking period and officer roles, then press Finish.",
     });
 }
 
@@ -218,21 +251,22 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
     new ButtonBuilder().setCustomId(cid).setLabel(label).setStyle(style);
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(SETUP_GOAL, "Weekly Goal", ButtonStyle.Primary),
-      b(SETUP_MODE, "Tracking Mode", ButtonStyle.Primary),
-      b(SETUP_SCHEDULE, "Schedule & Enforcement", ButtonStyle.Primary)
+      b(SETUP_GOAL, "Requirement", ButtonStyle.Primary),
+      b(SETUP_PERIOD, "Daily / Weekly", ButtonStyle.Primary),
+      b(SETUP_MODE, "Tracking Mode", ButtonStyle.Primary)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(SETUP_SCHEDULE, "Schedule & Enforcement", ButtonStyle.Primary),
       b(SETUP_CHANNELS, "Channels"),
-      b(SETUP_ROLES, "Roles"),
-      b(SETUP_NOTIFY, "Notifications")
+      b(SETUP_ROLES, "Roles")
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(SETUP_NOTIFY, "Notifications"),
       b(SETUP_WHITELIST, "Whitelist"),
-      b(SETUP_CARDS, "Warnings & Cards"),
-      b(SETUP_FINISH, "Finish", ButtonStyle.Success)
+      b(SETUP_CARDS, "Warnings & Cards")
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(SETUP_FINISH, "Finish", ButtonStyle.Success),
       b(wizGo(1), "🧭 Guided setup wizard")
     ),
   ];
@@ -270,9 +304,41 @@ function modePayload(clan: Clan): BaseMessageOptions {
         .setTitle("📊 Tracking Mode")
         .setDescription(
           "**Exact progress** — officers enter numbers, e.g. `4200 / 5000`.\n" +
-            "**Complete / Not complete** — a simple weekly checkmark.\n" +
+            "**Complete / Not complete** — a simple done-or-not checkmark each period.\n" +
             "**Custom goal** — small countable targets, e.g. `8 / 10` activities.\n\n" +
-            `Currently: **${modeLabel(clan)}**`
+            `Currently: **${modeLabel(clan)}** · Period: **${periodSetupLabel(clan)}**`
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(select),
+      backRow(),
+    ],
+  };
+}
+
+function periodPayload(clan: Clan): BaseMessageOptions {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(SETUP_PERIOD)
+    .setPlaceholder("Choose the tracking period…")
+    .addOptions(
+      TRACKING_PERIODS.map((p) => ({
+        value: p.value,
+        label: p.label,
+        description: p.description,
+        emoji: p.emoji,
+        default: p.value === (clan.trackingPeriod ?? "weekly"),
+      }))
+    );
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("🗓️ Tracking Period")
+        .setDescription(
+          "**Weekly** — one requirement per week. Resets on the week-start day at reset time.\n" +
+            "**Daily** — one requirement per day. Resets every day at reset time.\n\n" +
+            "This drives reminders, warnings, progress, auto-role clearance, and resets.\n\n" +
+            `Currently: **${periodSetupLabel(clan)}**`
         ),
     ],
     components: [
@@ -349,7 +415,7 @@ const TOGGLES = [
   { key: "dmReminders", label: "DM reminders" },
   { key: "pingReminders", label: "Ping in channel" },
   { key: "dmOnWarn", label: "DM on warning" },
-  { key: "autoWeeklyReset", label: "Auto weekly reset" },
+  { key: "autoWeeklyReset", label: "Auto period reset" },
   { key: "archiveWeeks", label: "Archive history" },
 ] as const;
 
@@ -494,7 +560,7 @@ function goalModal(clan: Clan) {
     new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(input);
   return new ModalBuilder()
     .setCustomId(SETUP_GOAL_MODAL)
-    .setTitle("Weekly Requirement")
+    .setTitle("Activity Requirement")
     .addComponents(
       row(
         new TextInputBuilder()
@@ -515,10 +581,24 @@ function goalModal(clan: Clan) {
       row(
         new TextInputBuilder()
           .setCustomId("weeklyGoal")
-          .setLabel("Weekly goal (optional , daily target)")
+          .setLabel(
+            getTrackingPeriod(clan) === "daily"
+              ? "Daily goal (optional , override)"
+              : "Weekly goal (optional , daily target)"
+          )
           .setStyle(TextInputStyle.Short)
-          .setValue(clan.dailyTarget > 0 ? `${clan.weeklyGoal}, ${clan.dailyTarget}` : String(clan.weeklyGoal))
-          .setPlaceholder("5000  — or  5000, 500 to set a daily target")
+          .setValue(
+            getTrackingPeriod(clan) === "daily"
+              ? String(clan.dailyTarget > 0 ? clan.dailyTarget : clan.weeklyGoal)
+              : clan.dailyTarget > 0
+                ? `${clan.weeklyGoal}, ${clan.dailyTarget}`
+                : String(clan.weeklyGoal)
+          )
+          .setPlaceholder(
+            getTrackingPeriod(clan) === "daily"
+              ? "1  — or  500 for a numeric daily goal"
+              : "5000  — or  5000, 500 to set a daily target"
+          )
           .setRequired(true)
       ),
       row(
@@ -733,6 +813,8 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
   switch (action) {
     case "mode":
       return void (await interaction.editReply(modePayload(clan)));
+    case "period":
+      return void (await interaction.editReply(periodPayload(clan)));
     case "channels":
       return void (await interaction.editReply(channelsPayload(clan)));
     case "roles":
@@ -794,19 +876,37 @@ export async function handleSetupModal(interaction: ModalSubmitInteraction) {
   let patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {};
 
   if (action === "goalModal") {
-    // "5000" sets just the weekly goal; "5000, 500" also sets a daily target.
+    // Weekly period: "5000" sets weeklyGoal; "5000, 500" also sets dailyTarget.
+    // Daily period: the first number is the daily requirement (written to
+    // dailyTarget, with weeklyGoal kept in sync as the fallback amount).
     const [weeklyRaw = "", dailyRaw = ""] = f("weeklyGoal").split(",");
     const goal = num(weeklyRaw);
     const daily = num(dailyRaw);
     const url = f("gameUrl").trim();
-    patch = {
-      clanName: f("clanName").trim() || clan.clanName,
-      activityName: f("activityName").trim() || "XP",
-      weeklyGoal: Number.isFinite(goal) && goal > 0 ? goal : clan.weeklyGoal,
-      dailyTarget: dailyRaw.trim() ? (Number.isFinite(daily) && daily >= 0 ? daily : clan.dailyTarget) : 0,
-      gameName: f("gameName").trim() || clan.gameName,
-      gameUrl: url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : null,
-    };
+    if (getTrackingPeriod(clan) === "daily") {
+      const amount = Number.isFinite(goal) && goal > 0 ? goal : clan.dailyTarget || clan.weeklyGoal;
+      patch = {
+        clanName: f("clanName").trim() || clan.clanName,
+        activityName: f("activityName").trim() || "XP",
+        dailyTarget: amount,
+        weeklyGoal: amount,
+        gameName: f("gameName").trim() || clan.gameName,
+        gameUrl: url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : null,
+      };
+    } else {
+      patch = {
+        clanName: f("clanName").trim() || clan.clanName,
+        activityName: f("activityName").trim() || "XP",
+        weeklyGoal: Number.isFinite(goal) && goal > 0 ? goal : clan.weeklyGoal,
+        dailyTarget: dailyRaw.trim()
+          ? Number.isFinite(daily) && daily >= 0
+            ? daily
+            : clan.dailyTarget
+          : 0,
+        gameName: f("gameName").trim() || clan.gameName,
+        gameUrl: url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : null,
+      };
+    }
   } else if (action === "scheduleModal") {
     const [dayPart = "", timePart = ""] = f("weekStart").trim().split(/\s+/);
     const dayIdx = dayIndexOf(dayPart);
@@ -892,6 +992,21 @@ export async function handleSetupSelect(
     const mode = interaction.values[0] ?? "exact";
     const updated = (await updateClan(clan.guildId, { trackingMode: mode })) ?? clan;
     await interaction.editReply(modePayload(updated));
+    return;
+  }
+
+  if (interaction.isStringSelectMenu() && action === "period") {
+    const period = interaction.values[0] === "daily" ? "daily" : "weekly";
+    const patch: Partial<typeof import("@workspace/db").clansTable.$inferInsert> = {
+      trackingPeriod: period,
+    };
+    // Daily servers usually want reminders every day; seed all 7 days when
+    // switching to daily if the officer hasn't customized a denser schedule.
+    if (period === "daily" && clan.reminderDays.length <= 2) {
+      patch.reminderDays = [0, 1, 2, 3, 4, 5, 6];
+    }
+    const updated = (await updateClan(clan.guildId, patch)) ?? clan;
+    await interaction.editReply(periodPayload(updated));
     return;
   }
 

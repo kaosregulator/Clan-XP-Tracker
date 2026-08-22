@@ -19,15 +19,20 @@ import {
   syncRoleFlags,
   rollWeek,
   formatProgress,
-  effectiveGoal,
-  currentProgress,
 } from "../services/progress";
 import { sendBulkReminders } from "../services/reminders";
 import { issueWarning } from "../services/warnings";
 import { exportGuildDataAsXlsx } from "../services/export";
 import { memberIdsWithRoles } from "../services/roles";
 import { renderOffThread } from "../canvas/render-pool";
-import { weekRangeLabel, nextWeeklyReset, formatInZone } from "../services/time";
+import { weekRangeLabel, formatInZone } from "../services/time";
+import {
+  staffWarningReason,
+  memberSafeWarningReason,
+  periodLabel,
+  getTrackingPeriod,
+  nextPeriodReset,
+} from "../services/tracking";
 import { reviewComponents } from "../ui/components";
 import { REVIEW_WARN_CONFIRM, REVIEW_RESET_CONFIRM, parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
@@ -77,14 +82,17 @@ export async function buildReviewPayload(
 
   const goalLabel =
     clan.trackingMode === "complete"
-      ? `Weekly ${clan.activityName} completion`
-      : `${clan.weeklyGoal.toLocaleString()} ${clan.activityName} weekly goal`;
+      ? `${periodLabel(clan)} ${clan.activityName} completion`
+      : getTrackingPeriod(clan) === "daily"
+        ? `${(clan.dailyTarget > 0 ? clan.dailyTarget : clan.weeklyGoal).toLocaleString()} ${clan.activityName} daily goal`
+        : `${clan.weeklyGoal.toLocaleString()} ${clan.activityName} weekly goal`;
 
   const view: WeeklyReviewView = {
     communityName: clan.clanName,
     activityName: clan.activityName,
-    rangeLabel: weekRangeLabel(snap.weekKey),
-    deadline: `resets ${formatInZone(nextWeeklyReset(clan), clan, "ddd HH:mm")}`,
+    rangeLabel:
+      getTrackingPeriod(clan) === "daily" ? snap.weekKey : weekRangeLabel(snap.weekKey),
+    deadline: `resets ${formatInZone(nextPeriodReset(clan), clan, "ddd HH:mm")}`,
     goalLabel,
     tracked: snap.tracked,
     active: snap.active,
@@ -201,7 +209,8 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
             target: user,
             moderatorId: interaction.user.id,
             moderatorUsername: interaction.user.username,
-            reason: `Missed the weekly ${clan.activityName} goal (${currentProgress(clan, m).toLocaleString()} / ${effectiveGoal(clan, m).toLocaleString()}) after ${m.weekReminders} reminder(s).`,
+            reason: staffWarningReason(clan, m),
+            memberReason: memberSafeWarningReason(clan),
           });
           issued++;
           if (activeCount >= clan.escalationThreshold) escalate.push(`<@${m.userId}> (${activeCount})`);

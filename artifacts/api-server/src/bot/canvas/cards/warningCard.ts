@@ -24,13 +24,17 @@ export interface EnforcementCardView {
   avatarUrl: string | null;
   /** Optional custom body copy; falls back to the standard message. */
   message?: string | null;
+  /** Configured tracking period adjective ("daily" / "weekly") for default copy. */
+  periodLabel?: string;
 }
 
 export interface WarningCardView extends EnforcementCardView {
-  /** Active warning count (badge numerator). */
-  count: number;
-  /** Badge denominator — the escalation threshold ("WARNING 1/3"). */
-  threshold: number;
+  /**
+   * Optional legacy staff badge fields. Member-facing renders ignore these —
+   * warning count and escalation threshold must never appear on the card.
+   */
+  count?: number;
+  threshold?: number;
 }
 
 /* Light-card palette, local to the enforcement cards. */
@@ -442,35 +446,36 @@ function bellIcon(ctx: SKRSContext2D, cx: number, cy: number, r: number, color: 
   ctx.restore();
 }
 
-/** XP warning card (red). */
+/**
+ * XP warning card (red) — MEMBER-FACING.
+ * Never shows warning counts, escalation thresholds, progress fractions, or
+ * missing-XP amounts. A custom `message` (already sanitized by the caller)
+ * replaces the default body when provided.
+ */
 export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
-  const denom = Math.max(v.threshold, v.count, 1);
   return renderEnforcementCard({
     v,
     accent: LIGHT.red,
     accentSoft: LIGHT.redSoft,
     title: ["XP", "WARNING"],
-    badgeLabel: `WARNING ${v.count}/${denom}`,
+    // No badge — count/threshold are staff-only accounting.
     icon: "warning",
     bodySegs: [
-      [{ t: "Continuing missing XP will result into", color: LIGHT.ink }],
-      [
-        { t: "stricter actions", color: LIGHT.red, bold: true },
-        { t: " including further warnings,", color: LIGHT.ink },
-      ],
-      [
-        { t: "temporary restrictions", color: LIGHT.red, bold: true },
-        { t: ", or ", color: LIGHT.ink },
-        { t: "removal", color: LIGHT.red, bold: true },
-        { t: ".", color: LIGHT.ink },
-      ],
-      [{ t: "Stay active. Stay in good standing.", color: LIGHT.ink }],
+      [{ t: "You have received an XP activity warning.", color: LIGHT.inkSoft, bold: true }],
+      [{ t: "Reason: Failure to complete the required activity.", color: LIGHT.ink }],
+      [{ t: "Please make sure you complete your required activity.", color: LIGHT.ink }],
     ],
   });
 }
 
-/** XP reminder card (blue). */
+/**
+ * XP reminder card (blue) — MEMBER-FACING.
+ * Period-aware ("daily" / "weekly" from config). No progress fractions.
+ */
 export function renderReminderCard(v: EnforcementCardView): Promise<Buffer> {
+  const period = (v.periodLabel === "daily" || v.periodLabel === "weekly"
+    ? v.periodLabel
+    : "weekly") as string;
   return renderEnforcementCard({
     v,
     accent: LIGHT.blue,
@@ -478,12 +483,17 @@ export function renderReminderCard(v: EnforcementCardView): Promise<Buffer> {
     title: ["XP", "REMINDER"],
     icon: "bell",
     bodySegs: [
-      [{ t: "Don't forget to complete your XP!", color: LIGHT.inkSoft, bold: true }],
-      [{ t: "Complete your XP before the period ends", color: LIGHT.ink }],
       [
-        { t: "to ", color: LIGHT.ink },
+        {
+          t: `Please make sure you complete your ${period} XP requirement.`,
+          color: LIGHT.inkSoft,
+          bold: true,
+        },
+      ],
+      [
+        { t: "Complete it before the period ends to ", color: LIGHT.ink },
         { t: "avoid", color: LIGHT.blue, bold: true },
-        { t: " receiving a ", color: LIGHT.ink },
+        { t: " a ", color: LIGHT.ink },
         { t: "warning", color: LIGHT.blue, bold: true },
         { t: ".", color: LIGHT.ink },
       ],
