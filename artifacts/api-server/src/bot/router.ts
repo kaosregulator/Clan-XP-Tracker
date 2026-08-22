@@ -19,7 +19,7 @@ import {
 } from "./features/commandCenter";
 import { openNotifications, handleNotifButton, handleNotifSelect } from "./features/notifications";
 import {
-  openDisputePicker,
+  openDisputeCommand,
   openDisputeReview,
   handleDisputeButton,
   handleDisputeSelect,
@@ -54,7 +54,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case "notifications":
           return void (await openNotifications(interaction));
         case "dispute":
-          return void (await openDisputePicker(interaction));
+          return void (await openDisputeCommand(interaction));
         case "disputes":
           return void (await openDisputeReview(interaction));
         case "tickets":

@@ -68,6 +68,12 @@ export const clansTable = pgTable("clans", {
   warningRoleIds: text("warning_role_ids").array().notNull().default([]),
   reminderRoleId: text("reminder_role_id"),
 
+  // XP dispute tickets: private channels under this category. Staff with
+  // disputeStaffRoleId (or the configured officer roles when unset) can see
+  // every dispute channel; @everyone cannot.
+  disputeCategoryId: text("dispute_category_id"),
+  disputeStaffRoleId: text("dispute_staff_role_id"),
+
   // Individual users whitelisted for admin/staff commands, on top of the
   // configured admin roles. Lets a server owner grant a single trusted person
   // full command access without giving them a role.

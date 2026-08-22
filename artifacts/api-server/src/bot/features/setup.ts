@@ -27,6 +27,7 @@ import type { Clan } from "@workspace/db";
 import { ensureClan, updateClan, isAdmin, getClan } from "../services/config";
 import { parseHm, weekRangeLabel, weekKey } from "../services/time";
 import { getTrackingPeriod, periodLabel, periodAdjective } from "../services/tracking";
+import { ensureDisputeCategory, disputeStaffRoleIds } from "../services/disputes";
 import {
   SETUP_GOAL,
   SETUP_GOAL_MODAL,
@@ -39,6 +40,10 @@ import {
   SETUP_NOTIFY,
   SETUP_WHITELIST,
   SETUP_CARDS,
+  SETUP_DISPUTES,
+  SETUP_DISPUTE_CATEGORY,
+  SETUP_DISPUTE_STAFF_ROLE,
+  SETUP_DISPUTE_CREATE_CATEGORY,
   SETUP_BACK,
   SETUP_FINISH,
   SETUP_REMINDER_CHANNEL,
@@ -228,6 +233,20 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         inline: false,
       },
       {
+        name: `${check(clan.disputeCategoryId)} XP Disputes`,
+        value: [
+          `Category: ${clan.disputeCategoryId ? `<#${clan.disputeCategoryId}>` : "_not set — /dispute disabled_"}`,
+          `Staff role: ${
+            clan.disputeStaffRoleId
+              ? `<@&${clan.disputeStaffRoleId}>`
+              : disputeStaffRoleIds(clan)
+                    .map((r) => `<@&${r}>`)
+                    .join(" ") || "_officers / admins_"
+          }`,
+        ].join("\n"),
+        inline: false,
+      },
+      {
         name: `${check(clan.staffRoleIds.length || clan.adminRoleIds.length)} Roles`,
         value: [
           `Officers: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
@@ -266,6 +285,7 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
       b(SETUP_CARDS, "Warnings & Cards")
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      b(SETUP_DISPUTES, "XP Disputes", ButtonStyle.Primary),
       b(SETUP_FINISH, "Finish", ButtonStyle.Success),
       b(wizGo(1), "🧭 Guided setup wizard")
     ),
@@ -344,6 +364,55 @@ function periodPayload(clan: Clan): BaseMessageOptions {
     components: [
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(select),
       backRow(),
+    ],
+  };
+}
+
+function disputesPayload(clan: Clan): BaseMessageOptions {
+  const staffFallback = disputeStaffRoleIds(clan);
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("⚖️ XP Disputes")
+        .setDescription(
+          "Members open a **private ticket channel** with **/dispute** and can attach an image " +
+            "from their device (Discord's normal upload — **no image URL**).\n\n" +
+            "**Category** — where dispute channels are created (kept private from @everyone).\n" +
+            "**Staff role** — who can see every dispute channel. When unset, officer/admin roles are used.\n\n" +
+            `Category: ${clan.disputeCategoryId ? `<#${clan.disputeCategoryId}>` : "_not set_"}\n` +
+            `Staff role: ${
+              clan.disputeStaffRoleId
+                ? `<@&${clan.disputeStaffRoleId}>`
+                : staffFallback.map((r) => `<@&${r}>`).join(" ") || "_officers / admins_"
+            }`
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(SETUP_DISPUTE_CATEGORY)
+          .setPlaceholder("Pick an existing category…")
+          .setChannelTypes(ChannelType.GuildCategory)
+          .setMinValues(0)
+          .setMaxValues(1)
+          .setDefaultChannels(clan.disputeCategoryId ? [clan.disputeCategoryId] : [])
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_DISPUTE_STAFF_ROLE)
+          .setPlaceholder("Dispute staff role…")
+          .setMinValues(0)
+          .setMaxValues(1)
+          .setDefaultRoles(clan.disputeStaffRoleId ? [clan.disputeStaffRoleId] : [])
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(SETUP_DISPUTE_CREATE_CATEGORY)
+          .setLabel("Create private XP DISPUTES category")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+      ),
     ],
   };
 }
@@ -815,6 +884,41 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(modePayload(clan)));
     case "period":
       return void (await interaction.editReply(periodPayload(clan)));
+    case "disputes":
+      return void (await interaction.editReply(disputesPayload(clan)));
+    case "disputeCreateCategory": {
+      const botId = interaction.client.user?.id;
+      if (!botId) {
+        return void (await interaction.editReply({
+          content: "Bot user isn't ready — try again.",
+          embeds: [],
+          components: [],
+        }));
+      }
+      try {
+        const { categoryId, created } = await ensureDisputeCategory(
+          interaction.guild!,
+          clan,
+          botId
+        );
+        const updated =
+          (await updateClan(clan.guildId, { disputeCategoryId: categoryId })) ?? clan;
+        await interaction.editReply({
+          ...disputesPayload(updated),
+          content: created
+            ? "✅ Created private **XP DISPUTES** category and saved it."
+            : "✅ Existing dispute category verified and saved.",
+        });
+      } catch (err) {
+        await interaction.editReply({
+          content:
+            "⚠️ Couldn't create the category. Make sure the bot has **Manage Channels**.",
+          embeds: [],
+          components: [backRow()],
+        });
+      }
+      return;
+    }
     case "channels":
       return void (await interaction.editReply(channelsPayload(clan)));
     case "roles":
@@ -957,6 +1061,11 @@ export async function handleSetupSelect(
 
   if (interaction.isChannelSelectMenu()) {
     const channelId = interaction.values[0] ?? null;
+    if (action === "disputeCategory") {
+      await updateClan(clan.guildId, { disputeCategoryId: channelId });
+      await interaction.editReply(disputesPayload((await getClan(clan.guildId)) ?? clan));
+      return;
+    }
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
       reminderChannel: "reminderChannelId",
       warningChannel: "warningChannelId",
@@ -970,6 +1079,13 @@ export async function handleSetupSelect(
 
   if (interaction.isRoleSelectMenu()) {
     const roleIds = [...interaction.values];
+    if (action === "disputeStaffRole") {
+      await updateClan(clan.guildId, {
+        disputeStaffRoleId: roleIds[0] ?? null,
+      });
+      await interaction.editReply(disputesPayload((await getClan(clan.guildId)) ?? clan));
+      return;
+    }
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
       officerRoles: "staffRoleIds",
       adminRoles: "adminRoleIds",

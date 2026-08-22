@@ -21,8 +21,13 @@ description: Key non-obvious constraints for the discord bot, API server, and Re
 - The bot is officer-managed: **members never submit XP**. All progress writes
   go through `bot/services/progress.ts` — never write `clan_members.weekly*`
   columns directly, or goal/status/eligibility rules drift.
-- A member row whose `week_key` is stale reads as **zero progress this week**.
-  This is deliberate: a missed weekly reset cannot carry numbers forward.
+- Period identity (daily vs weekly) lives in `bot/services/tracking.ts`
+  (`getTrackingPeriod`, `periodKey`, `getRequirement`, `isRequirementSatisfied`).
+  Member-facing copy also lives there — never send `formatProgress` to members.
+- A member row whose period key is stale reads as **zero progress**. This is
+  deliberate: a missed reset cannot carry numbers forward.
+- Warning-role auto-clearance requires `isRequirementSatisfied`, not merely an
+  XP ledger row / "XP was sent".
 - The bot no longer uses the `MessageContent`/`GuildMessages` intents.
 - `xp_submissions`, `tracked_accounts` and `vacations` are legacy tables kept
   only so the web dashboard keeps compiling — the bot never writes them.

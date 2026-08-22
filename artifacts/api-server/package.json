@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test src/bot/services/tracking.test.ts"
+    "test": "tsx --test src/bot/services/tracking.test.ts src/bot/services/disputes.test.ts"
   },
   "dependencies": {
     "@discordjs/rest": "^2.6.1",

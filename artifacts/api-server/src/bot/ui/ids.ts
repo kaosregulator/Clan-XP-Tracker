@@ -102,16 +102,26 @@ export const notifClear = (nid: number) => id(NS.notif, "clear", nid);
 export const notifResolve = (nid: number) => id(NS.notif, "resolve", nid);
 export const notifMember = (userId: string) => id(NS.notif, "member", userId);
 
-// Disputes. Member picks a warning to dispute; staff act on a dispute id.
-export const DISPUTE_PICK = id(NS.disp, "pick"); // member: select a warning
+// Disputes — private ticket channels. Staff act on a dispute id inside the channel.
+export const DISPUTE_PICK = id(NS.disp, "pick"); // legacy: select a warning (hub redirect)
 export const disputeReasonModal = (warningId: number) => id(NS.disp, "reason", warningId);
 export const DISPUTE_REVIEW_PICK = id(NS.disp, "review"); // staff: select a dispute
-export const disputeAccept = (did: number) => id(NS.disp, "accept", did);
-export const disputeDeny = (did: number) => id(NS.disp, "deny", did);
+export const disputeResolve = (did: number) => id(NS.disp, "resolve", did);
+export const disputeReject = (did: number) => id(NS.disp, "reject", did);
+export const disputeClose = (did: number) => id(NS.disp, "close", did);
+// Legacy aliases kept so old messages still route somewhere sensible.
+export const disputeAccept = (did: number) => id(NS.disp, "resolve", did);
+export const disputeDeny = (did: number) => id(NS.disp, "reject", did);
 export const disputeInfo = (did: number) => id(NS.disp, "info", did);
 export const disputeTicket = (did: number) => id(NS.disp, "ticket", did);
 export const disputeRemoveWarning = (did: number) => id(NS.disp, "remwarn", did);
 export const disputeMember = (userId: string) => id(NS.disp, "member", userId);
+
+// Setup — dispute ticket category / staff role.
+export const SETUP_DISPUTES = id(NS.setup, "disputes");
+export const SETUP_DISPUTE_CATEGORY = id(NS.setup, "disputeCategory");
+export const SETUP_DISPUTE_STAFF_ROLE = id(NS.setup, "disputeStaffRole");
+export const SETUP_DISPUTE_CREATE_CATEGORY = id(NS.setup, "disputeCreateCategory");
 
 // Tickets.
 export const TICKET_PICK = id(NS.tkt, "pick");
