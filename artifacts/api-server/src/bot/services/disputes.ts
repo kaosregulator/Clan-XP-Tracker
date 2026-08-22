@@ -20,6 +20,8 @@ import {
   disputeResolve,
   disputeReject,
   disputeClose,
+  disputeTranscript,
+  disputeDelete,
 } from "../ui/ids";
 import {
   parseEvidence,
@@ -27,6 +29,8 @@ import {
   disputeChannelName,
   buildDisputeOverwrites,
   disputeStaffRoleIds,
+  formatDisputeTranscript,
+  type TranscriptMessageLine,
 } from "./disputeHelpers";
 
 export {
@@ -35,6 +39,7 @@ export {
   disputeChannelName,
   buildDisputeOverwrites,
   disputeStaffRoleIds,
+  formatDisputeTranscript,
 } from "./disputeHelpers";
 
 /**
@@ -185,6 +190,22 @@ function staffActionRow(disputeId: number): ActionRowBuilder<MessageActionRowCom
       .setLabel("Close")
       .setEmoji("🔒")
       .setStyle(ButtonStyle.Secondary)
+  );
+}
+
+/** After a decision: channel stays; staff can re-send transcript or delete. */
+function postDecisionActionRow(disputeId: number): ActionRowBuilder<MessageActionRowComponentBuilder> {
+  return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(disputeTranscript(disputeId))
+      .setLabel("Transcript")
+      .setEmoji("📄")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(disputeDelete(disputeId))
+      .setLabel("Delete")
+      .setEmoji("🗑️")
+      .setStyle(ButtonStyle.Danger)
   );
 }
 
@@ -454,6 +475,209 @@ export async function openDisputeTicket(
   return { ok: true, dispute: row, channelId: channel.id };
 }
 
+/* ------------------------------------------------------------- transcripts */
+
+const TRANSCRIPT_FETCH_LIMIT = 100;
+const TRANSCRIPT_MAX_MESSAGES = 500;
+
+/** Fetch messages from a dispute channel (oldest → newest), best-effort. */
+async function fetchChannelTranscriptLines(
+  channel: TextChannel
+): Promise<TranscriptMessageLine[]> {
+  const collected: TranscriptMessageLine[] = [];
+  let before: string | undefined;
+  while (collected.length < TRANSCRIPT_MAX_MESSAGES) {
+    const batch = await channel.messages.fetch({
+      limit: TRANSCRIPT_FETCH_LIMIT,
+      ...(before ? { before } : {}),
+    });
+    if (!batch.size) break;
+    const sorted = [...batch.values()].sort(
+      (a, b) => a.createdTimestamp - b.createdTimestamp
+    );
+    for (const msg of sorted) {
+      collected.push({
+        timestampIso: msg.createdAt.toISOString(),
+        authorTag: msg.author.tag || msg.author.username,
+        authorId: msg.author.id,
+        content: msg.content || "",
+        attachments: [...msg.attachments.values()].map((a) => ({
+          name: a.name || "attachment",
+          url: a.url,
+          contentType: a.contentType ?? null,
+          size: a.size ?? 0,
+        })),
+      });
+    }
+    before = batch.last()?.id;
+    if (batch.size < TRANSCRIPT_FETCH_LIMIT) break;
+  }
+  // We fetched newest-first in pages; each page was sorted ascending, but
+  // pages themselves were newest-first. Re-sort the full set chronologically.
+  collected.sort((a, b) => a.timestampIso.localeCompare(b.timestampIso));
+  return collected.slice(0, TRANSCRIPT_MAX_MESSAGES);
+}
+
+export interface CaptureTranscriptResult {
+  text: string;
+  messageCount: number;
+  attachmentCount: number;
+}
+
+function buildTranscriptForDispute(opts: {
+  dispute: Dispute;
+  lines: TranscriptMessageLine[];
+  result: string;
+  handledById: string;
+  handledByTag: string;
+  note?: string | null;
+  footerNote?: string | null;
+}): CaptureTranscriptResult {
+  const evidence = parseEvidence(opts.dispute.evidenceJson);
+  const text = formatDisputeTranscript(
+    {
+      disputeId: opts.dispute.id,
+      guildId: opts.dispute.guildId,
+      memberTag: opts.dispute.username,
+      memberId: opts.dispute.userId,
+      disputeType: opts.dispute.disputeType,
+      warningId: opts.dispute.warningId ?? null,
+      reason: opts.dispute.reason,
+      initialEvidence: evidence,
+      result: opts.result,
+      handledByTag: opts.handledByTag,
+      handledById: opts.handledById,
+      note: opts.note,
+      channelId: opts.dispute.channelId,
+      generatedAtIso: new Date().toISOString(),
+      footerNote: opts.footerNote,
+    },
+    opts.lines
+  );
+  const attachmentCount =
+    evidence.length + opts.lines.reduce((n, l) => n + l.attachments.length, 0);
+  return { text, messageCount: opts.lines.length, attachmentCount };
+}
+
+/**
+ * Capture the private channel conversation into a transcript string.
+ * Throws if the channel cannot be read — callers must not delete on failure.
+ */
+export async function captureDisputeTranscript(
+  guild: Guild,
+  dispute: Dispute,
+  meta: {
+    result: string;
+    handledById: string;
+    handledByTag: string;
+    note?: string | null;
+    footerNote?: string | null;
+  }
+): Promise<CaptureTranscriptResult> {
+  if (!dispute.channelId) {
+    return buildTranscriptForDispute({
+      dispute,
+      lines: [],
+      result: meta.result,
+      handledById: meta.handledById,
+      handledByTag: meta.handledByTag,
+      note: meta.note,
+      footerNote: meta.footerNote ?? "No Discord channel was linked to this dispute.",
+    });
+  }
+  const ch = await guild.channels.fetch(dispute.channelId);
+  if (!ch || !ch.isTextBased() || !("messages" in ch)) {
+    throw new Error("Dispute channel is missing or not text-based — transcript not captured.");
+  }
+  const lines = await fetchChannelTranscriptLines(ch as TextChannel);
+  return buildTranscriptForDispute({
+    dispute,
+    lines,
+    result: meta.result,
+    handledById: meta.handledById,
+    handledByTag: meta.handledByTag,
+    note: meta.note,
+    footerNote: meta.footerNote,
+  });
+}
+
+async function postOrEditTranscriptLog(opts: {
+  client: Client;
+  clan: Clan;
+  dispute: Dispute;
+  resultLabel: string;
+  staffId: string;
+  staffUsername: string;
+  transcript: CaptureTranscriptResult;
+  title: string;
+  color: number;
+  editExisting?: boolean;
+  extraFooter?: string | null;
+}): Promise<{ channelId: string; messageId: string } | null> {
+  const { clan, dispute, transcript } = opts;
+  const type = (dispute.disputeType as DisputeType) || "warning";
+  const embed = new EmbedBuilder()
+    .setColor(opts.color)
+    .setTitle(opts.title)
+    .setDescription(
+      `Staff-only transcript for dispute **#${dispute.id}**. Not shared with the member.`
+    )
+    .addFields(
+      { name: "Member", value: `<@${dispute.userId}>`, inline: true },
+      { name: "Type", value: DISPUTE_TYPE_LABEL[type] ?? type, inline: true },
+      { name: "Result", value: opts.resultLabel, inline: true },
+      { name: "Handled by", value: `<@${opts.staffId}>`, inline: true },
+      {
+        name: "Messages",
+        value: `${transcript.messageCount}`,
+        inline: true,
+      },
+      {
+        name: "Attachments referenced",
+        value: `${transcript.attachmentCount}`,
+        inline: true,
+      },
+      ...(dispute.warningId
+        ? [{ name: "Warning ID", value: `#${dispute.warningId}`, inline: true }]
+        : []),
+      ...(opts.extraFooter
+        ? [{ name: "Note", value: opts.extraFooter.slice(0, 1024) }]
+        : [])
+    )
+    .setFooter({ text: `Dispute #${dispute.id} · Transcript attached` })
+    .setTimestamp();
+
+  const file = new AttachmentBuilder(Buffer.from(transcript.text, "utf8"), {
+    name: `dispute-${dispute.id}-transcript.txt`,
+  });
+
+  // Prefer editing the prior log message when Delete finalizes the ticket.
+  if (
+    opts.editExisting &&
+    dispute.transcriptLogChannelId &&
+    dispute.transcriptLogMessageId
+  ) {
+    try {
+      const logCh = await opts.client.channels.fetch(dispute.transcriptLogChannelId);
+      if (logCh?.isTextBased() && "messages" in logCh) {
+        const existing = await logCh.messages.fetch(dispute.transcriptLogMessageId);
+        await existing.edit({
+          embeds: [embed],
+          files: [file],
+        });
+        return {
+          channelId: dispute.transcriptLogChannelId,
+          messageId: dispute.transcriptLogMessageId,
+        };
+      }
+    } catch (err) {
+      logger.warn({ err, disputeId: dispute.id }, "Could not edit prior transcript log — posting new");
+    }
+  }
+
+  return sendLog(opts.client, clan, embed, [file]);
+}
+
 /* ------------------------------------------------------------- decisions */
 
 export type DisputeDecision = "resolved" | "rejected" | "closed";
@@ -469,21 +693,62 @@ export interface DecideDisputeTicketInput {
   note?: string | null;
 }
 
+/**
+ * Resolve / Reject / Close a dispute:
+ *   1. Capture full channel transcript (must succeed before any destructive step)
+ *   2. Post transcript + summary embed to the staff log channel
+ *   3. Update DB + audit
+ *   4. Lock the channel (do NOT delete) and swap buttons to Transcript / Delete
+ */
 export async function decideDisputeTicket(
   input: DecideDisputeTicketInput
-): Promise<{ dispute: Dispute; channelLocked: boolean } | null> {
+): Promise<{ dispute: Dispute; channelLocked: boolean; transcriptPosted: boolean } | null> {
   const { clan, disputeId, decision } = input;
   const existing = await getDispute(clan.guildId, disputeId);
   if (!existing) return null;
-  if (!OPEN_DISPUTE_STATUSES.includes(existing.status as DisputeStatus) && existing.status !== "info_requested") {
-    // Already decided — return as-is so the UI can say so.
-    return { dispute: existing, channelLocked: false };
+  if (
+    !OPEN_DISPUTE_STATUSES.includes(existing.status as DisputeStatus) &&
+    existing.status !== "info_requested"
+  ) {
+    return { dispute: existing, channelLocked: false, transcriptPosted: false };
   }
 
   const resultLabel =
     decision === "resolved" ? "Resolved" : decision === "rejected" ? "Rejected" : "Closed";
   const note = (input.note ?? "").trim() || resultLabel;
+  const color =
+    decision === "resolved" ? 0x3ba55d : decision === "rejected" ? 0xed4245 : 0x99aab5;
 
+  // 1. Capture transcript BEFORE locking/renaming (channel must still be readable).
+  let transcript: CaptureTranscriptResult;
+  try {
+    transcript = await captureDisputeTranscript(input.guild, existing, {
+      result: resultLabel,
+      handledById: input.staffId,
+      handledByTag: input.staffUsername,
+      note,
+    });
+  } catch (err) {
+    logger.error({ err, disputeId }, "Transcript capture failed — aborting decision");
+    throw new Error(
+      "Could not capture the dispute transcript. The ticket was left open so nothing is lost. Try again."
+    );
+  }
+
+  // 2. Staff log with transcript file (member never sees this).
+  const posted = await postOrEditTranscriptLog({
+    client: input.client,
+    clan,
+    dispute: existing,
+    resultLabel,
+    staffId: input.staffId,
+    staffUsername: input.staffUsername,
+    transcript,
+    title: "⚖️ Dispute Closed",
+    color,
+  });
+
+  // 3. Persist decision + transcript log pointer.
   const [updated] = await db
     .update(disputesTable)
     .set({
@@ -492,45 +757,13 @@ export async function decideDisputeTicket(
       result: resultLabel,
       handledBy: input.staffId,
       handledByUsername: input.staffUsername,
+      transcriptLogMessageId: posted?.messageId ?? existing.transcriptLogMessageId,
+      transcriptLogChannelId: posted?.channelId ?? existing.transcriptLogChannelId,
     })
     .where(and(eq(disputesTable.guildId, clan.guildId), eq(disputesTable.id, disputeId)))
     .returning();
 
   if (!updated) return null;
-
-  let channelLocked = false;
-  if (updated.channelId) {
-    try {
-      const ch = await input.guild.channels.fetch(updated.channelId);
-      if (ch && ch.isTextBased() && "permissionOverwrites" in ch) {
-        // Lock the member from sending further messages; staff may still post.
-        await ch.permissionOverwrites.edit(updated.userId, {
-          SendMessages: false,
-        });
-        if ("setName" in ch) {
-          const closedName = `closed-${disputeChannelName(updated.username, updated.id)}`.slice(0, 100);
-          await ch.setName(closedName).catch(() => {});
-        }
-        await ch.send({
-          embeds: [
-            new EmbedBuilder()
-              .setColor(
-                decision === "resolved" ? 0x3ba55d : decision === "rejected" ? 0xed4245 : 0x99aab5
-              )
-              .setTitle(`⚖️ Dispute ${resultLabel}`)
-              .setDescription(
-                `Handled by <@${input.staffId}>.\n\n**Result:** ${resultLabel}\n**Note:** ${note.slice(0, 500)}`
-              )
-              .setTimestamp(),
-          ],
-          components: [],
-        });
-        channelLocked = true;
-      }
-    } catch (err) {
-      logger.warn({ err, channelId: updated.channelId }, "Failed to lock dispute channel");
-    }
-  }
 
   await logAction(clan.guildId, {
     action: "dispute_decided",
@@ -548,31 +781,234 @@ export async function decideDisputeTicket(
       channelId: updated.channelId,
       evidence: parseEvidence(updated.evidenceJson),
       reason: updated.reason.slice(0, 500),
+      transcriptMessageCount: transcript.messageCount,
+      transcriptAttachmentCount: transcript.attachmentCount,
+      transcriptLogMessageId: posted?.messageId ?? null,
+      transcriptLogChannelId: posted?.channelId ?? null,
     },
   });
 
   await resolveRelated(clan.guildId, "dispute", disputeId);
 
-  await sendLog(
-    input.client,
-    clan,
-    new EmbedBuilder()
-      .setColor(decision === "resolved" ? 0x3ba55d : decision === "rejected" ? 0xed4245 : 0x99aab5)
-      .setTitle(`⚖️ Dispute ${resultLabel} · #${disputeId}`)
-      .setDescription(`<@${updated.userId}>'s dispute was **${resultLabel.toLowerCase()}** by <@${input.staffId}>.`)
-      .addFields(
-        { name: "Type", value: updated.disputeType, inline: true },
-        {
-          name: "Channel",
-          value: updated.channelId ? `<#${updated.channelId}>` : "_none_",
-          inline: true,
-        },
-        { name: "Note", value: note.slice(0, 1024) }
-      )
-      .setTimestamp()
-  );
+  // 4. Lock channel (keep it). Swap action row to Transcript / Delete.
+  let channelLocked = false;
+  if (updated.channelId) {
+    try {
+      const ch = await input.guild.channels.fetch(updated.channelId);
+      if (ch && ch.isTextBased() && "permissionOverwrites" in ch) {
+        await ch.permissionOverwrites.edit(updated.userId, {
+          SendMessages: false,
+        });
+        if ("setName" in ch) {
+          const closedName = `closed-${disputeChannelName(updated.username, updated.id)}`.slice(
+            0,
+            100
+          );
+          await ch.setName(closedName).catch(() => {});
+        }
+        await ch.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(color)
+              .setTitle(`⚖️ Dispute ${resultLabel}`)
+              .setDescription(
+                `Handled by <@${input.staffId}>.\n\n**Result:** ${resultLabel}\n**Note:** ${note.slice(0, 500)}\n\n` +
+                  `_A full transcript was saved to the staff log channel._\n` +
+                  `Staff can **Transcript** (re-send) or **Delete** this channel when finished.`
+              )
+              .setTimestamp(),
+          ],
+          components: [postDecisionActionRow(updated.id)],
+        });
+        channelLocked = true;
+      }
+    } catch (err) {
+      logger.warn({ err, channelId: updated.channelId }, "Failed to lock dispute channel");
+    }
+  }
 
-  return { dispute: updated, channelLocked };
+  return { dispute: updated, channelLocked, transcriptPosted: !!posted };
+}
+
+/**
+ * Re-capture and post the transcript to the staff log (does not change status).
+ * Staff-only; never DMs the member.
+ */
+export async function resendDisputeTranscript(opts: {
+  client: Client;
+  guild: Guild;
+  clan: Clan;
+  disputeId: number;
+  staffId: string;
+  staffUsername: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const dispute = await getDispute(opts.clan.guildId, opts.disputeId);
+  if (!dispute) return { ok: false, error: "That dispute no longer exists." };
+
+  const resultLabel = dispute.result || dispute.status;
+  let transcript: CaptureTranscriptResult;
+  try {
+    transcript = await captureDisputeTranscript(opts.guild, dispute, {
+      result: resultLabel,
+      handledById: dispute.handledBy ?? opts.staffId,
+      handledByTag: dispute.handledByUsername ?? opts.staffUsername,
+      note: dispute.staffResponse,
+      footerNote: `Re-sent by ${opts.staffUsername} at ${new Date().toISOString()}`,
+    });
+  } catch (err) {
+    logger.error({ err, disputeId: opts.disputeId }, "Transcript re-capture failed");
+    return { ok: false, error: "Could not read the dispute channel to build a transcript." };
+  }
+
+  const posted = await postOrEditTranscriptLog({
+    client: opts.client,
+    clan: opts.clan,
+    dispute,
+    resultLabel,
+    staffId: dispute.handledBy ?? opts.staffId,
+    staffUsername: dispute.handledByUsername ?? opts.staffUsername,
+    transcript,
+    title: "⚖️ Dispute Transcript",
+    color: 0x5865f2,
+    extraFooter: `Re-sent by <@${opts.staffId}>`,
+  });
+
+  if (!posted) {
+    return {
+      ok: false,
+      error: "No log channel configured (or send failed). Set a log channel in /setup.",
+    };
+  }
+
+  await db
+    .update(disputesTable)
+    .set({
+      transcriptLogMessageId: posted.messageId,
+      transcriptLogChannelId: posted.channelId,
+    })
+    .where(and(eq(disputesTable.guildId, opts.clan.guildId), eq(disputesTable.id, opts.disputeId)));
+
+  await logAction(opts.clan.guildId, {
+    action: "dispute_transcript_resent",
+    targetUserId: dispute.userId,
+    targetUsername: dispute.username,
+    moderatorId: opts.staffId,
+    moderatorUsername: opts.staffUsername,
+    details: {
+      disputeId: opts.disputeId,
+      transcriptLogMessageId: posted.messageId,
+      messageCount: transcript.messageCount,
+    },
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Permanently delete the dispute Discord channel.
+ * ALWAYS captures + saves/edits the transcript first. Never deletes on failure.
+ */
+export async function deleteDisputeChannel(opts: {
+  client: Client;
+  guild: Guild;
+  clan: Clan;
+  disputeId: number;
+  staffId: string;
+  staffUsername: string;
+}): Promise<{ ok: true; deleted: boolean } | { ok: false; error: string }> {
+  const dispute = await getDispute(opts.clan.guildId, opts.disputeId);
+  if (!dispute) return { ok: false, error: "That dispute no longer exists." };
+  if (!dispute.channelId) {
+    return { ok: false, error: "This dispute has no Discord channel left to delete." };
+  }
+
+  const resultLabel = `${dispute.result || dispute.status} · Channel deleted`;
+  let transcript: CaptureTranscriptResult;
+  try {
+    transcript = await captureDisputeTranscript(opts.guild, dispute, {
+      result: resultLabel,
+      handledById: dispute.handledBy ?? opts.staffId,
+      handledByTag: dispute.handledByUsername ?? opts.staffUsername,
+      note: dispute.staffResponse,
+      footerNote: `FINAL CLOSE — channel deleted by ${opts.staffUsername} at ${new Date().toISOString()}`,
+    });
+  } catch (err) {
+    logger.error({ err, disputeId: opts.disputeId }, "Transcript capture failed before delete");
+    return {
+      ok: false,
+      error:
+        "Could not capture the transcript. The channel was **not** deleted. Fix channel access and try again.",
+    };
+  }
+
+  // Post/edit transcript in the staff log BEFORE deleting the channel.
+  const posted = await postOrEditTranscriptLog({
+    client: opts.client,
+    clan: opts.clan,
+    dispute,
+    resultLabel,
+    staffId: dispute.handledBy ?? opts.staffId,
+    staffUsername: dispute.handledByUsername ?? opts.staffUsername,
+    transcript,
+    title: "⚖️ Dispute Closed",
+    color: 0x99aab5,
+    editExisting: true,
+    extraFooter: `Channel permanently deleted by <@${opts.staffId}>.`,
+  });
+
+  if (!posted && opts.clan.logChannelId) {
+    // Log channel is configured but we failed to write — refuse to delete.
+    return {
+      ok: false,
+      error:
+        "Transcript could not be saved to the log channel. The Discord channel was **not** deleted.",
+    };
+  }
+
+  // Delete only after a successful capture (and log write when a log channel exists).
+  let deleted = false;
+  try {
+    const ch = await opts.guild.channels.fetch(dispute.channelId);
+    if (ch) {
+      await ch.delete(`Dispute #${dispute.id} deleted by ${opts.staffUsername}`);
+      deleted = true;
+    }
+  } catch (err) {
+    logger.error({ err, channelId: dispute.channelId }, "Failed to delete dispute channel");
+    return {
+      ok: false,
+      error:
+        "Transcript was saved, but Discord refused to delete the channel. Check Manage Channels permission.",
+    };
+  }
+
+  await db
+    .update(disputesTable)
+    .set({
+      channelId: null,
+      result: resultLabel,
+      transcriptLogMessageId: posted?.messageId ?? dispute.transcriptLogMessageId,
+      transcriptLogChannelId: posted?.channelId ?? dispute.transcriptLogChannelId,
+    })
+    .where(and(eq(disputesTable.guildId, opts.clan.guildId), eq(disputesTable.id, opts.disputeId)));
+
+  await logAction(opts.clan.guildId, {
+    action: "dispute_channel_deleted",
+    targetUserId: dispute.userId,
+    targetUsername: dispute.username,
+    moderatorId: opts.staffId,
+    moderatorUsername: opts.staffUsername,
+    details: {
+      disputeId: opts.disputeId,
+      previousChannelId: dispute.channelId,
+      transcriptLogMessageId: posted?.messageId ?? null,
+      messageCount: transcript.messageCount,
+      attachmentCount: transcript.attachmentCount,
+      finalResult: resultLabel,
+    },
+  });
+
+  return { ok: true, deleted };
 }
 
 /* ---- legacy wrappers kept so older call sites compile during transition ---- */

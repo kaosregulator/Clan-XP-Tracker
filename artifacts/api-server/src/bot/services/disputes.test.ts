@@ -119,10 +119,97 @@ describe("dispute staff role resolution", () => {
   });
 });
 
+describe("dispute transcript formatting", () => {
+  it("includes member/staff lines, attachments, and dispute metadata", async () => {
+    const { formatDisputeTranscript } = await import("./disputeHelpers.js");
+    const text = formatDisputeTranscript(
+      {
+        disputeId: 7,
+        guildId: "g1",
+        memberTag: "chris",
+        memberId: "m1",
+        disputeType: "warning",
+        warningId: 99,
+        reason: "I did complete my XP",
+        initialEvidence: [
+          {
+            url: "https://cdn.discordapp.com/attachments/1/2/proof.png",
+            name: "proof.png",
+            contentType: "image/png",
+            size: 1000,
+          },
+        ],
+        result: "Resolved",
+        handledByTag: "mod",
+        handledById: "s1",
+        note: "Looks good",
+        channelId: "c1",
+        generatedAtIso: "2026-08-22T12:00:00.000Z",
+      },
+      [
+        {
+          timestampIso: "2026-08-22T12:01:00.000Z",
+          authorTag: "chris",
+          authorId: "m1",
+          content: "Here is my screenshot",
+          attachments: [
+            {
+              name: "shot.png",
+              url: "https://cdn.discordapp.com/attachments/1/2/shot.png",
+              contentType: "image/png",
+              size: 2000,
+            },
+          ],
+        },
+        {
+          timestampIso: "2026-08-22T12:02:00.000Z",
+          authorTag: "mod",
+          authorId: "s1",
+          content: "Thanks, resolving",
+          attachments: [],
+        },
+      ]
+    );
+    assert.match(text, /Dispute Transcript/i);
+    assert.match(text, /Warning ID:\s+99/);
+    assert.match(text, /Result:\s+Resolved/);
+    assert.match(text, /I did complete my XP/);
+    assert.match(text, /proof\.png/);
+    assert.match(text, /Here is my screenshot/);
+    assert.match(text, /shot\.png/);
+    assert.match(text, /Thanks, resolving/);
+    assert.match(text, /Staff-only/);
+    assert.doesNotMatch(text, /paste a URL|image URL/i);
+  });
+
+  it("marks final-close footer when provided", async () => {
+    const { formatDisputeTranscript } = await import("./disputeHelpers.js");
+    const text = formatDisputeTranscript(
+      {
+        disputeId: 1,
+        guildId: "g",
+        memberTag: "a",
+        memberId: "1",
+        disputeType: "xp_record",
+        warningId: null,
+        reason: "x",
+        initialEvidence: [],
+        result: "Closed · Channel deleted",
+        handledByTag: "mod",
+        handledById: "2",
+        channelId: null,
+        generatedAtIso: "2026-08-22T00:00:00.000Z",
+        footerNote: "FINAL CLOSE — channel deleted",
+      },
+      []
+    );
+    assert.match(text, /FINAL CLOSE/);
+    assert.match(text, /Channel deleted/);
+  });
+});
+
 describe("member-facing dispute UX rules", () => {
   it("slash command evidence option is the only image path (documented in command builder)", async () => {
-    // Guard: commands.ts must expose an Attachment option named "evidence"
-    // and must NOT collect a proof URL field.
     const { readFileSync } = await import("node:fs");
     const { fileURLToPath } = await import("node:url");
     const { dirname, join } = await import("node:path");

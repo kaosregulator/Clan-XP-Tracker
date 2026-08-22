@@ -109,6 +109,8 @@ export const DISPUTE_REVIEW_PICK = id(NS.disp, "review"); // staff: select a dis
 export const disputeResolve = (did: number) => id(NS.disp, "resolve", did);
 export const disputeReject = (did: number) => id(NS.disp, "reject", did);
 export const disputeClose = (did: number) => id(NS.disp, "close", did);
+export const disputeTranscript = (did: number) => id(NS.disp, "transcript", did);
+export const disputeDelete = (did: number) => id(NS.disp, "delete", did);
 // Legacy aliases kept so old messages still route somewhere sensible.
 export const disputeAccept = (did: number) => id(NS.disp, "resolve", did);
 export const disputeDeny = (did: number) => id(NS.disp, "reject", did);

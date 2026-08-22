@@ -21,18 +21,21 @@ import {
   getDispute,
   decideDisputeTicket,
   findOpenDisputeForUser,
+  resendDisputeTranscript,
+  deleteDisputeChannel,
   DISPUTE_TYPE_LABEL,
   parseEvidence,
   OPEN_DISPUTE_STATUSES,
   type DisputeDecision,
 } from "../services/disputes";
-import { formatInZone, relative } from "../services/time";
+import { relative } from "../services/time";
 import { memberSummary } from "./commandCenter";
 import {
-  DISPUTE_PICK,
   DISPUTE_REVIEW_PICK,
   disputeRemoveWarning,
   disputeMember,
+  disputeTranscript,
+  disputeDelete,
   parseId,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
@@ -380,34 +383,96 @@ export async function handleDisputeButton(interaction: ButtonInteraction) {
 
     if (!OPEN_DISPUTE_STATUSES.includes(d.status as (typeof OPEN_DISPUTE_STATUSES)[number])) {
       await interaction.editReply({
-        content: `Dispute #${did} is already **${d.status}**.`,
+        content: `Dispute #${did} is already **${d.status}**. Use **Transcript** or **Delete** on the ticket.`,
       });
       return;
     }
 
-    const res = await decideDisputeTicket({
+    try {
+      const res = await decideDisputeTicket({
+        client: interaction.client,
+        guild: interaction.guild!,
+        clan,
+        disputeId: did,
+        decision,
+        staffId: staff.id,
+        staffUsername: staff.username,
+      });
+
+      const label = decision === "resolved" ? "resolved" : decision === "rejected" ? "rejected" : "closed";
+      await interaction.editReply({
+        content:
+          `⚖️ Dispute **#${did}** ${label}.` +
+          (res?.transcriptPosted
+            ? " Full transcript posted to the staff log channel."
+            : " _(No log channel configured — transcript was still captured into audit details when possible.)_") +
+          (res?.channelLocked
+            ? " Channel locked — use **Transcript** / **Delete** when ready. The channel was not deleted."
+            : "") +
+          (decision === "resolved" && d.warningId
+            ? "\n_Tip: use **Remove linked warning** from `/disputes` if enforcement should be lifted._"
+            : ""),
+      });
+      // Swap the opener message buttons to Transcript / Delete when editable.
+      if (interaction.message.editable) {
+        await interaction.message
+          .edit({
+            components: [
+              new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(disputeTranscript(did))
+                  .setLabel("Transcript")
+                  .setEmoji("📄")
+                  .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                  .setCustomId(disputeDelete(did))
+                  .setLabel("Delete")
+                  .setEmoji("🗑️")
+                  .setStyle(ButtonStyle.Danger)
+              ),
+            ],
+          })
+          .catch(() => {});
+      }
+    } catch (err) {
+      await interaction.editReply({
+        content: `⚠️ ${err instanceof Error ? err.message : "Could not close the dispute."}`,
+      });
+    }
+    return;
+  }
+
+  if (action === "transcript") {
+    const res = await resendDisputeTranscript({
       client: interaction.client,
       guild: interaction.guild!,
       clan,
       disputeId: did,
-      decision,
       staffId: staff.id,
       staffUsername: staff.username,
     });
-
-    const label = decision === "resolved" ? "resolved" : decision === "rejected" ? "rejected" : "closed";
     await interaction.editReply({
-      content:
-        `⚖️ Dispute **#${did}** ${label}.` +
-        (res?.channelLocked ? " The member can no longer send messages in the ticket channel." : "") +
-        (decision === "resolved" && d.warningId
-          ? "\n_Tip: use **Remove linked warning** from `/disputes` if enforcement should be lifted._"
-          : ""),
+      content: res.ok
+        ? `📄 Transcript for dispute **#${did}** posted to the staff log channel.`
+        : `⚠️ ${res.error}`,
     });
-    // Disable buttons on the original message when possible.
-    if (interaction.message.editable) {
-      await interaction.message.edit({ components: [] }).catch(() => {});
-    }
+    return;
+  }
+
+  if (action === "delete") {
+    const res = await deleteDisputeChannel({
+      client: interaction.client,
+      guild: interaction.guild!,
+      clan,
+      disputeId: did,
+      staffId: staff.id,
+      staffUsername: staff.username,
+    });
+    await interaction.editReply({
+      content: res.ok
+        ? `🗑️ Dispute **#${did}** channel deleted. Final transcript saved/updated in the staff log.`
+        : `⚠️ ${res.error}`,
+    });
     return;
   }
 
@@ -424,16 +489,20 @@ export async function handleDisputeButton(interaction: ButtonInteraction) {
       moderatorUsername: staff.username,
     });
     if (OPEN_DISPUTE_STATUSES.includes(d.status as (typeof OPEN_DISPUTE_STATUSES)[number])) {
-      await decideDisputeTicket({
-        client: interaction.client,
-        guild: interaction.guild!,
-        clan,
-        disputeId: did,
-        decision: "resolved",
-        staffId: staff.id,
-        staffUsername: staff.username,
-        note: "Warning removed.",
-      });
+      try {
+        await decideDisputeTicket({
+          client: interaction.client,
+          guild: interaction.guild!,
+          clan,
+          disputeId: did,
+          decision: "resolved",
+          staffId: staff.id,
+          staffUsername: staff.username,
+          note: "Warning removed.",
+        });
+      } catch {
+        // Warning was removed; transcript failure shouldn't undo that.
+      }
     }
     await interaction.editReply({
       content: removed
@@ -447,7 +516,8 @@ export async function handleDisputeButton(interaction: ButtonInteraction) {
     await interaction.editReply({
       content:
         "Ask for more info or continue the conversation **inside the private dispute channel**. " +
-        "Use **Resolve / Reject / Close** when you're done.",
+        "Use **Resolve / Reject / Close** when you're done (that saves a transcript). " +
+        "Then **Transcript** / **Delete** as needed.",
     });
   }
 }

@@ -65,6 +65,11 @@ export const disputesTable = pgTable("disputes", {
   // Private ticket channel created for this dispute.
   channelId: text("channel_id"),
 
+  // Staff log message that holds the latest transcript summary (+ file).
+  // Used so a later Delete can edit the log to a final-close state.
+  transcriptLogMessageId: text("transcript_log_message_id"),
+  transcriptLogChannelId: text("transcript_log_channel_id"),
+
   status: text("status").notNull().default("open"), // DisputeStatus
 
   // Staff handling.
