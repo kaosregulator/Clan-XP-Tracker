@@ -115,16 +115,15 @@ function destinationLabel(destination: string | null): string {
 export async function handleXpCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   // Everyday actions are exposed both as `/xp <sub>` and as plain top-level
-  // commands (/xpremind, /xpwarn, /calendar, /entry, /missing). For the aliases
-  // there is no subcommand — the command name *is* the action.
+  // commands (/xpremind, /calendar, /entry, /missing). For the aliases there is
+  // no subcommand — the command name *is* the action. (Reminders/warnings for
+  // many members now live in the unified /xpreminder picker.)
   const isAlias = interaction.commandName !== "xp";
   const group = isAlias ? null : interaction.options.getSubcommandGroup(false);
   const sub = isAlias
-    ? interaction.commandName === "xpremind" || interaction.commandName === "xpreminder"
+    ? interaction.commandName === "xpremind"
       ? "remind"
-      : interaction.commandName === "xpwarn"
-        ? "warn"
-        : interaction.commandName
+      : interaction.commandName
     : interaction.options.getSubcommand();
 
   // Views open to everyone (self) come first.

@@ -13,6 +13,49 @@ import {
  * verify in-game and update the bot. Everything else happens through the
  * interactive panels those commands open.
  */
+/**
+ * Build the XP dispute ticket command (`/dispute`). Members are pointed here
+ * from warnings, the /warnings hub and the dispute button — one dispute system.
+ */
+function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
+  return new SlashCommandBuilder()
+    .setName("dispute")
+    .setDescription("Open a private XP dispute ticket with staff")
+    .addStringOption((o) =>
+      o
+        .setName("type")
+        .setDescription("What are you disputing?")
+        .setRequired(true)
+        .addChoices(
+          { name: "XP warning", value: "warning" },
+          { name: "XP record", value: "xp_record" },
+          { name: "Role action", value: "role_action" }
+        )
+    )
+    .addStringOption((o) =>
+      o
+        .setName("explanation")
+        .setDescription("Explain why this should be reconsidered")
+        .setRequired(true)
+        .setMaxLength(1000)
+    )
+    .addAttachmentOption((o) =>
+      o
+        .setName("evidence")
+        .setDescription("Optional image from your device (Discord upload — not a URL)")
+        .setRequired(false)
+    )
+    .addIntegerOption((o) =>
+      o
+        .setName("warning_id")
+        .setDescription("Warning number (required when type is XP warning)")
+        .setRequired(false)
+        .setMinValue(1)
+    )
+    .setDMPermission(false)
+    .toJSON();
+}
+
 export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
     .setName("setup")
@@ -240,47 +283,19 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
     .toJSON(),
 
-  // /xpreminder mirrors /xpwarn's option surface (message + destination) so a
-  // reminder can carry a note and be routed to the channel, a DM, or both.
+  // /xpreminder is the unified enforcement picker — it consolidates the old
+  // /xpwarn. One command opens a panel with a mode toggle (Reminder | Warning),
+  // a native multi-user selector, a live canvas preview and a single Send.
   new SlashCommandBuilder()
     .setName("xpreminder")
-    .setDescription("Remind a member to do their XP (with an optional note)")
+    .setDescription("Send XP reminders or warnings to one or many members (officers)")
     .setDMPermission(false)
-    .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
-    .addStringOption((o) =>
-      o.setName("message").setDescription("Optional note").setRequired(false).setMaxLength(500)
-    )
     .addStringOption((o) =>
       o
-        .setName("destination")
-        .setDescription("Where to send it (default: DM + reminder channel)")
+        .setName("mode")
+        .setDescription("Start in Reminder or Warning mode (you can toggle in the panel)")
         .setRequired(false)
-        .addChoices(
-          { name: "Reminder channel", value: "channel" },
-          { name: "Direct message", value: "dm" },
-          { name: "Both", value: "both" }
-        )
-    )
-    .toJSON(),
-
-  new SlashCommandBuilder()
-    .setName("xpwarn")
-    .setDescription("Warn a member for missed XP")
-    .setDMPermission(false)
-    .addUserOption((o) => o.setName("user").setDescription("Member to warn").setRequired(true))
-    .addStringOption((o) =>
-      o.setName("message").setDescription("Optional note").setRequired(false).setMaxLength(500)
-    )
-    .addStringOption((o) =>
-      o
-        .setName("destination")
-        .setDescription("Where to send it (default: warn channel)")
-        .setRequired(false)
-        .addChoices(
-          { name: "Warn channel", value: "channel" },
-          { name: "Direct message", value: "dm" },
-          { name: "Both", value: "both" }
-        )
+        .addChoices({ name: "Reminder", value: "reminder" }, { name: "Warning", value: "warning" })
     )
     .toJSON(),
 
@@ -352,42 +367,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   // Member self-service: open a private XP dispute ticket.
   // Evidence uses Discord's native attachment option (device upload) — never a URL.
-  new SlashCommandBuilder()
-    .setName("dispute")
-    .setDescription("Open a private XP dispute ticket with staff")
-    .addStringOption((o) =>
-      o
-        .setName("type")
-        .setDescription("What are you disputing?")
-        .setRequired(true)
-        .addChoices(
-          { name: "XP warning", value: "warning" },
-          { name: "XP record", value: "xp_record" },
-          { name: "Role action", value: "role_action" }
-        )
-    )
-    .addStringOption((o) =>
-      o
-        .setName("explanation")
-        .setDescription("Explain why this should be reconsidered")
-        .setRequired(true)
-        .setMaxLength(1000)
-    )
-    .addAttachmentOption((o) =>
-      o
-        .setName("evidence")
-        .setDescription("Optional image from your device (Discord upload — not a URL)")
-        .setRequired(false)
-    )
-    .addIntegerOption((o) =>
-      o
-        .setName("warning_id")
-        .setDescription("Warning number (required when type is XP warning)")
-        .setRequired(false)
-        .setMinValue(1)
-    )
-    .setDMPermission(false)
-    .toJSON(),
+  disputeCommand(),
 
   // Officer hubs for the enforcement workflow.
   new SlashCommandBuilder()

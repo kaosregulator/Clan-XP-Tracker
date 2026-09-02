@@ -11,7 +11,7 @@ import { handleXpCommand } from "./features/xp";
 import { handleReviewButton } from "./features/review";
 import { handleDashButton, handleDashSelect } from "./features/dashboard";
 import { handleHelp, handleWarnRemoveSelect } from "./features/misc";
-import { handleWarnings, handleHubButton } from "./features/userHub";
+import { handleWarnings, handleHubButton, handleHubModal } from "./features/userHub";
 import {
   openCommandCenter,
   handleCommandCenterButton,
@@ -28,6 +28,12 @@ import {
 import { openTickets, handleTicketButton, handleTicketSelect } from "./features/tickets";
 import { handleMemberPanelButton, handleMemberPanelModal } from "./features/memberPanel";
 import { handleAuditButton } from "./features/audit";
+import {
+  openEnforcementPicker,
+  handleEnforcementButton,
+  handleEnforcementSelect,
+  handleEnforcementNoteModal,
+} from "./features/enforcementPicker";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -39,12 +45,14 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case "xp":
         // Plain top-level aliases for the everyday actions — same handler.
         case "xpremind":
-        case "xpreminder":
-        case "xpwarn":
         case "entry":
         case "calendar":
         case "missing":
           return void (await handleXpCommand(interaction));
+        // Unified reminder/warning picker (consolidates the old /xpwarn).
+        case "xpreminder":
+        case "xpwarn":
+          return void (await openEnforcementPicker(interaction));
         case "warnings":
           return void (await handleWarnings(interaction));
         case "help":
@@ -86,6 +94,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleAuditButton(interaction));
         case NS.hub:
           return void (await handleHubButton(interaction));
+        case NS.enf:
+          return void (await handleEnforcementButton(interaction));
       }
       return;
     }
@@ -94,6 +104,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       const { ns } = parseId(interaction.customId);
       if (ns === NS.cc) return void (await handleCommandCenterSelect(interaction));
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
+      if (ns === NS.enf) return void (await handleEnforcementSelect(interaction));
       return;
     }
 
@@ -102,6 +113,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.setup) return void (await handleSetupModal(interaction));
       if (ns === NS.disp) return void (await handleDisputeReasonModal(interaction));
       if (ns === NS.mp) return void (await handleMemberPanelModal(interaction));
+      if (ns === NS.enf) return void (await handleEnforcementNoteModal(interaction));
+      if (ns === NS.hub) return void (await handleHubModal(interaction));
       return;
     }
 

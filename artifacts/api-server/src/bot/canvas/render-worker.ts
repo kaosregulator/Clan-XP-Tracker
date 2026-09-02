@@ -20,6 +20,7 @@ import { renderCalendar } from "./cards/calendarCard";
 import { renderCommandCenter } from "./cards/commandCenterCard";
 import { renderWarningCard } from "./cards/warningCard";
 import { renderReminderCard } from "./cards/reminderCard";
+import { renderEnforcementPicker } from "./cards/enforcementPickerCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -61,6 +62,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderWarningCard(p as any);
     case "reminderCard":
       return renderReminderCard(p as any);
+    case "enforcementPicker":
+      return renderEnforcementPicker(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

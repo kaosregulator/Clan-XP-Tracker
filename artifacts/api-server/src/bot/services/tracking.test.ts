@@ -213,20 +213,23 @@ describe("tracking period + requirement", () => {
 });
 
 describe("member reminder messages", () => {
-  it("uses daily wording when daily is configured", () => {
+  it("returns a friendly nudge (never a warning, no accounting)", () => {
     const clan = baseClan({ trackingPeriod: "daily" });
     const body = memberReminderBody(clan);
-    assert.match(body, /daily/i);
-    assert.doesNotMatch(body, /weekly/i);
+    assert.ok(body.trim().length > 0);
+    // A reminder is a nudge — it must never threaten or read like a warning.
+    assert.doesNotMatch(body, /warning/i);
     assert.equal(containsStaffAccounting(body), false);
     assert.doesNotMatch(body, /\d+\s*\/\s*\d+/);
   });
 
-  it("uses weekly wording when weekly is configured", () => {
+  it("prefers a safe custom officer note over the default nudge", () => {
     const clan = baseClan({ trackingPeriod: "weekly" });
-    const body = memberReminderBody(clan);
-    assert.match(body, /weekly/i);
-    assert.doesNotMatch(body, /daily XP requirement/i);
+    assert.equal(memberReminderBody(clan, "Get your XP done this week!"), "Get your XP done this week!");
+    // A note that leaks staff accounting is rejected — fall back to a nudge.
+    const fallback = memberReminderBody(clan, "you are 0/1 missing XP");
+    assert.notEqual(fallback, "you are 0/1 missing XP");
+    assert.equal(containsStaffAccounting(fallback), false);
   });
 
   it("does not expose staff accounting in reminders", () => {

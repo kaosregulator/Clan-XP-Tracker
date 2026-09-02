@@ -35,7 +35,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         `/calendar  —  your ${activity} calendar & daily history`,
         `/xp history  —  your past weeks`,
         `/warnings  —  your active ${activity} warnings`,
-        `/dispute  —  contest one of your own warnings`,
+        `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
       ],
     },
   ];
@@ -65,8 +65,8 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         title: "Reminders & enforcement",
         accent: "#faa61a",
         lines: [
-          `/xpremind @user  —  friendly nudge (never a warning)`,
-          `/xpwarn @user [message]  —  warn for missed ${activity} (admins)`,
+          `/xpremind @user  —  quick single nudge (never a warning)`,
+          `/xpreminder  —  pick Reminder or Warning, select many members, send (admins warn)`,
           `/missing  —  who hasn't hit today's target`,
           `/xp review  —  weekly card: bulk remind / warn / reset`,
           `/xp dashboard  —  filterable roster of who needs attention`,
