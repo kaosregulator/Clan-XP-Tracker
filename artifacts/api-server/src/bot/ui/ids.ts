@@ -15,6 +15,7 @@ export const NS = {
   mp: "mp", // member panel actions
   aud: "aud", // xp history / audit viewer
   hub: "hub", // member self-service hub (/warnings for members)
+  enf: "enf", // unified enforcement picker (/xpreminder: reminder | warning)
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -153,6 +154,16 @@ export const hubDispute = (userId: string) => id(NS.hub, "dispute", userId);
 export const hubCalendar = (userId: string) => id(NS.hub, "calendar", userId);
 export const hubHistory = (userId: string) => id(NS.hub, "history", userId);
 export const hubRefresh = (userId: string) => id(NS.hub, "refresh", userId);
+
+// Unified enforcement picker (/xpreminder). One panel, two modes, native
+// multi-user selection + a live canvas preview. State is keyed by the panel's
+// (ephemeral) message id, so the ids themselves carry no per-panel payload.
+export const ENF_MODE = id(NS.enf, "mode"); // toggle Reminder ⇄ Warning
+export const ENF_SELECT = id(NS.enf, "select"); // native user multi-select
+export const ENF_NOTE = id(NS.enf, "note"); // open optional-note modal
+export const ENF_NOTE_MODAL = id(NS.enf, "noteModal"); // note modal submit
+export const ENF_SEND = id(NS.enf, "send"); // dispatch to everyone selected
+export const ENF_CLEAR = id(NS.enf, "clear"); // clear the current selection
 
 // Persistent live command center. Buttons route staff into existing hubs; the
 // category shortcuts open the warning dashboard already filtered.

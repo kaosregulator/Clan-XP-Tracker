@@ -50,14 +50,14 @@ export interface SendReminderResult {
 async function renderReminderCardSafe(
   clan: Clan,
   target: User,
-  note?: string | null
+  body: string
 ): Promise<Buffer | null> {
   try {
     return await renderOffThread("reminderCard", {
       communityName: clan.clanName,
       memberName: target.username,
       avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
-      message: memberReminderBody(clan, note),
+      message: body,
       periodLabel: periodAdjective(clan),
     });
   } catch (err) {
@@ -75,9 +75,8 @@ function reminderAttachment(card: Buffer): AttachmentBuilder {
  * Member-facing reminder embed fallback. Period-aware, no progress fractions,
  * no remaining XP amounts, no reminder counts.
  */
-function reminderEmbed(clan: Clan, target: User, note?: string | null): EmbedBuilder {
+function reminderEmbed(clan: Clan, target: User, body: string): EmbedBuilder {
   const deadline = discordRelative(nextPeriodReset(clan));
-  const body = memberReminderBody(clan, note);
   return new EmbedBuilder()
     .setColor(0xfaa61a)
     .setAuthor({ name: `🔔 XP REMINDER • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
@@ -104,12 +103,15 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
 
   const safeNote =
     input.note && !containsStaffAccounting(input.note) ? input.note : null;
-  const embed = reminderEmbed(clan, target, safeNote);
+  // Compute the reminder body ONCE (a custom note, or a random friendly nudge)
+  // and share it across the embed and the canvas so the two can never drift.
+  const body = memberReminderBody(clan, safeNote);
+  const embed = reminderEmbed(clan, target, body);
   // The canvas card is the primary visual (matches the warning card); the embed
   // stays as a fallback when a render fails so a reminder always gets through.
   // When the server picked the classic embed style, skip the card entirely.
   const card =
-    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, safeNote);
+    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, body);
 
   // Delivery targets: explicit override wins; otherwise the clan defaults
   // (DM when dmReminders is on, and the reminder channel when configured).

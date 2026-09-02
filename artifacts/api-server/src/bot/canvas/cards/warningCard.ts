@@ -30,6 +30,15 @@ export interface EnforcementCardView {
 
 export interface WarningCardView extends EnforcementCardView {
   /**
+   * The warning's number (its dispute ticket). Rendered as a clean, prominent
+   * "DISPUTE WARNING #1234" pill so members can reference it when disputing.
+   */
+  warningNumber?: number | null;
+  /** Sanitized, member-safe reason shown as a single line. */
+  reason?: string | null;
+  /** The command members run to dispute — defaults to "/xpdispute". */
+  disputeCommand?: string;
+  /**
    * Optional legacy staff badge fields. Member-facing renders ignore these —
    * warning count and escalation threshold must never appear on the card.
    */
@@ -158,6 +167,38 @@ function badge(ctx: SKRSContext2D, label: string, rightX: number, y: number, col
   ctx.textBaseline = "middle";
   ctx.font = font(size, "bold", "display");
   ctx.fillText(label, x + w / 2, y + h / 2 + 1);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
+/**
+ * A prominent centred pill (outlined, tinted fill) — used for the dispute
+ * ticket number so it reads as a deliberate, legible callout rather than being
+ * buried in the artwork.
+ */
+function centeredPill(ctx: SKRSContext2D, label: string, cy: number, color: string) {
+  const size = 30;
+  ctx.font = font(size, "bold", "display");
+  const tw = ctx.measureText(label).width;
+  const padX = 30;
+  const h = 56;
+  const w = tw + padX * 2;
+  const x = W / 2 - w / 2;
+  const y = cy - h / 2;
+  ctx.save();
+  roundRectPath(ctx, x, y, w, h, 16);
+  ctx.fillStyle = "rgba(225,29,43,0.12)";
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.9;
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = font(size, "bold", "display");
+  ctx.fillText(label, W / 2, cy + 1);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
 }
@@ -291,6 +332,8 @@ async function renderEnforcementCard(opts: {
   title: [string, string]; // ["XP", "WARNING"]
   bodySegs: Seg[][]; // default body lines
   badgeLabel?: string;
+  /** Prominent centred ticket pill (e.g. "DISPUTE WARNING #1234"). */
+  ticketLabel?: string;
   icon: "warning" | "bell";
 }): Promise<Buffer> {
   const { v, accent, accentSoft } = opts;
@@ -373,6 +416,11 @@ async function renderEnforcementCard(opts: {
     opts.bodySegs.forEach((segs, i) => drawSegLine(ctx, segs, W / 2, bodyTop + i * lh, 34));
   }
 
+  // Prominent dispute-ticket pill, sat cleanly between the body and the avatar.
+  if (opts.ticketLabel) {
+    centeredPill(ctx, opts.ticketLabel, 556, accent);
+  }
+
   // Avatar + name.
   const avatarSize = 150;
   const avatarY = 604;
@@ -453,17 +501,24 @@ function bellIcon(ctx: SKRSContext2D, cx: number, cy: number, r: number, color: 
  * replaces the default body when provided.
  */
 export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
+  const dispute = (v.disputeCommand ?? "/xpdispute").trim() || "/xpdispute";
+  const ticketLabel = v.warningNumber ? `DISPUTE WARNING #${v.warningNumber}` : undefined;
   return renderEnforcementCard({
-    v,
+    // Drop any freeform message so the standard dispute lines always render.
+    v: { ...v, message: null },
     accent: LIGHT.red,
     accentSoft: LIGHT.redSoft,
     title: ["XP", "WARNING"],
-    // No badge — count/threshold are staff-only accounting.
+    // No count/threshold badge — those are staff-only accounting.
     icon: "warning",
+    ticketLabel,
     bodySegs: [
-      [{ t: "You have received an XP activity warning.", color: LIGHT.inkSoft, bold: true }],
-      [{ t: "Reason: Failure to complete the required activity.", color: LIGHT.ink }],
-      [{ t: "Please make sure you complete your required activity.", color: LIGHT.ink }],
+      [{ t: "You received an XP Warning.", color: LIGHT.ink, bold: true }],
+      [
+        { t: "Dispute it with ", color: LIGHT.inkSoft },
+        { t: dispute, color: LIGHT.red, bold: true },
+        { t: " — have your XP proof ready.", color: LIGHT.inkSoft },
+      ],
     ],
   });
 }
@@ -482,21 +537,17 @@ export function renderReminderCard(v: EnforcementCardView): Promise<Buffer> {
     accentSoft: LIGHT.blueSoft,
     title: ["XP", "REMINDER"],
     icon: "bell",
+    // A reminder is a friendly nudge — never a warning. The caller passes the
+    // (random) nudge line via `message`; this default is only a fallback.
     bodySegs: [
       [
         {
-          t: `Please make sure you complete your ${period} XP requirement.`,
+          t: `A friendly nudge to get your ${period} XP in.`,
           color: LIGHT.inkSoft,
           bold: true,
         },
       ],
-      [
-        { t: "Complete it before the period ends to ", color: LIGHT.ink },
-        { t: "avoid", color: LIGHT.blue, bold: true },
-        { t: " a ", color: LIGHT.ink },
-        { t: "warning", color: LIGHT.blue, bold: true },
-        { t: ".", color: LIGHT.ink },
-      ],
+      [{ t: "A little progress each day keeps you on track. You've got this!", color: LIGHT.ink }],
     ],
   });
 }

@@ -133,14 +133,53 @@ export function sanitizeMemberReason(reason: string | null | undefined): string 
   return trimmed.slice(0, 1800);
 }
 
-/** Default member-facing reminder body (period-aware, no accounting). */
+/**
+ * The member-facing dispute command. Both `/xpdispute` and `/dispute` open the
+ * same dispute flow; we point members at `/xpdispute` so warning copy is
+ * unambiguous. Kept in one place so every surface (embed, canvas, DM) agrees.
+ */
+export const DISPUTE_COMMAND = "/xpdispute";
+
+/**
+ * Rotating friendly reminder lines. A reminder is *never* a warning, so these
+ * stay light — a nudge or a bit of motivation, picked at random each send so
+ * reminders don't read like a form letter.
+ */
+const REMINDER_NUDGES: string[] = [
+  "Hey — don't forget to get your XP in before the period closes!",
+  "Quick nudge: your XP still needs doing. You've got this!",
+  "A little progress each day adds up — time to log some XP.",
+  "Friendly reminder to knock out your XP while there's still time.",
+  "Champions are made one grind at a time — go get that XP!",
+  "Still time to hit your goal today. Let's get that XP in!",
+  "Consistency beats intensity — a quick session keeps you on track.",
+  "Your clan's counting on you — a bit of XP goes a long way.",
+  "Don't let the streak slip — squeeze in your XP today.",
+  "Small steps, big results. Log your XP and stay ahead!",
+];
+
+/** Pick a random friendly nudge line (deterministic input allowed for tests). */
+export function reminderNudge(seed?: number): string {
+  const i =
+    seed === undefined
+      ? Math.floor(Math.random() * REMINDER_NUDGES.length)
+      : ((seed % REMINDER_NUDGES.length) + REMINDER_NUDGES.length) % REMINDER_NUDGES.length;
+  return REMINDER_NUDGES[i] ?? REMINDER_NUDGES[0]!;
+}
+
+/**
+ * Default member-facing reminder body (no accounting, never a warning). A
+ * custom officer note wins; otherwise a random friendly nudge is used. Compute
+ * this ONCE per send and pass the result to both the embed and the canvas so
+ * the two surfaces can never drift.
+ */
 export function memberReminderBody(
   clan: Pick<Clan, "trackingPeriod" | "activityName">,
   customNote?: string | null
 ): string {
   const note = (customNote ?? "").trim();
   if (note && !containsStaffAccounting(note)) return note;
-  return `Please make sure you complete your ${periodAdjective(clan)} ${clan.activityName} requirement.`;
+  return reminderNudge();
 }
 
 /** Short channel ping line for reminders. */
@@ -148,25 +187,41 @@ export function memberReminderPingLine(): string {
   return "🔔 this is your XP reminder.";
 }
 
-/** Member-facing warning body — warning + reason only, never numbers. */
-export function memberWarningBody(reason?: string | null): string {
+/**
+ * Member-facing warning body — dispute-focused. Tells the member (1) they got a
+ * warning, (2) exactly how to dispute it, and (3) that they need their proof
+ * ready. When a warning number is known it's surfaced as the dispute ticket so
+ * the member can reference it. Never leaks staff accounting.
+ */
+export function memberWarningBody(reason?: string | null, warningId?: number | null): string {
   const safe = sanitizeMemberReason(reason);
+  const ticket = warningId ? `\n\n**Warning ticket:** #${warningId}` : "";
   return (
-    `You have received an XP activity warning.\n\n` +
-    `**Reason:**\n${safe}\n\n` +
-    `Please make sure you complete your required activity.`
+    `⚠️ You received an **XP Warning**.\n\n` +
+    `**Reason:** ${safe}\n\n` +
+    `If you believe this warning is incorrect, run \`${DISPUTE_COMMAND}\` to dispute it — ` +
+    `have your XP proof/screenshot ready to submit with the dispute.` +
+    ticket
   );
 }
 
 /** Plain-text variant for canvas cards (no markdown). */
 export function memberWarningCanvasMessage(reason?: string | null): string {
   const safe = sanitizeMemberReason(reason);
-  return `You have received an XP activity warning. Reason: ${safe}. Please make sure you complete your required activity.`;
+  return (
+    `You received an XP Warning. Reason: ${safe}. ` +
+    `If this is incorrect, run ${DISPUTE_COMMAND} to dispute it — have your XP proof ready.`
+  );
 }
 
 /** Compact DM companion text when a canvas card is attached. */
-export function memberWarningDmContent(reason?: string | null): string {
-  return `⚠️ **Reason:** ${sanitizeMemberReason(reason)}\nPlease make sure you complete your required activity.`;
+export function memberWarningDmContent(reason?: string | null, warningId?: number | null): string {
+  const ticket = warningId ? ` (ticket #${warningId})` : "";
+  return (
+    `⚠️ You received an **XP Warning**${ticket}.\n` +
+    `**Reason:** ${sanitizeMemberReason(reason)}\n` +
+    `Dispute with \`${DISPUTE_COMMAND}\` — have your XP proof/screenshot ready.`
+  );
 }
 
 /** Canvas / embed title fragments. */

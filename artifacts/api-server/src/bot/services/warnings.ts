@@ -10,11 +10,11 @@ import { recordWeeklyWarning, isRequirementSatisfied, listTracked } from "./prog
 import {
   memberWarningBody,
   memberWarningDmContent,
-  memberWarningCanvasMessage,
   sanitizeMemberReason,
   periodLabel,
   periodAdjective,
   staffProgressDetail,
+  DISPUTE_COMMAND,
 } from "./tracking";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { createNotification, resolveRelated } from "./notifications";
@@ -56,18 +56,25 @@ export interface IssueWarningResult {
   activeCount: number;
 }
 
-/** Render the XP warning canvas card — member-safe, no count/threshold badge. */
+/**
+ * Render the XP warning canvas card — member-safe, no count/threshold badge.
+ * The card carries the warning number (its dispute ticket) and the reason so
+ * the canvas and the embed are driven by the same data and cannot drift.
+ */
 async function renderWarningCardSafe(
   clan: Clan,
   target: User,
-  memberReason: string
+  memberReason: string,
+  warningNumber: number | null
 ): Promise<Buffer | null> {
   try {
     return await renderOffThread("warningCard", {
       communityName: clan.clanName,
       memberName: target.username,
       avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
-      message: memberWarningCanvasMessage(memberReason),
+      reason: memberReason,
+      warningNumber,
+      disputeCommand: DISPUTE_COMMAND,
       // Intentionally omit count/threshold — those are staff-only.
     });
   } catch (err) {
@@ -81,14 +88,24 @@ function warningAttachment(card: Buffer): AttachmentBuilder {
   return new AttachmentBuilder(card, { name: "xp-warning.png" });
 }
 
-/** Member-facing fallback embed — warning + reason only. */
-function memberWarningEmbed(guildName: string, target: User, memberReason: string): EmbedBuilder {
-  return new EmbedBuilder()
+/**
+ * Member-facing fallback embed — warning + reason + how to dispute. The warning
+ * number is surfaced in the footer as the dispute ticket.
+ */
+function memberWarningEmbed(
+  guildName: string,
+  target: User,
+  memberReason: string,
+  warningNumber: number | null
+): EmbedBuilder {
+  const embed = new EmbedBuilder()
     .setColor(0xed4245)
     .setAuthor({ name: `⚠️ XP WARNING • ${guildName}`, iconURL: target.displayAvatarURL() })
     .setThumbnail(target.displayAvatarURL())
-    .setDescription(memberWarningBody(memberReason))
+    .setDescription(memberWarningBody(memberReason, warningNumber))
     .setTimestamp();
+  if (warningNumber) embed.setFooter({ text: `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}` });
+  return embed;
 }
 
 /** Issue a warning: record it, bump the count, assign roles, log, optionally DM. */
@@ -141,11 +158,13 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   let channelPosted = false;
   let dmSent = false;
 
+  const warningNumber = warning?.id ?? null;
+
   // Member-facing card: no warning-count badge, no escalation threshold.
   const card =
     clan.cardStyle === "embed"
       ? null
-      : await renderWarningCardSafe(clan, target, memberFacingReason);
+      : await renderWarningCardSafe(clan, target, memberFacingReason, warningNumber);
 
   // Post to the dedicated warning channel when one is configured. This is a
   // MEMBER-facing surface — never include staff accounting.
@@ -153,9 +172,12 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     try {
       const channel = await client.channels.fetch(clan.warningChannelId);
       if (channel?.isTextBased() && "send" in channel) {
-        const fallbackEmbed = memberWarningEmbed(guild.name, target, memberFacingReason);
+        const fallbackEmbed = memberWarningEmbed(guild.name, target, memberFacingReason, warningNumber);
         await channel.send({
-          content: `⚠️ <@${target.id}> — this is your XP warning.`,
+          content:
+            `⚠️ <@${target.id}> — you received an XP Warning` +
+            `${warningNumber ? ` (ticket **#${warningNumber}**)` : ""}. ` +
+            `Dispute with \`${DISPUTE_COMMAND}\` — have your XP proof ready.`,
           ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
           allowedMentions: { users: [target.id] },
         });
@@ -167,12 +189,12 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
-    const dmEmbed = memberWarningEmbed(guild.name, target, memberFacingReason);
+    const dmEmbed = memberWarningEmbed(guild.name, target, memberFacingReason, warningNumber);
     dmSent = await target
       .send(
         card
           ? {
-              content: memberWarningDmContent(memberFacingReason),
+              content: memberWarningDmContent(memberFacingReason, warningNumber),
               files: [warningAttachment(card)],
             }
           : { embeds: [dmEmbed] }
