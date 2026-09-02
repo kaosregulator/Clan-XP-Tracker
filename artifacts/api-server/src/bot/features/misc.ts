@@ -65,8 +65,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         title: "Reminders & enforcement",
         accent: "#faa61a",
         lines: [
-          `/xpremind @user  —  quick single nudge (never a warning)`,
-          `/xpreminder  —  pick Reminder or Warning, select many members, send (admins warn)`,
+          `/xpwarn  —  pick Warning or Reminder, select many members, preview & send (admins warn)`,
           `/missing  —  who hasn't hit today's target`,
           `/xp review  —  weekly card: bulk remind / warn / reset`,
           `/xp dashboard  —  filterable roster of who needs attention`,

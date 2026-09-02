@@ -275,27 +275,19 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     )
     .toJSON(),
 
-  // Plain one-word commands for the everyday actions ------------------------
+  // /xpwarn is the unified enforcement picker. One command opens a panel with a
+  // mode toggle (Warning | Reminder), a native multi-user selector, a live
+  // preview and a single Send. It replaces the old single /xpwarn and /xpremind.
   new SlashCommandBuilder()
-    .setName("xpremind")
-    .setDescription("Nudge a member to do their XP")
-    .setDMPermission(false)
-    .addUserOption((o) => o.setName("user").setDescription("Member to remind").setRequired(true))
-    .toJSON(),
-
-  // /xpreminder is the unified enforcement picker — it consolidates the old
-  // /xpwarn. One command opens a panel with a mode toggle (Reminder | Warning),
-  // a native multi-user selector, a live canvas preview and a single Send.
-  new SlashCommandBuilder()
-    .setName("xpreminder")
-    .setDescription("Send XP reminders or warnings to one or many members (officers)")
+    .setName("xpwarn")
+    .setDescription("Warn or remind one or many members — opens a picker (officers)")
     .setDMPermission(false)
     .addStringOption((o) =>
       o
         .setName("mode")
-        .setDescription("Start in Reminder or Warning mode (you can toggle in the panel)")
+        .setDescription("Which action to start on — you can switch it in the panel")
         .setRequired(false)
-        .addChoices({ name: "Reminder", value: "reminder" }, { name: "Warning", value: "warning" })
+        .addChoices({ name: "⚠️ Warning", value: "warning" }, { name: "🔔 Reminder", value: "reminder" })
     )
     .toJSON(),
 

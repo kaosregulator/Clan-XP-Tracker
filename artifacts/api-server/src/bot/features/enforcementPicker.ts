@@ -44,7 +44,7 @@ import type { PickerMemberView } from "../canvas/cards/enforcementPickerCard";
 
 /**
  * The unified XP enforcement picker — one panel that consolidates the old
- * `/xpwarn` and `/xpreminder` flows.
+ * `/xpwarn` (single) and `/xpremind` flows.
  *
  *   • A clear **mode toggle**: Reminder or Warning (same command handles both).
  *   • A native Discord **multi-user selector** so an officer picks many clan
@@ -140,12 +140,16 @@ async function buildPanel(
 
   const n = state.userIds.length;
   const modeLabel = state.mode === "warning" ? "Warning" : "Reminder";
-  const noteLine = state.note ? `\n📝 Note: ${state.note.slice(0, 150)}` : "";
+  const header = state.mode === "warning" ? "⚠️ **XP Warning**" : "🔔 **XP Reminder**";
+  const modeNote =
+    state.mode === "warning"
+      ? "admin-only · recorded with a dispute ticket #"
+      : "friendly nudge · never a warning";
+  const noteLine = state.note ? `\n📝 **Note:** ${state.note.slice(0, 150)}` : "";
   const content =
-    `**XP ${modeLabel}** · pick one or many members, then Send.` +
-    (state.mode === "warning"
-      ? "\n_Warnings are admin-only and are recorded with a dispute ticket number._"
-      : "\n_Reminders are a friendly nudge — never a warning._") +
+    `${header} — pick members, then **Send**.\n` +
+    `**Mode:** ${modeLabel}  ·  _${modeNote}_  ·  **Selected:** ${n}\n` +
+    "`1` choose members below (many at once)   `2` switch mode / add a note   `3` Send" +
     noteLine;
 
   const select = new UserSelectMenuBuilder()
@@ -195,7 +199,7 @@ async function buildPanel(
 
 /* ----------------------------------------------------------------- command */
 
-/** /xpreminder — open the unified reminder/warning picker. */
+/** /xpwarn — open the unified warning/reminder picker. */
 export async function openEnforcementPicker(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
@@ -212,8 +216,10 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
     return;
   }
 
-  const requested = (interaction.options.getString("mode") ?? "reminder").toLowerCase();
-  const mode: Mode = requested === "warning" ? "warning" : "reminder";
+  // /xpwarn opens on Warning by default (its namesake action); officers can
+  // switch to Reminder in the panel. An explicit `mode:` option wins.
+  const requested = (interaction.options.getString("mode") ?? "warning").toLowerCase();
+  const mode: Mode = requested === "reminder" ? "reminder" : "warning";
 
   const state: PanelState = {
     mode,
@@ -240,7 +246,7 @@ export async function handleEnforcementSelect(interaction: UserSelectMenuInterac
   if (!interaction.inCachedGuild()) return;
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
-    await interaction.reply({ content: "This panel isn't yours (or it expired — rerun /xpreminder).", flags: 64 });
+    await interaction.reply({ content: "This panel isn't yours (or it expired — rerun /xpwarn).", flags: 64 });
     return;
   }
   await interaction.deferUpdate();
@@ -261,7 +267,7 @@ export async function handleEnforcementButton(interaction: ButtonInteraction) {
 
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel isn't yours (or it expired — rerun /xpreminder).",
+      content: "This panel isn't yours (or it expired — rerun /xpwarn).",
       flags: 64,
     });
     return;

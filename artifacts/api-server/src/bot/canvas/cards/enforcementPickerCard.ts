@@ -1,12 +1,5 @@
 import type { SKRSContext2D } from "@napi-rs/canvas";
-import {
-  createSurface,
-  paintPhotoSurface,
-  roundRectPath,
-  fetchAvatar,
-  drawAvatar,
-  toPng,
-} from "../theme";
+import { createSurface, roundRectPath, fetchAvatar, drawAvatar, toPng } from "../theme";
 import { font, sanitizeText } from "../fonts";
 import { LIGHT, shieldMark } from "./warningCard";
 
@@ -20,6 +13,10 @@ import { LIGHT, shieldMark } from "./warningCard";
  *
  * It re-renders on every pick / mode toggle so the officer always sees exactly
  * who will receive the action before they hit Send.
+ *
+ * IMPORTANT: this is a control-panel PREVIEW, not the card that gets sent. It
+ * deliberately uses a dark UI panel (not the light branded card surface) so an
+ * officer never mistakes it for the warning/reminder that will be delivered.
  */
 
 export interface PickerMemberView {
@@ -44,10 +41,21 @@ export interface EnforcementPickerView {
 const W = 1200;
 const H = 780;
 
-function accentFor(mode: "warning" | "reminder"): { accent: string; soft: string } {
+/* Dark UI-panel palette, local to the preview (distinct from the light cards). */
+const UI = {
+  bgTop: "#171d2e",
+  bgBottom: "#0d111c",
+  text: "#f2f5fa",
+  soft: "#c3cbdc",
+  muted: "#8b93a7",
+  hairline: "rgba(255,255,255,0.12)",
+  chipNeutral: "rgba(255,255,255,0.10)",
+} as const;
+
+function accentFor(mode: "warning" | "reminder"): { accent: string; soft: string; glow: string } {
   return mode === "warning"
-    ? { accent: LIGHT.red, soft: LIGHT.redSoft }
-    : { accent: LIGHT.blue, soft: LIGHT.blueSoft };
+    ? { accent: LIGHT.red, soft: LIGHT.redSoft, glow: "rgba(225,29,43,0.28)" }
+    : { accent: LIGHT.blue, soft: LIGHT.blueSoft, glow: "rgba(47,107,255,0.26)" };
 }
 
 function drawCenter(
@@ -91,7 +99,7 @@ function statusChip(
   const tw = ctx.measureText(label).width;
   const padX = 14;
   const h = 32;
-  const w = Math.min(tw + padX * 2, 200);
+  const w = Math.min(tw + padX * 2, 210);
   const x = cx - w / 2;
   roundRectPath(ctx, x, cy - h / 2, w, h, 10);
   ctx.fillStyle = bg;
@@ -105,19 +113,24 @@ function statusChip(
 }
 
 export async function renderEnforcementPicker(v: EnforcementPickerView): Promise<Buffer> {
-  const { accent, soft } = accentFor(v.mode);
+  const { accent, soft, glow } = accentFor(v.mode);
   const rc = createSurface(W, H);
   const { ctx } = rc;
 
-  // Card surface with the brand texture + accent glow, matching the enforcement cards.
+  // Dark UI panel — a vertical gradient with a soft accent glow up top. Clearly
+  // a control surface, never mistakable for the light card that gets sent.
   ctx.save();
   roundRectPath(ctx, 0, 0, W, H, 30);
   ctx.clip();
-  paintPhotoSurface(rc);
-  for (const gx of [W * 0.14, W * 0.86]) {
-    const g = ctx.createRadialGradient(gx, -40, 0, gx, -40, H * 0.7);
-    g.addColorStop(0, v.mode === "warning" ? "rgba(225,29,43,0.22)" : "rgba(47,107,255,0.18)");
-    g.addColorStop(1, "rgba(255,255,255,0)");
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, UI.bgTop);
+  bg.addColorStop(1, UI.bgBottom);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  for (const gx of [W * 0.16, W * 0.84]) {
+    const g = ctx.createRadialGradient(gx, -60, 0, gx, -60, H * 0.75);
+    g.addColorStop(0, glow);
+    g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
   }
@@ -126,49 +139,43 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
   // Border.
   roundRectPath(ctx, 2, 2, W - 4, H - 4, 30);
   ctx.strokeStyle = accent;
-  ctx.globalAlpha = 0.9;
+  ctx.globalAlpha = 0.55;
   ctx.lineWidth = 3;
   ctx.stroke();
   ctx.globalAlpha = 1;
 
+  // A quiet "PREVIEW" tag so it's unmistakably a control panel.
+  drawCenter(ctx, "SELECTION PREVIEW", W / 2, 58, 18, UI.muted, true, "display");
+
   // Huge mode banner.
   const title = v.mode === "warning" ? "WARNING" : "REMINDER";
-  drawCenter(ctx, title, W / 2, 128, 96, accent, true, "display");
+  drawCenter(ctx, title, W / 2, 138, 92, accent, true, "display");
   const count = v.members.length;
   const subtitle =
     count === 0
       ? "Select members below — this preview updates as you pick"
       : `${count} member${count === 1 ? "" : "s"} will be ${v.mode === "warning" ? "warned" : "reminded"}`;
-  drawCenter(ctx, subtitle, W / 2, 170, 26, LIGHT.inkSoft, false, "body");
+  drawCenter(ctx, subtitle, W / 2, 180, 26, UI.soft, false, "body");
 
   // Divider.
   ctx.strokeStyle = accent;
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = 0.45;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(120, 200);
-  ctx.lineTo(W - 120, 200);
+  ctx.moveTo(120, 210);
+  ctx.lineTo(W - 120, 210);
   ctx.stroke();
   ctx.globalAlpha = 1;
 
   if (count === 0) {
-    drawCenter(
-      ctx,
-      "No one selected yet",
-      W / 2,
-      H / 2 + 10,
-      40,
-      LIGHT.muted,
-      true,
-      "display"
-    );
+    drawCenter(ctx, "No one selected yet", W / 2, H / 2 + 10, 40, UI.soft, true, "display");
     drawCenter(
       ctx,
       "Use the member picker to choose one or many clan members.",
       W / 2,
       H / 2 + 56,
       24,
-      LIGHT.muted
+      UI.muted
     );
     footer(ctx, v.communityName, accent);
     return toPng(rc.canvas);
@@ -178,7 +185,7 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
   const shown = v.members.slice(0, 10);
   const perRow = Math.min(5, shown.length);
   const rows = Math.ceil(shown.length / perRow);
-  const gridTop = 250;
+  const gridTop = 258;
   const cellW = (W - 160) / perRow;
   const cellH = rows === 1 ? 300 : 240;
   const avatarSize = rows === 1 ? 128 : 104;
@@ -208,17 +215,18 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
     const handle = m.name.startsWith("@") ? m.name : `@${m.name}`;
     const nameY = cyTop + avatarSize + 34;
     ctx.font = font(24, "bold", "display");
-    drawCenter(ctx, fitHandle(ctx, handle, cellW - 24, 24), cx, nameY, 24, LIGHT.ink, true, "display");
+    drawCenter(ctx, fitHandle(ctx, handle, cellW - 24, 24), cx, nameY, 24, UI.text, true, "display");
 
     // Standing chips: current warnings, then warning-role status.
-    const warnLabel = m.warnings > 0 ? `⚠ ${m.warnings} warning${m.warnings === 1 ? "" : "s"}` : "✓ clean record";
+    const warnLabel =
+      m.warnings > 0 ? `⚠ ${m.warnings} warning${m.warnings === 1 ? "" : "s"}` : "✓ clean record";
     statusChip(
       ctx,
       warnLabel,
       cx,
       nameY + 30,
-      m.warnings > 0 ? "#ffffff" : "#0f7a3d",
-      m.warnings > 0 ? LIGHT.red : "rgba(59,165,93,0.16)"
+      m.warnings > 0 ? "#ffffff" : "#7ff0b0",
+      m.warnings > 0 ? LIGHT.red : "rgba(46,158,87,0.30)"
     );
 
     if (v.warnRoleConfigured) {
@@ -231,27 +239,19 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
         bg = LIGHT.red;
       } else if (m.willAddRole) {
         roleLabel = "role will be added";
-        fg = "#8a3d00";
-        bg = "rgba(250,166,26,0.22)";
+        fg = "#ffd79a";
+        bg = "rgba(250,166,26,0.28)";
       } else {
         roleLabel = "no warning role";
-        fg = LIGHT.muted;
-        bg = "rgba(122,129,149,0.15)";
+        fg = UI.soft;
+        bg = UI.chipNeutral;
       }
       statusChip(ctx, roleLabel, cx, nameY + 68, fg, bg);
     }
   }
 
   if (v.members.length > shown.length) {
-    drawCenter(
-      ctx,
-      `+ ${v.members.length - shown.length} more selected`,
-      W / 2,
-      H - 96,
-      22,
-      LIGHT.muted,
-      true
-    );
+    drawCenter(ctx, `+ ${v.members.length - shown.length} more selected`, W / 2, H - 96, 22, UI.muted, true);
   }
 
   footer(ctx, v.communityName, accent);
@@ -260,7 +260,7 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
 
 function footer(ctx: SKRSContext2D, community: string, accent: string) {
   const y = H - 44;
-  ctx.strokeStyle = LIGHT.hairline;
+  ctx.strokeStyle = UI.hairline;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(120, y - 16);
@@ -275,7 +275,7 @@ function footer(ctx: SKRSContext2D, community: string, accent: string) {
     W / 2,
     y + 20,
     18,
-    LIGHT.muted,
+    UI.muted,
     true,
     "display"
   );
