@@ -35,7 +35,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         `/calendar  —  your ${activity} calendar & daily history`,
         `/xp history  —  your past weeks`,
         `/warnings  —  your active ${activity} warnings`,
-        `/xpdispute  —  contest one of your own warnings (have your proof ready)`,
+        `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
       ],
     },
   ];

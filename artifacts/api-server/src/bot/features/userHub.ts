@@ -4,10 +4,14 @@ import {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   AttachmentBuilder,
   type BaseMessageOptions,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
+  type ModalSubmitInteraction,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
 import type { Clan, ClanMember } from "@workspace/db";
@@ -21,8 +25,10 @@ import { formatInZone, weekRangeLabel, activityDate } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
 import { buildDashboardPayload } from "./dashboard";
 import { buildDisputePicker } from "./disputes";
+import { openDisputeTicket, findOpenDisputeForUser } from "../services/disputes";
 import {
   hubDispute,
+  hubDisputeModal,
   hubCalendar,
   hubHistory,
   hubRefresh,
@@ -317,6 +323,13 @@ export async function handleHubButton(interaction: ButtonInteraction) {
   if (!interaction.inCachedGuild()) return;
   const { action, arg } = parseId(interaction.customId);
   const userId = String(arg ?? "");
+
+  // Dispute opens a modal, which must be the very first response — so it is
+  // handled before any defer. The button leads straight into the /dispute
+  // system: collect the explanation, open a private ticket, then have the
+  // member drop their XP proof in that channel.
+  if (action === "dispute") return void (await startHubDispute(interaction, userId));
+
   const updatesSourceMessage = action === "refresh";
 
   // Discord interactions must be acknowledged before the clan lookup. The
@@ -343,17 +356,6 @@ export async function handleHubButton(interaction: ButtonInteraction) {
   }
 
   switch (action) {
-    case "dispute": {
-      // Disputing is a personal action: only the member can dispute their own.
-      if (!isOwner) {
-        await interaction.editReply({
-          content: "Only the member can dispute their own warnings. Officers review from /disputes.",
-        });
-        return;
-      }
-      await interaction.editReply(await buildDisputePicker(clan, userId));
-      return;
-    }
     case "calendar": {
       const member = await getMember(clan.guildId, userId);
       if (!member) {
@@ -388,4 +390,123 @@ export async function handleHubButton(interaction: ButtonInteraction) {
       return;
     }
   }
+}
+
+/**
+ * Member clicked "Open dispute" on their own /warnings hub. This is the
+ * button that inherits the /dispute command: it opens a private dispute ticket
+ * directly (no need to remember the slash command), then the member attaches
+ * their XP proof in that channel. Falls back to guidance when disputes aren't
+ * configured, since a ticket needs the configured category.
+ */
+async function startHubDispute(interaction: ButtonInteraction, userId: string) {
+  if (!interaction.inCachedGuild()) return;
+
+  // Disputing is a personal action — only the member can dispute their own.
+  if (interaction.user.id !== userId) {
+    await interaction.reply({
+      content: "Only the member can dispute their own warnings. Officers review from /disputes.",
+      flags: 64,
+    });
+    return;
+  }
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.reply({ ...notConfiguredMessage(false), flags: 64 });
+    return;
+  }
+
+  // Continue an existing open ticket rather than opening a second one.
+  const open = await findOpenDisputeForUser(clan.guildId, userId);
+  if (open?.channelId) {
+    await interaction.reply({
+      content: `You already have an open dispute — continue in <#${open.channelId}>.`,
+      flags: 64,
+    });
+    return;
+  }
+
+  // A ticket needs the configured category — otherwise point at /dispute.
+  if (!clan.disputeCategoryId) {
+    await interaction.reply({ ...(await buildDisputePicker(clan, userId)), flags: 64 });
+    return;
+  }
+
+  const warns = await listActive(clan.guildId, userId);
+  const modal = new ModalBuilder()
+    .setCustomId(hubDisputeModal(userId))
+    .setTitle("Dispute a warning");
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("warning_id")
+        .setLabel("Warning number (from your warnings list)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setMaxLength(12)
+        .setValue(warns[0] ? String(warns[0].id) : "")
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("explanation")
+        .setLabel("Why should this be reconsidered?")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(1000)
+    )
+  );
+  await interaction.showModal(modal);
+}
+
+/** Dispute modal submit → open the private ticket, then ask for proof there. */
+export async function handleHubModal(interaction: ModalSubmitInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  const { arg } = parseId(interaction.customId);
+  const userId = String(arg ?? "");
+  if (interaction.user.id !== userId) {
+    await interaction.reply({ content: "This dispute form isn't yours.", flags: 64 });
+    return;
+  }
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(false));
+    return;
+  }
+
+  const explanation = interaction.fields.getTextInputValue("explanation").trim();
+  if (!explanation) {
+    await interaction.editReply({ content: "Please include an explanation of why this should be reconsidered." });
+    return;
+  }
+  const rawId = interaction.fields.getTextInputValue("warning_id").trim();
+  const warningId = /^\d+$/.test(rawId) ? Number(rawId) : null;
+
+  const res = await openDisputeTicket({
+    client: interaction.client,
+    guild: interaction.guild,
+    clan,
+    user: {
+      id: interaction.user.id,
+      username: interaction.user.username,
+      displayName: interaction.user.displayName,
+    },
+    disputeType: "warning",
+    reason: explanation,
+    warningId,
+    evidence: [],
+  });
+
+  if (!res.ok) {
+    await interaction.editReply({ content: `⚠️ ${res.error}` });
+    return;
+  }
+
+  await interaction.editReply({
+    content:
+      `✅ Dispute **#${res.dispute.id}** opened — continue in <#${res.channelId}>.\n` +
+      `📎 **Attach your XP proof/screenshot in that channel** so staff can review it.`,
+  });
 }

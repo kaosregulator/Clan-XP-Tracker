@@ -134,11 +134,11 @@ export function sanitizeMemberReason(reason: string | null | undefined): string 
 }
 
 /**
- * The member-facing dispute command. Both `/xpdispute` and `/dispute` open the
- * same dispute flow; we point members at `/xpdispute` so warning copy is
- * unambiguous. Kept in one place so every surface (embed, canvas, DM) agrees.
+ * The member-facing dispute command. Kept in one place so every surface
+ * (embed, canvas, DM, warning card, the /warnings dispute button) points at the
+ * same dispute flow and can never disagree.
  */
-export const DISPUTE_COMMAND = "/xpdispute";
+export const DISPUTE_COMMAND = "/dispute";
 
 /**
  * Rotating friendly reminder lines. A reminder is *never* a warning, so these

@@ -36,7 +36,7 @@ export interface WarningCardView extends EnforcementCardView {
   warningNumber?: number | null;
   /** Sanitized, member-safe reason shown as a single line. */
   reason?: string | null;
-  /** The command members run to dispute — defaults to "/xpdispute". */
+  /** The command members run to dispute — defaults to "/dispute". */
   disputeCommand?: string;
   /**
    * Optional legacy staff badge fields. Member-facing renders ignore these —
@@ -501,7 +501,7 @@ function bellIcon(ctx: SKRSContext2D, cx: number, cy: number, r: number, color: 
  * replaces the default body when provided.
  */
 export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
-  const dispute = (v.disputeCommand ?? "/xpdispute").trim() || "/xpdispute";
+  const dispute = (v.disputeCommand ?? "/dispute").trim() || "/dispute";
   const ticketLabel = v.warningNumber ? `DISPUTE WARNING #${v.warningNumber}` : undefined;
   return renderEnforcementCard({
     // Drop any freeform message so the standard dispute lines always render.

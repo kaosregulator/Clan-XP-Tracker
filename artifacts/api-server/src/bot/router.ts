@@ -11,7 +11,7 @@ import { handleXpCommand } from "./features/xp";
 import { handleReviewButton } from "./features/review";
 import { handleDashButton, handleDashSelect } from "./features/dashboard";
 import { handleHelp, handleWarnRemoveSelect } from "./features/misc";
-import { handleWarnings, handleHubButton } from "./features/userHub";
+import { handleWarnings, handleHubButton, handleHubModal } from "./features/userHub";
 import {
   openCommandCenter,
   handleCommandCenterButton,
@@ -61,9 +61,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await openCommandCenter(interaction));
         case "notifications":
           return void (await openNotifications(interaction));
-        // Members dispute a warning with /xpdispute (alias of /dispute).
         case "dispute":
-        case "xpdispute":
           return void (await openDisputeCommand(interaction));
         case "disputes":
           return void (await openDisputeReview(interaction));
@@ -116,6 +114,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.disp) return void (await handleDisputeReasonModal(interaction));
       if (ns === NS.mp) return void (await handleMemberPanelModal(interaction));
       if (ns === NS.enf) return void (await handleEnforcementNoteModal(interaction));
+      if (ns === NS.hub) return void (await handleHubModal(interaction));
       return;
     }
 

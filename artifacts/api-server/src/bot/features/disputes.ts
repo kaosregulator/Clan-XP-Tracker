@@ -108,7 +108,7 @@ export async function buildDisputePicker(
 
   return {
     content:
-      `Use **/xpdispute** to open a private ticket with staff.\n` +
+      `Use **/dispute** to open a private ticket with staff.\n` +
       `• Choose a **type** (warning / XP record / role action)\n` +
       `• Write your **explanation**\n` +
       `• Have your **XP proof/screenshot** ready — attach it with the **evidence** option` +
@@ -193,7 +193,7 @@ export async function handleDisputePickSelect(interaction: StringSelectMenuInter
   await interaction.reply({
     content:
       `To dispute warning **#${warningId}**, run:\n` +
-      `**/xpdispute** \`type:warning\` \`warning_id:${warningId}\` \`explanation:…\` and attach your **evidence** (XP proof) from your device.\n` +
+      `**/dispute** \`type:warning\` \`warning_id:${warningId}\` \`explanation:…\` and attach your **evidence** (XP proof) from your device.\n` +
       `_No image URL needed — use Discord's normal file upload._`,
     flags: 64,
   });

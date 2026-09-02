@@ -151,6 +151,7 @@ export const warnRemoveSelect = (userId: string) => id(NS.warn, "remove", userId
 // so the handler can re-check ownership before doing anything (buttons are
 // safeguarded: only the member themselves — or an officer — may use them).
 export const hubDispute = (userId: string) => id(NS.hub, "dispute", userId);
+export const hubDisputeModal = (userId: string) => id(NS.hub, "disputeModal", userId);
 export const hubCalendar = (userId: string) => id(NS.hub, "calendar", userId);
 export const hubHistory = (userId: string) => id(NS.hub, "history", userId);
 export const hubRefresh = (userId: string) => id(NS.hub, "refresh", userId);

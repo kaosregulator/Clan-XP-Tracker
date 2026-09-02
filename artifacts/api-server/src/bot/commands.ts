@@ -14,13 +14,12 @@ import {
  * interactive panels those commands open.
  */
 /**
- * Build the XP dispute ticket command. Registered under two names —
- * `/dispute` and `/xpdispute` — that route to the same handler, so members can
- * use whichever the bot pointed them at (warnings surface `/xpdispute`).
+ * Build the XP dispute ticket command (`/dispute`). Members are pointed here
+ * from warnings, the /warnings hub and the dispute button — one dispute system.
  */
-function disputeCommand(name: "dispute" | "xpdispute"): RESTPostAPIApplicationCommandsJSONBody {
+function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
   return new SlashCommandBuilder()
-    .setName(name)
+    .setName("dispute")
     .setDescription("Open a private XP dispute ticket with staff")
     .addStringOption((o) =>
       o
@@ -368,10 +367,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   // Member self-service: open a private XP dispute ticket.
   // Evidence uses Discord's native attachment option (device upload) — never a URL.
-  // `/xpdispute` is the primary name surfaced on warnings; `/dispute` is kept as
-  // an alias so existing muscle-memory and older messages keep working.
-  disputeCommand("dispute"),
-  disputeCommand("xpdispute"),
+  disputeCommand(),
 
   // Officer hubs for the enforcement workflow.
   new SlashCommandBuilder()

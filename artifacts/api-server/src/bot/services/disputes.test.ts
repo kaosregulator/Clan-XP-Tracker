@@ -215,8 +215,7 @@ describe("member-facing dispute UX rules", () => {
     const { dirname, join } = await import("node:path");
     const here = dirname(fileURLToPath(import.meta.url));
     const src = readFileSync(join(here, "../commands.ts"), "utf8");
-    // The dispute command is built by a shared factory (registered as both
-    // /dispute and /xpdispute). Inspect that factory block.
+    // The dispute command is built by a shared factory. Inspect that block.
     const disputeBlock = src.slice(
       src.indexOf("function disputeCommand"),
       src.indexOf("export const commands")
