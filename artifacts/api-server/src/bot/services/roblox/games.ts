@@ -2,7 +2,7 @@ import { getGames, getGamesPlaceidServersServertype, getGamesUniverseidVotes } f
 import { getUsersUseridGames } from "rozod/endpoints/gamesv2";
 import { rbxFetch, rbxHttp, formatCount } from "./client";
 import { robloxCache, TTL } from "./cache";
-import { getGameIcon, getGameThumbnail } from "./thumbnails";
+import { getGameIcon, getGameIcons, getGameThumbnail } from "./thumbnails";
 import { RobloxServiceError } from "./errors";
 import type { PageResult, RobloxGame, RobloxGamePass, RobloxServer } from "./types";
 
@@ -194,11 +194,15 @@ export async function getUserGames(
       : { data: [] };
   const byId = new Map((details.data ?? []).map((g) => [g.id, g]));
 
+  // Batch all game icons in a single request instead of one per game.
+  const iconIds = data.filter((d) => byId.has(d.id)).map((d) => d.id);
+  const icons = await getGameIcons(iconIds).catch(() => new Map<number, string | null>());
+
   const items: RobloxGame[] = [];
   for (const d of data) {
     const raw = byId.get(d.id);
     if (raw) {
-      const iconUrl = await getGameIcon(d.id).catch(() => null);
+      const iconUrl = icons.get(d.id) ?? null;
       items.push(mapGame(raw, { iconUrl }));
     } else {
       items.push({

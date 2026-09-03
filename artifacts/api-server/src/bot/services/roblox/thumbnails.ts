@@ -119,16 +119,39 @@ export async function getBadgeIcons(badgeIds: number[]): Promise<Map<number, str
 }
 
 export async function getGameIcon(universeId: number): Promise<string | null> {
-  const key = `gicon:${universeId}`;
-  const cached = robloxCache.get<string | null>(key);
-  if (cached !== undefined) return cached;
-  const result = await rbxFetch(getGamesIcons, {
-    universeIds: [universeId],
-    size: "512x512",
-    format: "Png",
-  });
-  const url = pickUrl((result as { data?: ThumbRow[] }).data, universeId);
-  return robloxCache.set(key, url, TTL.gameThumb);
+  const map = await getGameIcons([universeId]);
+  return map.get(universeId) ?? null;
+}
+
+/**
+ * Batched game-icon lookup. Serves cached ids without a request and fetches the
+ * rest in chunks of 100 (Roblox's per-call limit), so a page of games costs one
+ * request instead of one per game.
+ */
+export async function getGameIcons(universeIds: number[]): Promise<Map<number, string | null>> {
+  const out = new Map<number, string | null>();
+  const missing: number[] = [];
+  for (const id of universeIds) {
+    if (out.has(id)) continue;
+    const cached = robloxCache.get<string | null>(`gicon:${id}`);
+    if (cached !== undefined) out.set(id, cached);
+    else missing.push(id);
+  }
+  for (let i = 0; i < missing.length; i += 100) {
+    const chunk = missing.slice(i, i + 100);
+    const result = await rbxFetch(getGamesIcons, {
+      universeIds: chunk,
+      size: "512x512",
+      format: "Png",
+    });
+    const data = (result as { data?: ThumbRow[] }).data;
+    for (const id of chunk) {
+      const url = pickUrl(data, id);
+      robloxCache.set(`gicon:${id}`, url, TTL.gameThumb);
+      out.set(id, url);
+    }
+  }
+  return out;
 }
 
 export async function getGameThumbnail(universeId: number): Promise<string | null> {
