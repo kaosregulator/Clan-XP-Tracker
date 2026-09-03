@@ -668,4 +668,17 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         )
     )
     .toJSON(),
+
+  // Marketplace Hub — one slash command; browse/filter via buttons
+  new SlashCommandBuilder()
+    .setName("market")
+    .setDescription("Roblox Marketplace Hub — avatar items, clothing, collectibles")
+    .setDMPermission(false)
+    .addStringOption((o) =>
+      o
+        .setName("query")
+        .setDescription("Optional search (or just open the hub and use buttons)")
+        .setRequired(false)
+    )
+    .toJSON(),
 ];

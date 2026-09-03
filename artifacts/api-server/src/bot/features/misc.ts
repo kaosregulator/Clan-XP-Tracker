@@ -38,6 +38,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
           `/roblox  —  Roblox player hub · /military  —  Military Tycoon`,
           `/scout  —  Game Intelligence (trends, snapshots, DevEx)`,
+          `/market  —  Avatar Marketplace (clothing, accessories, limiteds)`,
         ],
       },
     ];

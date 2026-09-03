@@ -53,6 +53,11 @@ import {
   renderScoutReportCard,
   renderScoutGroupCard,
 } from "./cards/scout/scoutCards";
+import {
+  renderMarketHomeCard,
+  renderMarketGridCard,
+  renderMarketItemCard,
+} from "./cards/market/marketCards";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -144,6 +149,12 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderScoutReportCard(p as any);
     case "scoutGroup":
       return renderScoutGroupCard(p as any);
+    case "marketHome":
+      return renderMarketHomeCard(p as any);
+    case "marketGrid":
+      return renderMarketGridCard(p as any);
+    case "marketItem":
+      return renderMarketItemCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

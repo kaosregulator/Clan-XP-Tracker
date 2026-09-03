@@ -18,6 +18,7 @@ export const NS = {
   enf: "enf", // unified enforcement picker (/xpreminder: reminder | warning)
   rbx: "rbx", // Roblox Hub (/roblox, /military)
   scout: "sct", // Game Intelligence Hub (/scout) — Bloxscout
+  mkt: "mkt", // Marketplace Hub (/market) — avatar items
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -208,3 +209,17 @@ export const SCT_SNAPSHOT = id(NS.scout, "snap");
 export const SCT_GENRE_MODAL = id(NS.scout, "genreModal");
 export const SCT_COMPARE_MODAL = id(NS.scout, "compareModal");
 export const SCT_DEVEX_MODAL = id(NS.scout, "devexModal");
+
+// Marketplace Hub — avatar items (not Creator Store)
+export const MKT_NAV = (view: string) => id(NS.mkt, "nav", view);
+export const MKT_CAT = (cat: string) => id(NS.mkt, "cat", cat);
+export const MKT_PRICE = (price: string) => id(NS.mkt, "price", price);
+export const MKT_SORT = (sort: string) => id(NS.mkt, "sort", sort);
+export const MKT_PAGE = (dir: "prev" | "next") => id(NS.mkt, "page", dir);
+export const MKT_REFRESH = id(NS.mkt, "refresh");
+export const MKT_SEARCH = id(NS.mkt, "search");
+export const MKT_SEARCH_MODAL = id(NS.mkt, "searchModal");
+export const MKT_CREATOR_MODAL = id(NS.mkt, "creatorModal");
+export const MKT_PICK = id(NS.mkt, "pick");
+export const MKT_BACK = id(NS.mkt, "back");
+export const MKT_MORE = id(NS.mkt, "more");

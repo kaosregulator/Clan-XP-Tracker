@@ -28,6 +28,7 @@ import {
   withOwnership,
   gamePassUrl,
 } from "./passes";
+import * as catalog from "./catalog";
 import * as military from "./militaryTycoon";
 import { ensureRobloxClient, hasOpenCloudKey } from "./client";
 import type { PlayerCardData } from "./types";
@@ -119,6 +120,7 @@ export const RobloxService = {
   userOwnsGamePass,
   withOwnership,
   gamePassUrl,
+  catalog,
   military,
   hasOpenCloudKey,
   PRESENCE_EMOJI,

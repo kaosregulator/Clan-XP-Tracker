@@ -49,6 +49,12 @@ import {
   handleScoutSelect,
   handleScoutModal,
 } from "./features/scoutHub";
+import {
+  handleMarketCommand,
+  handleMarketButton,
+  handleMarketSelect,
+  handleMarketModal,
+} from "./features/marketHub";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -88,6 +94,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleMilitaryCommand(interaction));
         case "scout":
           return void (await handleScoutCommand(interaction));
+        case "market":
+          return void (await handleMarketCommand(interaction));
       }
       return;
     }
@@ -131,6 +139,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleRobloxButton(interaction));
         case NS.scout:
           return void (await handleScoutButton(interaction));
+        case NS.mkt:
+          return void (await handleMarketButton(interaction));
       }
       return;
     }
@@ -152,6 +162,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.hub) return void (await handleHubModal(interaction));
       if (ns === NS.rbx) return void (await handleRobloxModal(interaction));
       if (ns === NS.scout) return void (await handleScoutModal(interaction));
+      if (ns === NS.mkt) return void (await handleMarketModal(interaction));
       return;
     }
 
@@ -171,6 +182,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.tkt) return void (await handleTicketSelect(interaction));
       if (ns === NS.rbx) return void (await handleRobloxSelect(interaction));
       if (ns === NS.scout) return void (await handleScoutSelect(interaction));
+      if (ns === NS.mkt) return void (await handleMarketSelect(interaction));
       return;
     }
   } catch (err) {
