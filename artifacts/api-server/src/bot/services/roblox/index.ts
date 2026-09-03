@@ -47,11 +47,16 @@ import {
 ensureRobloxClient();
 
 export async function getPlayerCardData(userId: number): Promise<PlayerCardData> {
+  // Only the core identity (getUserById, which has its own provider fallback)
+  // is allowed to fail the card. Everything else degrades to null so one
+  // rate-limited or stalled Roblox endpoint can't sink the whole response.
   const [user, thumbs, presence, friendCount, followerCount, followingCount, groups, badgeCount] =
     await Promise.all([
       getUserById(userId),
-      getUserThumbnails(userId),
-      getUserPresence(userId),
+      getUserThumbnails(userId).catch(
+        () => ({ headshot: null, bust: null, fullBody: null, avatar3d: null })
+      ),
+      getUserPresence(userId).catch(() => null),
       getFriendCount(userId).catch(() => null),
       getFollowerCount(userId).catch(() => null),
       getFollowingCount(userId).catch(() => null),

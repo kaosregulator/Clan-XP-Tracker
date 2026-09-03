@@ -73,24 +73,34 @@ function classifyError(err: AnyErrorLike): RobloxServiceError {
 export async function rbxFetch<S extends EndpointSchema>(
   endpoint: S,
   params: Record<string, unknown> | undefined,
-  opts: { retries?: number; cacheTime?: number; cacheKey?: string } = {}
+  opts: { retries?: number; cacheTime?: number; cacheKey?: string; timeoutMs?: number } = {}
 ): Promise<NonNullable<Awaited<ReturnType<typeof fetchApi<S>>>>> {
   ensureRobloxClient();
   const retries = opts.retries ?? 2;
+  // Bound every attempt. Node's global fetch (undici) otherwise waits on its
+  // ~5 min header/body timeout, so a single stalled Roblox host would freeze
+  // the whole player card. The signal propagates through RoZod to fetch().
+  const timeoutMs = opts.timeoutMs ?? 8_000;
   let lastErr: unknown;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      const reqOpts = {
+        retries: 0,
+        retryDelay: 400,
+        cacheTime: opts.cacheTime,
+        cacheKey: opts.cacheKey,
+      };
+      // Attach the abort signal without widening reqOpts' inferred type, so
+      // RoZod's fetchApi overload resolution is unchanged. The signal is spread
+      // through to the underlying fetch() at runtime.
+      (reqOpts as Record<string, unknown>).signal = AbortSignal.timeout(timeoutMs);
+
       const result = await fetchApi(
         endpoint,
         // RoZod's ExtractParams is strict; cast at the boundary.
         params as never,
-        {
-          retries: 0,
-          retryDelay: 400,
-          cacheTime: opts.cacheTime,
-          cacheKey: opts.cacheKey,
-        }
+        reqOpts
       );
 
       if (isAnyErrorResponse(result)) {
