@@ -229,6 +229,9 @@ importers:
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@25.9.4)
+      undici:
+        specifier: ^6.24.1
+        version: 6.24.1
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5

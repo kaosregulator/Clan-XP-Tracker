@@ -32,6 +32,7 @@
     "robloxian-api": "^1.0.0",
     "rozod": "^6.9.0",
     "sharp": "^0.35.3",
+    "undici": "^6.24.1",
     "xlsx": "^0.18.5",
     "zod": "catalog:"
   },
