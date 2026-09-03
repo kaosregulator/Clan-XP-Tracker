@@ -42,6 +42,17 @@ import {
   renderRobloxItemsCard,
   renderIntegrationCard,
 } from "./cards/roblox/gameCards";
+import {
+  renderScoutHomeCard,
+  renderScoutListCard,
+  renderScoutGameIntelCard,
+  renderScoutHistoryCard,
+  renderScoutCompareCard,
+  renderScoutVsGenreCard,
+  renderScoutMoneyCard,
+  renderScoutReportCard,
+  renderScoutGroupCard,
+} from "./cards/scout/scoutCards";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -115,6 +126,24 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderRobloxItemsCard(p as any);
     case "robloxIntegration":
       return renderIntegrationCard(p as any);
+    case "scoutHome":
+      return renderScoutHomeCard(p as any);
+    case "scoutList":
+      return renderScoutListCard(p as any);
+    case "scoutGame":
+      return renderScoutGameIntelCard(p as any);
+    case "scoutHistory":
+      return renderScoutHistoryCard(p as any);
+    case "scoutCompare":
+      return renderScoutCompareCard(p as any);
+    case "scoutVsGenre":
+      return renderScoutVsGenreCard(p as any);
+    case "scoutMoney":
+      return renderScoutMoneyCard(p as any);
+    case "scoutReport":
+      return renderScoutReportCard(p as any);
+    case "scoutGroup":
+      return renderScoutGroupCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

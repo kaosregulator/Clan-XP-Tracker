@@ -542,4 +542,130 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     )
     .addSubcommand((s) => s.setName("search").setDescription("Open Roblox Hub search"))
     .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("scout")
+    .setDescription("Game Intelligence Hub — search, trends, snapshots, DevEx (Bloxscout)")
+    .setDMPermission(false)
+    .addSubcommand((s) => s.setName("hub").setDescription("Open the Game Intelligence Hub"))
+    .addSubcommand((s) =>
+      s
+        .setName("search")
+        .setDescription("Search Roblox games")
+        .addStringOption((o) =>
+          o.setName("keyword").setDescription("Game name or keyword").setRequired(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("trending")
+        .setDescription("Find trending / hot games")
+        .addStringOption((o) =>
+          o.setName("genre").setDescription("Optional genre filter").setRequired(false).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("top")
+        .setDescription("Top games by genre")
+        .addStringOption((o) =>
+          o.setName("genre").setDescription("Genre (tycoon, simulator, rpg…)").setRequired(true).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("upcoming").setDescription("Up-and-coming games (needs snapshot history)")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("game")
+        .setDescription("Game intelligence card")
+        .addStringOption((o) =>
+          o.setName("game").setDescription("Name or universe ID").setRequired(true).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("compare")
+        .setDescription("Compare two games")
+        .addStringOption((o) =>
+          o.setName("game_a").setDescription("First game").setRequired(true).setAutocomplete(true)
+        )
+        .addStringOption((o) =>
+          o.setName("game_b").setDescription("Second game").setRequired(true).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("genre")
+        .setDescription("Compare a game against its genre cohort")
+        .addStringOption((o) =>
+          o.setName("game").setDescription("Game name or universe ID").setRequired(true).setAutocomplete(true)
+        )
+        .addStringOption((o) =>
+          o.setName("genre").setDescription("Override genre").setRequired(false).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("snapshot")
+        .setDescription("Save a local SQLite snapshot (defaults to Military Tycoon)")
+        .addStringOption((o) =>
+          o.setName("game").setDescription("Game name or universe ID").setRequired(false).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("history")
+        .setDescription("Show local snapshot history & deltas")
+        .addStringOption((o) =>
+          o.setName("game").setDescription("Game name or universe ID").setRequired(false).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("creators")
+        .setDescription("Top creators by genre")
+        .addStringOption((o) =>
+          o.setName("genre").setDescription("Genre").setRequired(true).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("group").setDescription("InfinityInteractive group information")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("report")
+        .setDescription("Generate a genre market report")
+        .addStringOption((o) =>
+          o.setName("genre").setDescription("Genre").setRequired(true).setAutocomplete(true)
+        )
+        .addStringOption((o) =>
+          o
+            .setName("focus")
+            .setDescription("Optional focus game (defaults to Military Tycoon)")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("revenue")
+        .setDescription("Heuristic revenue estimate for a game")
+        .addStringOption((o) =>
+          o.setName("game").setDescription("Game name or universe ID").setRequired(false).setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("devex")
+        .setDescription("Robux → USD DevEx calculator")
+        .addIntegerOption((o) =>
+          o
+            .setName("robux")
+            .setDescription("Earned Robux amount")
+            .setRequired(true)
+            .setMinValue(0)
+        )
+    )
+    .toJSON(),
 ];

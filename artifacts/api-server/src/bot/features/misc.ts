@@ -26,19 +26,21 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   const officer = isOfficer(interaction.member, clan ?? null);
 
   const sections = [
-    {
-      title: "For members",
-      accent: "#57f287",
-      lines: [
-        `You never submit ${activity} — officers verify it in-game`,
-        `/xp progress  —  where you stand this week`,
-        `/calendar  —  your ${activity} calendar & daily history`,
-        `/xp history  —  your past weeks`,
-        `/warnings  —  your active ${activity} warnings`,
-        `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
-      ],
-    },
-  ];
+      {
+        title: "For members",
+        accent: "#57f287",
+        lines: [
+          `You never submit ${activity} — officers verify it in-game`,
+          `/xp progress  —  where you stand this week`,
+          `/calendar  —  your ${activity} calendar & daily history`,
+          `/xp history  —  your past weeks`,
+          `/warnings  —  your active ${activity} warnings`,
+          `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
+          `/roblox  —  Roblox player hub · /military  —  Military Tycoon`,
+          `/scout  —  Game Intelligence (trends, snapshots, DevEx)`,
+        ],
+      },
+    ];
   if (officer) {
     sections.push(
       {

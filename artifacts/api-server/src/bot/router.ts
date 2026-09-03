@@ -42,6 +42,13 @@ import {
   handleRobloxSelect,
   handleRobloxModal,
 } from "./features/robloxHub";
+import {
+  handleScoutCommand,
+  handleScoutAutocomplete,
+  handleScoutButton,
+  handleScoutSelect,
+  handleScoutModal,
+} from "./features/scoutHub";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -79,6 +86,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleRobloxCommand(interaction));
         case "military":
           return void (await handleMilitaryCommand(interaction));
+        case "scout":
+          return void (await handleScoutCommand(interaction));
       }
       return;
     }
@@ -86,6 +95,9 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     if (interaction.isAutocomplete()) {
       if (interaction.commandName === "roblox" || interaction.commandName === "military") {
         return void (await handleRobloxAutocomplete(interaction));
+      }
+      if (interaction.commandName === "scout") {
+        return void (await handleScoutAutocomplete(interaction));
       }
       return;
     }
@@ -117,6 +129,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleEnforcementButton(interaction));
         case NS.rbx:
           return void (await handleRobloxButton(interaction));
+        case NS.scout:
+          return void (await handleScoutButton(interaction));
       }
       return;
     }
@@ -137,6 +151,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.enf) return void (await handleEnforcementNoteModal(interaction));
       if (ns === NS.hub) return void (await handleHubModal(interaction));
       if (ns === NS.rbx) return void (await handleRobloxModal(interaction));
+      if (ns === NS.scout) return void (await handleScoutModal(interaction));
       return;
     }
 
@@ -155,6 +170,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.disp) return void (await handleDisputeSelect(interaction));
       if (ns === NS.tkt) return void (await handleTicketSelect(interaction));
       if (ns === NS.rbx) return void (await handleRobloxSelect(interaction));
+      if (ns === NS.scout) return void (await handleScoutSelect(interaction));
       return;
     }
   } catch (err) {

@@ -6,6 +6,7 @@ import { ensureFonts } from "./canvas/fonts";
 import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
 import { setCommandCenterClient } from "./services/commandCenter";
+import { startScoutAutoSnapshots } from "./services/scout";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -87,6 +88,12 @@ export function startBot() {
     setCommandCenterClient(c);
     await registerCommands(c);
     startScheduler(c);
+    // Background Military Tycoon (and tracked) snapshots for Game Intelligence.
+    try {
+      startScoutAutoSnapshots();
+    } catch (err) {
+      logger.warn({ err }, "Scout auto-snapshots failed to start");
+    }
   });
 
   client.on(Events.InteractionCreate, (interaction) => {

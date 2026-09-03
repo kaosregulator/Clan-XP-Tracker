@@ -47,3 +47,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Bloxscout local SQLite snapshots (Game Intelligence /scout hub)
+data/bloxscout/
+artifacts/api-server/data/bloxscout/

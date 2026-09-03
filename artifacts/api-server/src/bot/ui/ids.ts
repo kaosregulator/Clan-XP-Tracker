@@ -17,6 +17,7 @@ export const NS = {
   hub: "hub", // member self-service hub (/warnings for members)
   enf: "enf", // unified enforcement picker (/xpreminder: reminder | warning)
   rbx: "rbx", // Roblox Hub (/roblox, /military)
+  scout: "sct", // Game Intelligence Hub (/scout) — Bloxscout
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -194,3 +195,16 @@ export const RBX_PICK_GAME = id(NS.rbx, "pickGame"); // string select
 export const RBX_BACK = id(NS.rbx, "back");
 export const RBX_OPEN_PROFILE = id(NS.rbx, "extProfile"); // link-style handled as button → content
 export const RBX_MILITARY = id(NS.rbx, "nav", "military");
+
+// Game Intelligence / Scout Hub — separate from Roblox player hub
+export const SCT_NAV = (view: string) => id(NS.scout, "nav", view);
+export const SCT_PAGE = (dir: "prev" | "next") => id(NS.scout, "page", dir);
+export const SCT_REFRESH = id(NS.scout, "refresh");
+export const SCT_SEARCH = id(NS.scout, "search");
+export const SCT_SEARCH_MODAL = id(NS.scout, "searchModal");
+export const SCT_PICK_GAME = id(NS.scout, "pickGame");
+export const SCT_BACK = id(NS.scout, "back");
+export const SCT_SNAPSHOT = id(NS.scout, "snap");
+export const SCT_GENRE_MODAL = id(NS.scout, "genreModal");
+export const SCT_COMPARE_MODAL = id(NS.scout, "compareModal");
+export const SCT_DEVEX_MODAL = id(NS.scout, "devexModal");

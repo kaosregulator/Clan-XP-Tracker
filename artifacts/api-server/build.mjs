@@ -115,6 +115,9 @@ async function buildAll() {
       "roblox-bat",
       "parse-roblox-errors",
       "robloxian-api",
+      "bloxscout",
+      "bloxscout/*",
+      "undici",
     ],
     sourcemap: "linked",
     plugins: [
