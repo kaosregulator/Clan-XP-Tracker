@@ -79,6 +79,10 @@ export function startBot() {
     // role membership for bulk actions and exempt/leave role sync.
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
     partials: [Partials.Channel],
+    // Card replies attach a rendered PNG; on this host the multipart upload to
+    // Discord can take longer than the 15s REST default, which aborted every
+    // image command. Give uploads more room to complete.
+    rest: { timeout: 60_000 },
   });
 
   client.once(Events.ClientReady, async (c) => {

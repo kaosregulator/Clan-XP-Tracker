@@ -19,12 +19,28 @@ const POOL_SIZE = 2;
 interface Pending {
   resolve: (buf: Buffer) => void;
   reject: (err: Error) => void;
+  worker: Worker;
+  timer: ReturnType<typeof setTimeout>;
 }
+
+// A render never legitimately takes this long; the cap only exists so a worker
+// that dies or wedges can't leave an interaction stuck on "thinking…" forever.
+const RENDER_TIMEOUT_MS = 20_000;
 
 const pending = new Map<number, Pending>();
 let nextId = 0;
 let workers: Worker[] = [];
 let nextWorker = 0;
+
+/** Reject and clear every in-flight render assigned to a dead worker. */
+function failWorkerPending(w: Worker, reason: string): void {
+  for (const [id, p] of pending) {
+    if (p.worker !== w) continue;
+    clearTimeout(p.timer);
+    pending.delete(id);
+    p.reject(new Error(reason));
+  }
+}
 
 function buildWorker(): Worker {
   // When bundled by esbuild, import.meta.url is the bundle file (bot-worker.mjs
@@ -36,6 +52,7 @@ function buildWorker(): Worker {
   w.on("message", ({ id, buf, error }: { id: number; buf?: ArrayBuffer; error?: string }) => {
     const p = pending.get(id);
     if (!p) return;
+    clearTimeout(p.timer);
     pending.delete(id);
     if (error !== undefined) {
       p.reject(new Error(error));
@@ -47,6 +64,7 @@ function buildWorker(): Worker {
 
   w.on("error", (err) => {
     logger.error({ err }, "Render worker error — rebuilding");
+    failWorkerPending(w, "Render worker crashed");
     const idx = workers.indexOf(w);
     if (idx >= 0) workers[idx] = buildWorker();
   });
@@ -54,6 +72,7 @@ function buildWorker(): Worker {
   w.on("exit", (code) => {
     if (code !== 0) {
       logger.warn({ code }, "Render worker exited unexpectedly — rebuilding");
+      failWorkerPending(w, `Render worker exited (code ${code})`);
       const idx = workers.indexOf(w);
       if (idx >= 0) workers[idx] = buildWorker();
     }
@@ -83,10 +102,15 @@ export function renderOffThread(fn: string, params: unknown): Promise<Buffer> {
 
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    pending.set(id, { resolve, reject });
     // Round-robin across the pool.
     const w = workers[nextWorker % workers.length]!;
     nextWorker++;
+    const timer = setTimeout(() => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      reject(new Error(`Render "${fn}" timed out after ${RENDER_TIMEOUT_MS}ms`));
+    }, RENDER_TIMEOUT_MS);
+    pending.set(id, { resolve, reject, worker: w, timer });
     w.postMessage({ id, fn, params });
   });
 }
