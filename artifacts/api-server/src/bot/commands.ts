@@ -460,6 +460,21 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         )
     )
     .addSubcommand((s) =>
+      s
+        .setName("passes")
+        .setDescription("Browse game passes (default: Military Tycoon)")
+        .addStringOption((o) =>
+          o
+            .setName("game")
+            .setDescription("Name, place ID, or universe ID")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+        .addBooleanOption((o) =>
+          o.setName("onsale").setDescription("Only show passes currently for sale").setRequired(false)
+        )
+    )
+    .addSubcommand((s) =>
       s.setName("search").setDescription("Open the Roblox Hub search")
     )
     .toJSON(),
@@ -502,7 +517,29 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         )
     )
     .addSubcommand((s) => s.setName("servers").setDescription("Military Tycoon public servers"))
-    .addSubcommand((s) => s.setName("items").setDescription("Public game passes / items"))
+    .addSubcommand((s) =>
+      s
+        .setName("items")
+        .setDescription("MT game passes (optionally check a player's ownership)")
+        .addStringOption((o) =>
+          o
+            .setName("username")
+            .setDescription("Optional player — mark which passes they own")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("passes")
+        .setDescription("Military Tycoon game pass browser with store links")
+        .addBooleanOption((o) =>
+          o.setName("onsale").setDescription("Only passes currently for sale").setRequired(false)
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("integrate").setDescription("What public MT data this bot can use")
+    )
     .addSubcommand((s) => s.setName("search").setDescription("Open Roblox Hub search"))
     .toJSON(),
 ];

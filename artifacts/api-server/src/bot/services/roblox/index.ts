@@ -22,6 +22,12 @@ import {
 } from "./games";
 import { getUserBadgesPage, getUniverseBadgesPage, estimateUserBadgeCount } from "./badges";
 import { canViewInventory, getPublicInventoryPage } from "./inventory";
+import {
+  listUniverseGamePasses,
+  userOwnsGamePass,
+  withOwnership,
+  gamePassUrl,
+} from "./passes";
 import * as military from "./militaryTycoon";
 import { ensureRobloxClient, hasOpenCloudKey } from "./client";
 import type { PlayerCardData } from "./types";
@@ -39,7 +45,6 @@ import {
 
 ensureRobloxClient();
 
-/** Aggregate the main player card payload (parallel public fetches). */
 export async function getPlayerCardData(userId: number): Promise<PlayerCardData> {
   const [user, thumbs, presence, friendCount, followerCount, followingCount, groups, badgeCount] =
     await Promise.all([
@@ -80,29 +85,23 @@ export async function getPlayerCardData(userId: number): Promise<PlayerCardData>
 }
 
 export const RobloxService = {
-  // users
   getUserById,
   resolveUsername,
   searchUsers,
   getUsernameHistory,
   getPlayerCardData,
-  // presence
   getUserPresence,
-  // thumbs / avatar
   getUserThumbnails,
-  // social
   getFriendCount,
   getFollowerCount,
   getFollowingCount,
   getFriendsPage,
   getFollowersPage,
   getFollowingPage,
-  // groups
   getUserGroups,
   getUserGroupsPage,
   getGroupMembership,
   getGroupDetails,
-  // games
   getGameByUniverseId,
   getGameByPlaceId,
   resolveGame,
@@ -111,16 +110,16 @@ export const RobloxService = {
   getPublicServers,
   getGamePasses,
   formatCount,
-  // badges
   getUserBadgesPage,
   getUniverseBadgesPage,
   estimateUserBadgeCount,
-  // inventory
   canViewInventory,
   getPublicInventoryPage,
-  // military
+  listUniverseGamePasses,
+  userOwnsGamePass,
+  withOwnership,
+  gamePassUrl,
   military,
-  // meta
   hasOpenCloudKey,
   PRESENCE_EMOJI,
   PRESENCE_LABEL,
@@ -135,6 +134,7 @@ export const RobloxService = {
 };
 
 export type { PlayerCardData };
+export type { RichGamePass } from "./passes";
 export * from "./types";
 export * from "./constants";
 export { toUserError, RobloxServiceError, logRobloxError } from "./errors";

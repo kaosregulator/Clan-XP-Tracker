@@ -40,6 +40,7 @@ import {
   renderRobloxInventoryCard,
   renderMilitaryProfileCard,
   renderRobloxItemsCard,
+  renderIntegrationCard,
 } from "./cards/roblox/gameCards";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
@@ -112,6 +113,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderMilitaryProfileCard(p as any);
     case "robloxItems":
       return renderRobloxItemsCard(p as any);
+    case "robloxIntegration":
+      return renderIntegrationCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

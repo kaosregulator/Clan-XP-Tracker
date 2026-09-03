@@ -1,8 +1,8 @@
-import { getGames, getGamesPlaceidServersServertype, getGamesUniverseidVotes, getGamesUniverseidGamePasses } from "rozod/endpoints/gamesv1";
+import { getGames, getGamesPlaceidServersServertype, getGamesUniverseidVotes } from "rozod/endpoints/gamesv1";
 import { getUsersUseridGames } from "rozod/endpoints/gamesv2";
 import { rbxFetch, rbxHttp, formatCount } from "./client";
 import { robloxCache, TTL } from "./cache";
-import { getGameIcon, getGameThumbnail, getGamePassIcons } from "./thumbnails";
+import { getGameIcon, getGameThumbnail } from "./thumbnails";
 import { RobloxServiceError } from "./errors";
 import type { PageResult, RobloxGame, RobloxGamePass, RobloxServer } from "./types";
 
@@ -280,40 +280,21 @@ export async function getGamePasses(
   universeId: number,
   cursor?: string | null
 ): Promise<PageResult<RobloxGamePass>> {
-  const result = await rbxFetch(getGamesUniverseidGamePasses, {
-    universeId,
-    limit: 25,
-    sortOrder: 1,
-    cursor: cursor ?? undefined,
+  // Prefer the current public Game Passes API — RoZod's games.roblox.com
+  // listing frequently returns empty errors for popular universes.
+  const { listUniverseGamePasses } = await import("./passes");
+  const page = await listUniverseGamePasses(universeId, {
+    pageToken: cursor,
+    count: 25,
+    filter: "all",
   });
-  const data =
-    (result as {
-      data?: Array<{
-        id: number;
-        name?: string;
-        displayName?: string;
-        productId?: number;
-        price?: number | null;
-      }>;
-      nextPageCursor?: string | null;
-    }).data ?? [];
-  const next = (result as { nextPageCursor?: string | null }).nextPageCursor ?? null;
-  const icons = await getGamePassIcons(data.map((p) => p.id));
-  const items: RobloxGamePass[] = data.map((p) => ({
-    id: p.id,
-    name: p.name ?? p.displayName ?? `Pass ${p.id}`,
-    displayName: p.displayName ?? p.name ?? `Pass ${p.id}`,
-    productId: p.productId ?? null,
-    price: p.price ?? null,
-    iconUrl: icons.get(p.id) ?? null,
-  }));
   return {
-    items,
+    items: page.items,
     page: 0,
-    pageSize: 25,
-    total: items.length,
-    hasMore: Boolean(next),
-    nextCursor: next,
+    pageSize: page.pageSize,
+    total: page.total,
+    hasMore: page.hasMore,
+    nextCursor: page.nextPageToken,
   };
 }
 

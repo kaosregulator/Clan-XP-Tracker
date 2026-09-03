@@ -82,6 +82,7 @@ export interface RobloxPlayerCardView {
   badgeCount: string | null;
   createdLabel: string | null;
   verified?: boolean;
+  banned?: boolean;
 }
 
 export async function renderRobloxPlayerCard(view: RobloxPlayerCardView): Promise<Buffer> {
@@ -148,9 +149,10 @@ export async function renderRobloxPlayerCard(view: RobloxPlayerCardView): Promis
   const metaBits = [`User ID: ${view.userId}`];
   if (view.createdLabel) metaBits.push(`Created: ${view.createdLabel}`);
   if (view.verified) metaBits.push("Verified Badge");
+  if (view.banned) metaBits.push("Account flagged banned (public)");
   text(ctx, metaBits.join("  ·  "), W / 2, H - 36, {
     size: 15,
-    color: RBX.muted,
+    color: view.banned ? RBX.red : RBX.muted,
     align: "center",
     maxWidth: W - 80,
   });

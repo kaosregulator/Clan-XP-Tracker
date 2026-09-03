@@ -217,6 +217,9 @@ importers:
       pino-http:
         specifier: ^10.5.0
         version: 10.5.0
+      robloxian-api:
+        specifier: ^1.0.0
+        version: 1.0.0
       rozod:
         specifier: ^6.9.0
         version: 6.9.0
@@ -3217,6 +3220,10 @@ packages:
   roblox-bat@0.6.5:
     resolution: {integrity: sha512-aHcCSTT92uze1u4zKyG6AUR+IGzTTBnVSAZj6U/a9wIhQT7aid0iKrVu2ts4RXD+hMrV0xSN9YnpCR6hhQkW9Q==}
 
+  robloxian-api@1.0.0:
+    resolution: {integrity: sha512-vTF8jKlrPwLBdY46P+FMA3Q4l+Er8SVVNImio/lNd/Kt5mNs3y2vjma/DXx0vRZvBPQHRMD4f0F98pHIouGLxQ==}
+    engines: {node: '>=18.0.0'}
+
   rollup@4.62.2:
     resolution: {integrity: sha512-RFnrW4lhXA3s3eqHDZvN654g8OTjzRfqpIRJYczCGB6HzphckVAi/Qh4tbPUbRuDi7s1Llv8g/NspLkttY3gTA==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -6112,6 +6119,8 @@ snapshots:
   reusify@1.1.0: {}
 
   roblox-bat@0.6.5: {}
+
+  robloxian-api@1.0.0: {}
 
   rollup@4.62.2:
     dependencies:

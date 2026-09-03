@@ -307,7 +307,7 @@ export async function renderMilitaryProfileCard(view: MilitaryProfileCardView): 
 export interface ItemsCardView {
   title: string;
   subtitle: string;
-  items: Array<{ name: string; meta: string; iconUrl: string | null }>;
+  items: Array<{ name: string; meta: string; iconUrl: string | null; owned?: boolean | null }>;
   page: number;
 }
 
@@ -352,12 +352,61 @@ export async function renderRobloxItemsCard(view: ItemsCardView): Promise<Buffer
         color: RBX.ink,
         maxWidth: colW - 120,
       });
-      text(ctx, item.meta, x + 96, y + 70, {
+      const ownedTag =
+        item.owned === true ? " · Owned" : item.owned === false ? " · Not owned" : "";
+      text(ctx, item.meta + ownedTag, x + 96, y + 70, {
         size: 14,
-        color: RBX.muted,
+        color: item.owned === true ? RBX.green : RBX.muted,
         maxWidth: colW - 120,
       });
     }
   }
+  return toPng(rc.canvas);
+}
+
+export interface IntegrationCardView {
+  title: string;
+  lines: Array<{ label: string; value: string }>;
+  note: string;
+}
+
+export async function renderIntegrationCard(view: IntegrationCardView): Promise<Buffer> {
+  const W = 920;
+  const H = 160 + view.lines.length * 52 + 100;
+  const rc = createSurface(W, Math.max(H, 420));
+  const { ctx } = rc;
+  paintBackground(rc);
+
+  text(ctx, "INTEGRATION MAP", 40, 48, { size: 16, weight: "bold", color: RBX.blueDeep });
+  text(ctx, view.title, 40, 88, {
+    size: 28,
+    weight: "bold",
+    color: RBX.ink,
+    maxWidth: W - 80,
+  });
+
+  let y = 140;
+  for (const line of view.lines) {
+    card(ctx, 40, y, W - 80, 44, { shadow: false, radius: 12, fill: PALETTE.cardAlt });
+    text(ctx, line.label, 56, y + 28, {
+      size: 16,
+      weight: "bold",
+      color: RBX.soft,
+      maxWidth: 280,
+    });
+    text(ctx, line.value, W - 56, y + 28, {
+      size: 16,
+      color: RBX.ink,
+      align: "right",
+      maxWidth: W - 360,
+    });
+    y += 52;
+  }
+
+  text(ctx, view.note, 40, rc.height - 36, {
+    size: 14,
+    color: RBX.muted,
+    maxWidth: W - 80,
+  });
   return toPng(rc.canvas);
 }

@@ -235,4 +235,7 @@ export type HubView =
   | "militaryRank"
   | "militaryBadges"
   | "militaryItems"
+  | "passes"
+  | "passesOnSale"
+  | "integration"
   | "search";

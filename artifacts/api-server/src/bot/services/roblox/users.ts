@@ -7,6 +7,8 @@ import {
 import { rbxFetch } from "./client";
 import { robloxCache, TTL } from "./cache";
 import { RobloxServiceError } from "./errors";
+import { withFallback } from "./providers/fallback";
+import { rbxianUserByName, rbxianUserDetails } from "./providers/robloxian";
 import type { RobloxUser, RobloxUserSearchHit } from "./types";
 
 function mapUser(raw: {
@@ -34,8 +36,26 @@ export async function getUserById(userId: number): Promise<RobloxUser> {
   const cached = robloxCache.get<RobloxUser>(key);
   if (cached) return cached;
 
-  const raw = await rbxFetch(getUsersUserid, { userId });
-  const user = mapUser(raw as Parameters<typeof mapUser>[0]);
+  const user = await withFallback(
+    `user:${userId}`,
+    async () => {
+      const raw = await rbxFetch(getUsersUserid, { userId });
+      return mapUser(raw as Parameters<typeof mapUser>[0]);
+    },
+    async () => {
+      const d = await rbxianUserDetails(userId);
+      if (!d?.id) throw new RobloxServiceError("not_found", `user ${userId}`);
+      return mapUser({
+        id: Number(d.id),
+        name: String(d.name ?? d.username ?? userId),
+        displayName: String(d.displayName ?? d.name ?? d.username ?? userId),
+        description: d.description ?? "",
+        created: d.created ?? d.joinDate ?? null,
+        isBanned: Boolean(d.isBanned ?? d.IsBanned),
+        hasVerifiedBadge: Boolean(d.hasVerifiedBadge),
+      });
+    }
+  );
   return robloxCache.set(key, user, TTL.user);
 }
 
@@ -43,7 +63,6 @@ export async function resolveUsername(username: string): Promise<RobloxUser> {
   const cleaned = username.trim().replace(/^@/, "");
   if (!cleaned) throw new RobloxServiceError("invalid", "empty username");
 
-  // Numeric id shortcut
   if (/^\d+$/.test(cleaned)) {
     return getUserById(Number(cleaned));
   }
@@ -52,22 +71,28 @@ export async function resolveUsername(username: string): Promise<RobloxUser> {
   const cachedId = robloxCache.get<number>(key);
   if (cachedId) return getUserById(cachedId);
 
-  const result = await rbxFetch(postUsernamesUsers, {
-    body: { usernames: [cleaned], excludeBannedUsers: false },
-  });
-  const data = (result as { data?: Array<{ id: number; name: string }> }).data ?? [];
-  const hit = data[0];
-  if (!hit?.id) {
-    throw new RobloxServiceError("not_found", `username ${cleaned}`);
-  }
-  robloxCache.set(key, hit.id, TTL.userId);
-  return getUserById(hit.id);
+  const hit = await withFallback(
+    `resolve:${cleaned}`,
+    async () => {
+      const result = await rbxFetch(postUsernamesUsers, {
+        body: { usernames: [cleaned], excludeBannedUsers: false },
+      });
+      const data = (result as { data?: Array<{ id: number; name: string }> }).data ?? [];
+      const row = data[0];
+      if (!row?.id) throw new RobloxServiceError("not_found", `username ${cleaned}`);
+      return row.id as number;
+    },
+    async () => {
+      const u = await rbxianUserByName(cleaned);
+      if (!u?.id) throw new RobloxServiceError("not_found", `username ${cleaned}`);
+      return Number(u.id);
+    }
+  );
+
+  robloxCache.set(key, hit, TTL.userId);
+  return getUserById(hit);
 }
 
-/**
- * Live Roblox user search for Discord autocomplete.
- * Cached aggressively; minimum keyword length enforced by caller.
- */
 export async function searchUsers(
   keyword: string,
   limit: 10 | 25 = 10
@@ -101,7 +126,6 @@ export async function searchUsers(
     }));
     return robloxCache.set(key, hits, TTL.search);
   } catch {
-    // Autocomplete / search should degrade quietly on transient Roblox failures.
     return robloxCache.get<RobloxUserSearchHit[]>(key) ?? [];
   }
 }

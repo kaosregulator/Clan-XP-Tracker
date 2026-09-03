@@ -114,6 +114,7 @@ async function buildAll() {
       "rozod/*",
       "roblox-bat",
       "parse-roblox-errors",
+      "robloxian-api",
     ],
     sourcemap: "linked",
     plugins: [

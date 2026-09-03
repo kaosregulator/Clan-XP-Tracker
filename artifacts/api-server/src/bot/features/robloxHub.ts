@@ -177,6 +177,7 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
         btn(RBX_NAV("military"), "Military Tycoon")
       ),
       row(
+        btn(RBX_NAV("passes"), "Game Passes"),
         btn(RBX_SEARCH, "Search User"),
         btn(RBX_REFRESH, "Refresh", ButtonStyle.Primary)
       )
@@ -198,7 +199,7 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
   const rows: Row[] = [row(...nav.slice(0, 5))];
   if (opts.extra) rows.push(...opts.extra);
 
-  if (st.view === "military" || st.view.startsWith("military")) {
+  if (st.view === "military" || st.view.startsWith("military") || st.view === "passes" || st.view === "passesOnSale" || st.view === "integration") {
     rows.unshift(
       row(
         btn(RBX_NAV("militaryPlayer"), "Player", ButtonStyle.Primary, !hasUser),
@@ -208,7 +209,10 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
         btn(RBX_NAV("servers"), "Servers")
       ),
       row(
-        btn(RBX_NAV("militaryItems"), "Items"),
+        btn(RBX_NAV("passes"), "All Passes"),
+        btn(RBX_NAV("passesOnSale"), "On Sale"),
+        btn(RBX_NAV("militaryItems"), "My Passes", ButtonStyle.Secondary, !hasUser),
+        btn(RBX_NAV("integration"), "Integrate"),
         btn(RBX_REFRESH, "Refresh")
       )
     );
@@ -264,6 +268,7 @@ async function buildPlayer(st: HubState): Promise<BaseMessageOptions> {
       badgeCount: card.badgeCount != null ? (card.badgeCount > 10 ? "10+" : String(card.badgeCount)) : null,
       createdLabel: createdLabel(card.user.created),
       verified: card.user.hasVerifiedBadge,
+      banned: card.user.isBanned,
       description: card.user.description,
     },
     st.view === "profile" ? "roblox-profile.png" : "roblox-player.png"
@@ -796,25 +801,180 @@ async function buildMilitaryRank(st: HubState): Promise<BaseMessageOptions> {
 }
 
 async function buildMilitaryItems(st: HubState): Promise<BaseMessageOptions> {
-  const page = await RobloxService.military.getMilitaryGamePasses(st.cursor);
-  (st as HubState & { _next?: string | null })._next = page.nextCursor ?? null;
+  // When a user is selected, show ownership against the MT pass catalog.
+  if (st.robloxUserId) {
+    const page = await RobloxService.military.getMilitaryPassesForUser(
+      st.robloxUserId,
+      st.cursor
+    );
+    (st as HubState & { _next?: string | null })._next = page.nextPageToken;
+    const user = await RobloxService.getUserById(st.robloxUserId);
+    const file = await fileFrom(
+      "robloxItems",
+      {
+        title: "Game Passes",
+        subtitle: `${user.name} · Military Tycoon`,
+        page: st.page,
+        items: page.items.map((p) => ({
+          name: p.displayName || p.name,
+          meta:
+            (p.isForSale ? "On sale" : "Not for sale") +
+            (p.price != null ? ` · R$ ${p.price}` : ""),
+          iconUrl: p.iconUrl,
+          owned: p.owned,
+        })),
+      },
+      "military-passes-owned.png"
+    );
+    const linkRows: Row[] = [];
+    const sale = page.items.filter((p) => p.isForSale).slice(0, 5);
+    if (sale.length) {
+      linkRows.push(
+        row(
+          ...sale.map((p) =>
+            new ButtonBuilder()
+              .setStyle(ButtonStyle.Link)
+              .setLabel(p.displayName.slice(0, 70))
+              .setURL(p.url)
+          )
+        )
+      );
+    }
+    return {
+      files: [file],
+      components: [...navRows(st, { hasPrev: st.page > 0, hasNext: page.hasMore }), ...linkRows],
+    };
+  }
+  return buildPasses(st, "all");
+}
+
+async function buildPasses(
+  st: HubState,
+  filter: "all" | "onsale" = st.view === "passesOnSale" ? "onsale" : "all"
+): Promise<BaseMessageOptions> {
+  const universeId = st.gameUniverseId ?? RobloxService.MILITARY_TYCOON_UNIVERSE_ID;
+  const page = await RobloxService.listUniverseGamePasses(universeId, {
+    pageToken: st.cursor,
+    count: 12,
+    filter,
+  });
+  (st as HubState & { _next?: string | null })._next = page.nextPageToken;
+
+  let items = page.items;
+  if (st.robloxUserId) {
+    items = await RobloxService.withOwnership(st.robloxUserId, items);
+  }
+
+  const title =
+    universeId === RobloxService.MILITARY_TYCOON_UNIVERSE_ID
+      ? RobloxService.MILITARY_TYCOON_NAME
+      : `Universe ${universeId}`;
+
   const file = await fileFrom(
     "robloxItems",
     {
-      title: "Game Passes",
-      subtitle: RobloxService.MILITARY_TYCOON_NAME,
+      title: filter === "onsale" ? "Passes on sale" : "Game Passes",
+      subtitle: title,
       page: st.page,
-      items: page.items.map((p) => ({
+      items: items.map((p) => ({
         name: p.displayName || p.name,
-        meta: p.price != null ? `R$ ${p.price}` : `ID ${p.id}`,
+        meta:
+          (p.isForSale ? "On sale" : "Off sale") +
+          (p.price != null ? ` · R$ ${p.price}` : "") +
+          ` · #${p.id}`,
         iconUrl: p.iconUrl,
+        owned: p.owned,
       })),
     },
-    "military-items.png"
+    "roblox-passes.png"
+  );
+
+  // Up to 5 store links (Discord allows 5 buttons per row).
+  const linkTargets = (filter === "onsale" ? items.filter((p) => p.isForSale) : items).slice(0, 5);
+  const components = [
+    ...navRows(st, { hasPrev: st.page > 0, hasNext: page.hasMore }),
+    ...(linkTargets.length
+      ? [
+          row(
+            ...linkTargets.map((p) =>
+              new ButtonBuilder()
+                .setStyle(ButtonStyle.Link)
+                .setLabel((p.displayName || "Pass").slice(0, 70))
+                .setURL(p.url)
+            )
+          ),
+        ]
+      : []),
+    row(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel("Open experience")
+        .setURL(
+          RobloxService.ROBLOX_GAME_URL(
+            st.gamePlaceId ?? RobloxService.MILITARY_TYCOON_PLACE_ID
+          )
+        )
+    ),
+  ];
+
+  return { files: [file], components };
+}
+
+async function buildIntegration(st: HubState): Promise<BaseMessageOptions> {
+  const snap = await RobloxService.military.getMtIntegrationSnapshot();
+  const file = await fileFrom(
+    "robloxIntegration",
+    {
+      title: "Military Tycoon · public surface",
+      lines: [
+        { label: "Players now", value: RobloxService.formatCount(snap.game.playing) },
+        { label: "Visits", value: RobloxService.formatCount(snap.game.visits) },
+        { label: "Favorites", value: RobloxService.formatCount(snap.game.favoritedCount) },
+        {
+          label: "Votes",
+          value:
+            snap.game.upVotes != null
+              ? `${RobloxService.formatCount(snap.game.upVotes)} / ${RobloxService.formatCount(snap.game.downVotes ?? 0)}`
+              : "—",
+        },
+        { label: "Community", value: `${snap.group.name} · ${RobloxService.formatCount(snap.group.memberCount)}` },
+        { label: "Group roles", value: String(snap.roles.length) },
+        { label: "Group experiences", value: String(snap.experiences.length) },
+        {
+          label: "Game passes (sample)",
+          value: `${snap.passesTotalSample}${snap.passesTotalSample > 50 ? "+" : ""} · ${snap.passesForSale} on sale`,
+        },
+        { label: "Badges (sample)", value: String(snap.badgeSampleCount) },
+        {
+          label: "In-game XP / DataStores",
+          value: snap.openCloudConfigured
+            ? "Key set — needs II authorization"
+            : "Needs InfinityInteractive Open Cloud key",
+        },
+        {
+          label: "Clan XP in Discord",
+          value: "Already handled by ClanXP (/xp) — link via gameUsername",
+        },
+      ],
+      note: "Public Roblox only · No cookies · No private MT stats · No alt-hunting",
+    },
+    "mt-integration.png"
   );
   return {
     files: [file],
-    components: navRows(st, { hasPrev: st.page > 0, hasNext: page.hasMore }),
+    components: [
+      ...navRows(st),
+      row(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel("Play Military Tycoon")
+          .setURL(RobloxService.ROBLOX_GAME_URL(RobloxService.MILITARY_TYCOON_PLACE_ID)),
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel("InfinityInteractive")
+          .setURL(RobloxService.ROBLOX_GROUP_URL(RobloxService.INFINITY_INTERACTIVE_GROUP_ID))
+      ),
+    ],
   };
 }
 
@@ -856,6 +1016,12 @@ async function buildView(st: HubState): Promise<BaseMessageOptions> {
       return buildMilitaryRank(st);
     case "militaryItems":
       return buildMilitaryItems(st);
+    case "passes":
+      return buildPasses(st, "all");
+    case "passesOnSale":
+      return buildPasses(st, "onsale");
+    case "integration":
+      return buildIntegration(st);
     default:
       return buildHome();
   }
@@ -1012,6 +1178,22 @@ export async function handleRobloxCommand(interaction: ChatInputCommandInteracti
       );
     }
 
+    if (sub === "passes") {
+      const q = interaction.options.getString("game");
+      const onsale = interaction.options.getBoolean("onsale") ?? false;
+      const game = q
+        ? await RobloxService.resolveGame(q)
+        : await RobloxService.military.getMilitaryGame();
+      return replyHub(
+        interaction,
+        freshState(ownerId, {
+          view: onsale ? "passesOnSale" : "passes",
+          gameUniverseId: game.universeId,
+          gamePlaceId: game.rootPlaceId,
+        })
+      );
+    }
+
     // default
     return replyHub(interaction, freshState(ownerId, { view: "home" }));
   } catch (err) {
@@ -1084,8 +1266,33 @@ export async function handleMilitaryCommand(interaction: ChatInputCommandInterac
         })
       );
     }
-    if (sub === "items") {
-      return replyHub(interaction, freshState(ownerId, { view: "militaryItems" }));
+    if (sub === "items" || sub === "passes") {
+      const raw = interaction.options.getString("username");
+      const onsale = interaction.options.getBoolean("onsale") ?? false;
+      let robloxUserId: number | null = null;
+      if (raw) {
+        const user = /^\d+$/.test(raw)
+          ? await RobloxService.getUserById(Number(raw))
+          : await RobloxService.resolveUsername(raw);
+        robloxUserId = user.id;
+      }
+      return replyHub(
+        interaction,
+        freshState(ownerId, {
+          view:
+            sub === "items" && robloxUserId
+              ? "militaryItems"
+              : onsale
+                ? "passesOnSale"
+                : "passes",
+          robloxUserId,
+          gameUniverseId: RobloxService.MILITARY_TYCOON_UNIVERSE_ID,
+          gamePlaceId: RobloxService.MILITARY_TYCOON_PLACE_ID,
+        })
+      );
+    }
+    if (sub === "integrate") {
+      return replyHub(interaction, freshState(ownerId, { view: "integration" }));
     }
     if (sub === "badges") {
       const raw = interaction.options.getString("username");
