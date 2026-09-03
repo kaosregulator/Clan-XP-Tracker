@@ -56,6 +56,16 @@ function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
     .toJSON();
 }
 
+function robloxUserOption(
+  o: import("discord.js").SlashCommandStringOption
+): import("discord.js").SlashCommandStringOption {
+  return o
+    .setName("username")
+    .setDescription("Roblox username or user ID")
+    .setRequired(true)
+    .setAutocomplete(true);
+}
+
 export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
     .setName("setup")
@@ -378,5 +388,121 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setName("tickets")
     .setDescription("View and manage staff tickets (officers)")
     .setDMPermission(false)
+    .toJSON(),
+
+  // ── Roblox Hub ──────────────────────────────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("roblox")
+    .setDescription("Open the Roblox Hub — profiles, games, groups, and more")
+    .setDMPermission(false)
+    .addSubcommand((s) => s.setName("hub").setDescription("Open the Roblox Hub home"))
+    .addSubcommand((s) =>
+      s.setName("user").setDescription("Open a Roblox player card").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("profile").setDescription("Full Roblox profile view").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("avatar").setDescription("Roblox avatar views").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("status").setDescription("Online / in-game status").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("groups").setDescription("Roblox groups & roles").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("friends").setDescription("Friends list").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("followers").setDescription("Followers list").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("following").setDescription("Following list").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s.setName("badges").setDescription("Earned badges").addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("history")
+        .setDescription("Username history")
+        .addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("inventory")
+        .setDescription("Public inventory (if the user allows it)")
+        .addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("game")
+        .setDescription("Look up a Roblox experience")
+        .addStringOption((o) =>
+          o
+            .setName("game")
+            .setDescription("Name, place ID, or universe ID")
+            .setRequired(true)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("servers")
+        .setDescription("Browse public servers for an experience")
+        .addStringOption((o) =>
+          o
+            .setName("game")
+            .setDescription("Name, place ID, or universe ID (default: Military Tycoon)")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("search").setDescription("Open the Roblox Hub search")
+    )
+    .toJSON(),
+
+  // ── Military Tycoon (public data only) ──────────────────────────────────
+  new SlashCommandBuilder()
+    .setName("military")
+    .setDescription("Military Tycoon / InfinityInteractive public info")
+    .setDMPermission(false)
+    .addSubcommand((s) =>
+      s
+        .setName("player")
+        .setDescription("Military Tycoon player card (public Roblox data)")
+        .addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("rank")
+        .setDescription("InfinityInteractive group rank")
+        .addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("profile")
+        .setDescription("Military profile (public data)")
+        .addStringOption(robloxUserOption)
+    )
+    .addSubcommand((s) => s.setName("game").setDescription("Military Tycoon experience info"))
+    .addSubcommand((s) => s.setName("group").setDescription("InfinityInteractive community"))
+    .addSubcommand((s) =>
+      s
+        .setName("badges")
+        .setDescription("Military Tycoon badges (game or player)")
+        .addStringOption((o) =>
+          o
+            .setName("username")
+            .setDescription("Optional player — show their MT-related badges")
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((s) => s.setName("servers").setDescription("Military Tycoon public servers"))
+    .addSubcommand((s) => s.setName("items").setDescription("Public game passes / items"))
+    .addSubcommand((s) => s.setName("search").setDescription("Open Roblox Hub search"))
     .toJSON(),
 ];

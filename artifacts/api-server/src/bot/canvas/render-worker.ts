@@ -21,6 +21,26 @@ import { renderCommandCenter } from "./cards/commandCenterCard";
 import { renderWarningCard } from "./cards/warningCard";
 import { renderReminderCard } from "./cards/reminderCard";
 import { renderEnforcementPicker } from "./cards/enforcementPickerCard";
+import {
+  renderRobloxHomeCard,
+  renderRobloxPlayerCard,
+  renderRobloxProfileCard,
+  renderRobloxAvatarCard,
+} from "./cards/roblox/playerCards";
+import {
+  renderRobloxGroupsCard,
+  renderRobloxBadgesCard,
+  renderRobloxFriendsCard,
+  renderRobloxHistoryCard,
+  renderRobloxStatusCard,
+} from "./cards/roblox/listCards";
+import {
+  renderRobloxGameCard,
+  renderRobloxServersCard,
+  renderRobloxInventoryCard,
+  renderMilitaryProfileCard,
+  renderRobloxItemsCard,
+} from "./cards/roblox/gameCards";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -64,6 +84,34 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderReminderCard(p as any);
     case "enforcementPicker":
       return renderEnforcementPicker(p as any);
+    case "robloxHome":
+      return renderRobloxHomeCard(p as any);
+    case "robloxPlayer":
+      return renderRobloxPlayerCard(p as any);
+    case "robloxProfile":
+      return renderRobloxProfileCard(p as any);
+    case "robloxAvatar":
+      return renderRobloxAvatarCard(p as any);
+    case "robloxGroups":
+      return renderRobloxGroupsCard(p as any);
+    case "robloxBadges":
+      return renderRobloxBadgesCard(p as any);
+    case "robloxFriends":
+      return renderRobloxFriendsCard(p as any);
+    case "robloxHistory":
+      return renderRobloxHistoryCard(p as any);
+    case "robloxStatus":
+      return renderRobloxStatusCard(p as any);
+    case "robloxGame":
+      return renderRobloxGameCard(p as any);
+    case "robloxServers":
+      return renderRobloxServersCard(p as any);
+    case "robloxInventory":
+      return renderRobloxInventoryCard(p as any);
+    case "robloxMilitaryProfile":
+      return renderMilitaryProfileCard(p as any);
+    case "robloxItems":
+      return renderRobloxItemsCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

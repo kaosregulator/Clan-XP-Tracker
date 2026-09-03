@@ -217,6 +217,9 @@ importers:
       pino-http:
         specifier: ^10.5.0
         version: 10.5.0
+      rozod:
+        specifier: ^6.9.0
+        version: 6.9.0
       sharp:
         specifier: ^0.35.3
         version: 0.35.3(@types/node@25.9.4)
@@ -2927,6 +2930,9 @@ packages:
     resolution: {integrity: sha512-TXfryirbmq34y8QBwgqCVLi+8oA3oWx2eAnSn62ITyEhEYaWRlVZ2DvMM9eZbMs/RfxPu/PK/aBLyGj4IrqMHw==}
     engines: {node: '>=18'}
 
+  parse-roblox-errors@1.2.2:
+    resolution: {integrity: sha512-HqzYHhBvmMscbeRIjaymX5e36akfbXurlLM1UdlBWzqLpJlntih8rcw0b5DE8XvI8/w8AguOVJ8bAhTJBiMfYA==}
+
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
@@ -3208,6 +3214,9 @@ packages:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
 
+  roblox-bat@0.6.5:
+    resolution: {integrity: sha512-aHcCSTT92uze1u4zKyG6AUR+IGzTTBnVSAZj6U/a9wIhQT7aid0iKrVu2ts4RXD+hMrV0xSN9YnpCR6hhQkW9Q==}
+
   rollup@4.62.2:
     resolution: {integrity: sha512-RFnrW4lhXA3s3eqHDZvN654g8OTjzRfqpIRJYczCGB6HzphckVAi/Qh4tbPUbRuDi7s1Llv8g/NspLkttY3gTA==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -3216,6 +3225,9 @@ packages:
   router@2.2.0:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
+
+  rozod@6.9.0:
+    resolution: {integrity: sha512-8AbpHXWsO7F9ITw+BBJKkMHT69NOfOjRdp8QQSG+CMaSobQEokkBKeO5nV8CO3V+KxFOTMHlVwqFrpan43pOhw==}
 
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
@@ -3522,6 +3534,10 @@ packages:
       yaml:
         optional: true
 
+  whatwg-mimetype@5.0.0:
+    resolution: {integrity: sha512-sXcNcHOC51uPGF0P/D4NVtrkjSU2fNsm9iog4ZvZJsL3rjoDAzXZhkm2MWt1y+PUdggKAYVoMAIYcs78wJ51Cw==}
+    engines: {node: '>=20'}
+
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
@@ -3582,6 +3598,9 @@ packages:
 
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
+  zod@4.5.4:
+    resolution: {integrity: sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==}
 
 snapshots:
 
@@ -5813,6 +5832,10 @@ snapshots:
 
   parse-ms@4.0.0: {}
 
+  parse-roblox-errors@1.2.2:
+    dependencies:
+      whatwg-mimetype: 5.0.0
+
   parseurl@1.3.3: {}
 
   path-key@3.1.1: {}
@@ -6088,6 +6111,8 @@ snapshots:
 
   reusify@1.1.0: {}
 
+  roblox-bat@0.6.5: {}
+
   rollup@4.62.2:
     dependencies:
       '@types/estree': 1.0.9
@@ -6104,6 +6129,12 @@ snapshots:
       path-to-regexp: 8.4.2
     transitivePeerDependencies:
       - supports-color
+
+  rozod@6.9.0:
+    dependencies:
+      parse-roblox-errors: 1.2.2
+      roblox-bat: 0.6.5
+      zod: 4.5.4
 
   run-parallel@1.2.0:
     dependencies:
@@ -6399,6 +6430,8 @@ snapshots:
       tsx: 4.22.4
       yaml: 2.9.0
 
+  whatwg-mimetype@5.0.0: {}
+
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
@@ -6439,3 +6472,5 @@ snapshots:
   yoctocolors@2.1.2: {}
 
   zod@3.25.76: {}
+
+  zod@4.5.4: {}

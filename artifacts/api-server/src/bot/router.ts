@@ -34,6 +34,14 @@ import {
   handleEnforcementSelect,
   handleEnforcementNoteModal,
 } from "./features/enforcementPicker";
+import {
+  handleRobloxCommand,
+  handleMilitaryCommand,
+  handleRobloxAutocomplete,
+  handleRobloxButton,
+  handleRobloxSelect,
+  handleRobloxModal,
+} from "./features/robloxHub";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -67,6 +75,17 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await openDisputeReview(interaction));
         case "tickets":
           return void (await openTickets(interaction));
+        case "roblox":
+          return void (await handleRobloxCommand(interaction));
+        case "military":
+          return void (await handleMilitaryCommand(interaction));
+      }
+      return;
+    }
+
+    if (interaction.isAutocomplete()) {
+      if (interaction.commandName === "roblox" || interaction.commandName === "military") {
+        return void (await handleRobloxAutocomplete(interaction));
       }
       return;
     }
@@ -96,6 +115,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleHubButton(interaction));
         case NS.enf:
           return void (await handleEnforcementButton(interaction));
+        case NS.rbx:
+          return void (await handleRobloxButton(interaction));
       }
       return;
     }
@@ -115,6 +136,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.mp) return void (await handleMemberPanelModal(interaction));
       if (ns === NS.enf) return void (await handleEnforcementNoteModal(interaction));
       if (ns === NS.hub) return void (await handleHubModal(interaction));
+      if (ns === NS.rbx) return void (await handleRobloxModal(interaction));
       return;
     }
 
@@ -132,6 +154,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.notif) return void (await handleNotifSelect(interaction));
       if (ns === NS.disp) return void (await handleDisputeSelect(interaction));
       if (ns === NS.tkt) return void (await handleTicketSelect(interaction));
+      if (ns === NS.rbx) return void (await handleRobloxSelect(interaction));
       return;
     }
   } catch (err) {

@@ -110,6 +110,10 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "rozod",
+      "rozod/*",
+      "roblox-bat",
+      "parse-roblox-errors",
     ],
     sourcemap: "linked",
     plugins: [

@@ -16,6 +16,7 @@ export const NS = {
   aud: "aud", // xp history / audit viewer
   hub: "hub", // member self-service hub (/warnings for members)
   enf: "enf", // unified enforcement picker (/xpreminder: reminder | warning)
+  rbx: "rbx", // Roblox Hub (/roblox, /military)
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -180,3 +181,16 @@ export const CC_DISPUTES = id(NS.cc, "disputes"); // → dispute review hub
 export const CC_TICKETS = id(NS.cc, "tickets"); // → ticket list
 // Jump straight into a filtered dashboard category (arg = dash filter).
 export const ccCategory = (filter: string) => id(NS.cc, "cat", filter);
+
+// Roblox Hub — state is keyed by message id; customIds stay short.
+export const RBX_NAV = (view: string) => id(NS.rbx, "nav", view);
+export const RBX_PAGE = (dir: "prev" | "next") => id(NS.rbx, "page", dir);
+export const RBX_REFRESH = id(NS.rbx, "refresh");
+export const RBX_SEARCH = id(NS.rbx, "search");
+export const RBX_SEARCH_MODAL = id(NS.rbx, "searchModal");
+export const RBX_AVATAR_VIEW = id(NS.rbx, "avatarView"); // string select
+export const RBX_PICK_FRIEND = id(NS.rbx, "pickFriend"); // string select
+export const RBX_PICK_GAME = id(NS.rbx, "pickGame"); // string select
+export const RBX_BACK = id(NS.rbx, "back");
+export const RBX_OPEN_PROFILE = id(NS.rbx, "extProfile"); // link-style handled as button → content
+export const RBX_MILITARY = id(NS.rbx, "nav", "military");
