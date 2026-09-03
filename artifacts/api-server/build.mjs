@@ -117,7 +117,6 @@ async function buildAll() {
       "robloxian-api",
       "bloxscout",
       "bloxscout/*",
-      "undici",
     ],
     sourcemap: "linked",
     plugins: [
