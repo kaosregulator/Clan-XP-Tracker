@@ -79,10 +79,19 @@ export function startBot() {
     // role membership for bulk actions and exempt/leave role sync.
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
     partials: [Partials.Channel],
-    // Card replies attach a rendered PNG; on this host the multipart upload to
-    // Discord can take longer than the 15s REST default, which aborted every
-    // image command. Give uploads more room to complete.
-    rest: { timeout: 60_000 },
+    rest: {
+      // Card replies attach a rendered PNG. discord.js's default undici
+      // `request` strategy converts the multipart FormData through resolveBody
+      // and its upload stalls on this host — every image command aborted after
+      // the REST timeout while text-only replies worked. Node's native fetch
+      // accepts the FormData directly and streams multipart correctly, so route
+      // Discord HTTP through it instead. Keep a generous timeout as a backstop.
+      timeout: 60_000,
+      makeRequest: (url, init) =>
+        fetch(url, init as RequestInit) as unknown as ReturnType<
+          NonNullable<ConstructorParameters<typeof Client>[0]["rest"]>["makeRequest"] & object
+        >,
+    },
   });
 
   client.once(Events.ClientReady, async (c) => {
