@@ -69,12 +69,21 @@ run the same push again. Missing columns make `/link`, `/leaderboard`, and
 standing cards fail — often with a misleading “Roblox couldn't be reached”
 message.
 
-## 4b. Instant slash-command updates (recommended)
+## 4b. Instant slash-command updates (optional)
 
-Set `DISCORD_DEV_GUILD_ID` to your Discord server ID on the Railway app service.
-That registers slash commands to your guild instantly and clears stale global
-trees. Without it, Discord can take up to an hour to drop old commands like
-`/roblox profile` or `/scout devex`.
+You can set `DISCORD_DEV_GUILD_ID` to your Discord **server ID** so slash
+commands refresh instantly in that server. It is optional.
+
+If Railway logs show `Failed to register slash commands` with
+`DiscordAPIError: Missing Access` / code `50001`:
+
+1. **Delete** `DISCORD_DEV_GUILD_ID` from Railway variables (safest), **or**
+2. Confirm the value is the server ID (right-click server → Copy Server ID — needs Developer Mode), **and**
+3. Re-invite the bot with the `applications.commands` + `bot` scopes from the Discord Developer Portal OAuth2 URL Generator.
+
+The bot always registers commands **globally** now — a bad guild ID will not
+wipe `/link`, hubs, or the dashboard anymore.
+
 ## 5. Generate a domain and finish OAuth
 
 1. App service → **Settings** → **Networking** → **Generate Domain**.
@@ -91,6 +100,9 @@ trees. Without it, Discord can take up to an hour to drop old commands like
 - **Login bounces back to the home page** → `DISCORD_REDIRECT_URI` doesn't match
   the URL registered in the Discord portal, or the tables weren't pushed
   (step 4).
-- **Slash commands don't appear** → global commands can take up to an hour. Set
-  `DISCORD_DEV_GUILD_ID` to your server's ID for instant registration while
-  testing.
+- **Slash commands don't appear / old hubs stick around** → check deploy logs for
+  `Missing Access` (see §4b). Otherwise wait up to ~1h for global sync, or set a
+  valid `DISCORD_DEV_GUILD_ID`. Fully quit the Discord client after a successful
+  “Slash commands registered globally” log line.
+- **`/link` says Roblox couldn't be reached** → usually missing DB columns; run
+  the schema push in §4.
