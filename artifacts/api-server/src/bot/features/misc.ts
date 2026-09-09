@@ -46,7 +46,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         accent: "#3f51e0",
         lines: [
           `/panel  —  live staff board (survives restarts)`,
-          `/warnings  —  clan manager dashboard (no target)`,
+          `/warnings  —  Command Center member editor (no target)`,
           `/warnings member:…  —  standing card with lifetime history`,
           `/link  —  assign Roblox avatars to member cards (role walkthrough)`,
         ],

@@ -261,7 +261,7 @@ export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessage
   const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [
     // Category shortcuts — jump straight into the filtered roster.
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      b(CC_MANAGE, "📋 Manage XP", ButtonStyle.Primary),
+      b(CC_MANAGE, "🎛️ Member editor", ButtonStyle.Primary),
       b(ccCategory("attention"), `🔴 Attention${s.attention ? ` (${s.attention})` : ""}`, s.attention ? ButtonStyle.Danger : ButtonStyle.Secondary, s.attention === 0 && s.snap.tracked === 0),
       b(ccCategory("missed"), `🕐 Missed${s.missedToday ? ` (${s.missedToday})` : ""}`, ButtonStyle.Secondary, s.missedToday === 0),
       b(CC_WARNINGS, `⚠️ Warnings${s.activeWarnings ? ` (${s.activeWarnings})` : ""}`, s.activeWarnings ? ButtonStyle.Danger : ButtonStyle.Secondary)

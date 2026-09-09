@@ -24,7 +24,7 @@ import { memberHistory, formatProgress, statusOf } from "../services/progress";
 import { calendarFor, periodTotals } from "../services/xpLedger";
 import { formatInZone, weekRangeLabel, activityDate, relative } from "../services/time";
 import { renderOffThread } from "../canvas/render-pool";
-import { buildDashboardPayload } from "./dashboard";
+import { buildOverviewPayload } from "./dashboard";
 import { buildDisputePicker } from "./disputes";
 import { openDisputeTicket, findOpenDisputeForUser } from "../services/disputes";
 import { cleanRankOf, handleMemberSearchAutocomplete } from "./leaderboard";
@@ -247,7 +247,7 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   }
 
   if (showDashboard) {
-    await interaction.editReply(await buildDashboardPayload(clan, "attention", 0));
+    await interaction.editReply(await buildOverviewPayload(clan));
     return;
   }
 
