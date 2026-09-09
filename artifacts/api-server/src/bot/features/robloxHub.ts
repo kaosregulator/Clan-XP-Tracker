@@ -36,6 +36,7 @@ import {
   RBX_BACK,
 } from "../ui/ids";
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
+import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
   RobloxService,
   toUserError,
@@ -1047,7 +1048,7 @@ async function replyHub(
   interaction: ChatInputCommandInteraction,
   state: HubState
 ): Promise<void> {
-  await interaction.deferReply({ flags: 64 });
+  await deferPublicHub(interaction);
   try {
     const payload = await Promise.race([
       buildView(state),
@@ -1057,6 +1058,7 @@ async function replyHub(
     ]);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
+    armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("replyHub", err);
     await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
@@ -1072,9 +1074,10 @@ async function updateHub(
     // Must clear prior attachments — otherwise every hub click stacks another PNG.
     await interaction.editReply(replaceHubCard(payload));
     bindHub(interaction.message!.id, state);
+    if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logRobloxError("updateHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err)));
+    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
   }
 }
 

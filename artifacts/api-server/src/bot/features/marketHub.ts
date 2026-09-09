@@ -39,6 +39,7 @@ import {
   MKT_PRICE_MENU,
 } from "../ui/ids";
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
+import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
   searchMarketplace,
   getMarketItem,
@@ -509,14 +510,20 @@ async function buildView(st: MarketState): Promise<BaseMessageOptions> {
 }
 
 async function replyHub(interaction: ChatInputCommandInteraction, state: MarketState) {
-  await interaction.deferReply({ flags: 64 });
+  await deferPublicHub(interaction);
   try {
-    const payload = await buildView(state);
+    const payload = await Promise.race([
+      buildView(state),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Market hub timed out building the card")), 25_000)
+      ),
+    ]);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
+    armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("marketReplyHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err)));
+    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
   }
 }
 
@@ -529,9 +536,10 @@ async function updateHub(
     // Must clear prior attachments — otherwise every hub click stacks another PNG.
     await interaction.editReply(replaceHubCard(payload));
     bindHub(interaction.message!.id, state);
+    if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logRobloxError("marketUpdateHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err)));
+    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
   }
 }
 

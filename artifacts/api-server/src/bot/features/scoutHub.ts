@@ -21,6 +21,7 @@ import {
 } from "discord.js";
 import { renderOffThread } from "../canvas/render-pool";
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
+import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
   parseId,
   SCT_NAV,
@@ -672,14 +673,14 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
       return buildListView(st, "SEARCH", st.keyword ?? "Search", null, rows);
     }
     case "trending": {
-      const rows = await ScoutService.trending(25, st.genre ?? undefined);
+      const rows = await ScoutService.trending(10, st.genre ?? undefined);
       return buildListView(
         st,
-        "TRENDING",
+        "TOP 10 · TRENDING",
         st.genre ? `${st.genre} · live CCU` : "Hot right now",
         st.genre
           ? null
-          : "Live CCU ranking (growth deltas appear after enough local snapshots)",
+          : "Live CCU ranking — pick a game below or search",
         rows
       );
     }
@@ -740,15 +741,25 @@ async function replyHub(
   interaction: ChatInputCommandInteraction,
   state: ScoutState
 ): Promise<void> {
-  await interaction.deferReply({ flags: 64 });
+  await deferPublicHub(interaction);
   try {
-    ScoutService.startAutoSnapshots();
-    const payload = await buildView(state);
+    try {
+      ScoutService.startAutoSnapshots();
+    } catch (err) {
+      logScoutError("startAutoSnapshots", err);
+    }
+    const payload = await Promise.race([
+      buildView(state),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Scout hub timed out building the card")), 25_000)
+      ),
+    ]);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
+    armHubAutoDelete(msg);
   } catch (err) {
     logScoutError("replyHub", err);
-    await interaction.editReply(clearHubCard(toScoutUserError(err)));
+    await interaction.editReply(clearHubCard(toScoutUserError(err))).catch(() => {});
   }
 }
 
@@ -757,31 +768,60 @@ async function updateHub(
   state: ScoutState
 ): Promise<void> {
   try {
-    const payload = await buildView(state);
+    const payload = await Promise.race([
+      buildView(state),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Scout hub timed out")), 25_000)
+      ),
+    ]);
     // Must clear prior attachments — otherwise every hub click stacks another PNG.
     await interaction.editReply(replaceHubCard(payload));
     bindHub(interaction.message!.id, state);
+    if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logScoutError("updateHub", err);
-    await interaction.editReply(clearHubCard(toScoutUserError(err)));
+    await interaction.editReply(clearHubCard(toScoutUserError(err))).catch(() => {});
   }
 }
 
 /* -------------------------------------------------------------- commands */
 
+/** Popular games for empty / short autocomplete so `/scout` always suggests something. */
+const SCOUT_GAME_PRESETS: Array<{ name: string; value: string }> = [
+  { name: "Military Tycoon", value: String(MILITARY_TYCOON_UNIVERSE_ID) },
+  { name: "Blox Fruits", value: "994732206" },
+  { name: "Adopt Me!", value: "920587237" },
+  { name: "Brookhaven RP", value: "4924922222" },
+  { name: "Jailbreak", value: "606849621" },
+  { name: "Pet Simulator 99", value: "8737894078" },
+  { name: "Murder Mystery 2", value: "142823291" },
+  { name: "Tower Defense Simulator", value: "3260590327" },
+  { name: "Arsenal", value: "111958650" },
+  { name: "Doors", value: "6516141723" },
+];
+
 export async function handleScoutAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
   const focused = interaction.options.getFocused(true);
   const q = String(focused.value ?? "").trim();
-  if (q.length < 2) {
-    await interaction.respond([]);
-    return;
-  }
   try {
     if (focused.name === "game" || focused.name === "game_a" || focused.name === "game_b" || focused.name === "focus") {
+      if (q.length < 2) {
+        const presets = SCOUT_GAME_PRESETS.filter((p) =>
+          q ? p.name.toLowerCase().includes(q.toLowerCase()) : true
+        ).slice(0, 10);
+        await interaction.respond(presets);
+        return;
+      }
       const hits = await ScoutService.search(q, 8);
+      if (!hits.length) {
+        await interaction.respond(
+          SCOUT_GAME_PRESETS.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 8)
+        );
+        return;
+      }
       await interaction.respond(
         hits.map((h) => ({
-          name: h.name.slice(0, 100),
+          name: `${h.name} · ${ScoutService.formatCount(h.playing)} playing`.slice(0, 100),
           value: String(h.universeId),
         }))
       );
@@ -802,26 +842,32 @@ export async function handleScoutAutocomplete(interaction: AutocompleteInteracti
         "anime",
         "racing",
       ];
-      const filtered = seeds.filter((s) => s.includes(q.toLowerCase())).slice(0, 20);
+      const filtered = seeds.filter((s) => !q || s.includes(q.toLowerCase())).slice(0, 20);
       await interaction.respond(
-        (filtered.length ? filtered : [q]).map((s) => ({ name: s, value: s }))
+        (filtered.length ? filtered : [q || "tycoon"]).map((s) => ({ name: s, value: s }))
       );
       return;
     }
     await interaction.respond([]);
   } catch (err) {
     logScoutError("autocomplete", err);
-    await interaction.respond([]).catch(() => {});
+    await interaction.respond(SCOUT_GAME_PRESETS.slice(0, 8)).catch(() => {});
   }
 }
 
 /**
  * True hub: one slash command. Optional game jumps to that card; browse/compare
  * via buttons. Legacy subcommands still resolve if Discord caches an old schema.
+ * Bare `/scout` opens Top 10 trending so the hub always shows results immediately.
  */
 export async function handleScoutCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const ownerId = interaction.user.id;
-  const sub = interaction.options.getSubcommand(false);
+  let sub: string | null = null;
+  try {
+    sub = interaction.options.getSubcommand(false);
+  } catch {
+    sub = null;
+  }
   const gameOpt =
     interaction.options.getString("game") ??
     interaction.options.getString("keyword") ??
@@ -895,7 +941,8 @@ export async function handleScoutCommand(interaction: ChatInputCommandInteractio
       );
     }
 
-    return replyHub(interaction, freshState(ownerId));
+    // Default: show Top 10 live trending so the hub opens with real results.
+    return replyHub(interaction, freshState(ownerId, { view: "trending" }));
   } catch (err) {
     logScoutError("handleScoutCommand", err);
     if (interaction.deferred || interaction.replied) {
