@@ -192,7 +192,7 @@ export async function openDisputeCommand(interaction: ChatInputCommandInteractio
 
   if (!res.ok) {
     let extra = "";
-    if (disputeType === "warning" && /warning|couldn't be found|already been removed/i.test(res.error)) {
+    if (disputeType === "warning" && /warning|isn't one of yours|doesn't exist|already been removed/i.test(res.error)) {
       const active = await listActive(clan.guildId, interaction.user.id);
       if (active.length) {
         extra =
