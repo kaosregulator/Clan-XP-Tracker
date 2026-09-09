@@ -63,7 +63,7 @@ export function toUserError(err: unknown): string {
   if (err instanceof RobloxServiceError) return err.message;
   if (looksLikeMissingSchema(err)) {
     logRobloxError("toUserError", err);
-    return "⚠️ Database is missing new columns. Run `pnpm --filter @workspace/db push` against Railway Postgres, then redeploy.";
+    return "⚠️ Database is still updating. Wait ~30s after deploy (or redeploy), then try `/link` again.";
   }
   logRobloxError("toUserError", err);
   return userMessage("unavailable");
