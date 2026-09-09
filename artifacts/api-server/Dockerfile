@@ -66,5 +66,6 @@ COPY --from=builder /app/artifacts/clan-xp-tracker/dist/public artifacts/clan-xp
 # Railway injects its own PORT and overrides this; the default just keeps the
 # container bootable (and aligned with EXPOSE) if PORT is ever left unset.
 ENV PORT=8080
+ENV BLOXSCOUT_DATA_DIR=/tmp/bloxscout
 EXPOSE 8080
 CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]

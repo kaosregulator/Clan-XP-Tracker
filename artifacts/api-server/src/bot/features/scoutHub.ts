@@ -196,25 +196,84 @@ function listRows(rows: ScoutGameRow[], page: number) {
 
 function gameSelect(slice: ScoutGameRow[]) {
   if (!slice.length) return null;
+  const seen = new Set<string>();
+  const options = [];
+  for (const g of slice.slice(0, 25)) {
+    const value = String(g.universeId);
+    if (!Number.isFinite(g.universeId) || g.universeId <= 0 || seen.has(value)) continue;
+    seen.add(value);
+    const label = g.name.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 100) || `Universe ${g.universeId}`;
+    options.push({
+      label,
+      description: `${ScoutService.formatCount(g.playing)} playing`.slice(0, 100),
+      value,
+    });
+  }
+  if (!options.length) return null;
   return row(
     new StringSelectMenuBuilder()
       .setCustomId(SCT_PICK_GAME)
       .setPlaceholder("Open a game…")
-      .addOptions(
-        slice.slice(0, 25).map((g) => ({
-          label: g.name.slice(0, 100),
-          description: `${ScoutService.formatCount(g.playing)} playing`.slice(0, 100),
-          value: String(g.universeId),
-        }))
-      )
+      .addOptions(options)
   );
+}
+
+/** Live trending with a hard timeout, then preset Top-10 so /scout always opens. */
+async function loadOpeningGames(): Promise<{
+  rows: ScoutGameRow[];
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+}> {
+  try {
+    const rows = await Promise.race([
+      ScoutService.trending(10),
+      new Promise<ScoutGameRow[]>((_, reject) =>
+        setTimeout(() => reject(new Error("trending timeout")), 10_000)
+      ),
+    ]);
+    if (rows.length) {
+      return {
+        rows,
+        eyebrow: "TOP 10 · TRENDING",
+        title: "Hot right now",
+        subtitle: "Live CCU ranking — pick a game below or search",
+      };
+    }
+  } catch (err) {
+    logScoutError("loadOpeningGames.trending", err);
+  }
+  try {
+    const rows = await ScoutService.presetTop(10);
+    if (rows.length) {
+      return {
+        rows,
+        eyebrow: "TOP 10 · POPULAR",
+        title: "Popular games",
+        subtitle: "Preset chart (live trending briefly unavailable)",
+      };
+    }
+  } catch (err) {
+    logScoutError("loadOpeningGames.preset", err);
+  }
+  return {
+    rows: [],
+    eyebrow: "SCOUT",
+    title: "Game Intelligence",
+    subtitle: "Try Search or Trending again in a moment",
+  };
 }
 
 /* --------------------------------------------------------------- builders */
 
 async function buildHome(st: ScoutState): Promise<BaseMessageOptions> {
   void ScoutService.ensureMilitarySnapshot().catch(() => {});
-  const status = ScoutService.autoStatus();
+  let status = { tracked: [] as number[], running: false, dbPath: "" };
+  try {
+    status = ScoutService.autoStatus();
+  } catch {
+    /* store optional */
+  }
   let mtPlaying = "—";
   let mtDelta: string | null = null;
   let mtName = "Military Tycoon";
@@ -237,7 +296,7 @@ async function buildHome(st: ScoutState): Promise<BaseMessageOptions> {
       mtPlaying,
       mtDelta,
       trackedCount: status.tracked.length,
-      dbHint: status.running ? "auto-snapshots on" : "local SQLite",
+      dbHint: status.running ? "auto-snapshots on" : "live APIs",
     },
     "scout-home.png"
   );
@@ -673,19 +732,9 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
       return buildListView(st, "SEARCH", st.keyword ?? "Search", null, rows);
     }
     case "trending": {
-      try {
-        const rows = await ScoutService.trending(10, st.genre ?? undefined);
-        if (rows.length) {
-          return buildListView(
-            st,
-            "TOP 10 · TRENDING",
-            st.genre ? `${st.genre} · live CCU` : "Hot right now",
-            st.genre ? null : "Live CCU ranking — pick a game below or search",
-            rows
-          );
-        }
-      } catch (err) {
-        logScoutError("trending", err);
+      const opening = await loadOpeningGames();
+      if (opening.rows.length) {
+        return buildListView(st, opening.eyebrow, opening.title, opening.subtitle, opening.rows);
       }
       return buildHome(st);
     }
@@ -748,23 +797,34 @@ async function replyHub(
 ): Promise<void> {
   await deferPublicHub(interaction);
   try {
-    try {
-      ScoutService.startAutoSnapshots();
-    } catch (err) {
-      logScoutError("startAutoSnapshots", err);
-    }
     const payload = await Promise.race([
       buildView(state),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Scout hub timed out building the card")), 25_000)
+        setTimeout(() => reject(new Error("Scout hub timed out building the card")), 20_000)
       ),
     ]);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
     armHubAutoDelete(msg);
+    // Start snapshots after the card is visible — never block open on SQLite.
+    setTimeout(() => {
+      try {
+        ScoutService.startAutoSnapshots();
+      } catch (err) {
+        logScoutError("startAutoSnapshots", err);
+      }
+    }, 0);
   } catch (err) {
     logScoutError("replyHub", err);
-    await interaction.editReply(clearHubCard(toScoutUserError(err))).catch(() => {});
+    try {
+      // Last-ditch: home card without store/trending.
+      const home = await buildHome(freshState(state.ownerId, { view: "home" }));
+      const msg = await interaction.editReply(replaceHubCard(home));
+      bindHub(msg.id, freshState(state.ownerId, { view: "home" }));
+      armHubAutoDelete(msg);
+    } catch {
+      await interaction.editReply(clearHubCard(toScoutUserError(err))).catch(() => {});
+    }
   }
 }
 
@@ -795,14 +855,14 @@ async function updateHub(
 const SCOUT_GAME_PRESETS: Array<{ name: string; value: string }> = [
   { name: "Military Tycoon", value: String(MILITARY_TYCOON_UNIVERSE_ID) },
   { name: "Blox Fruits", value: "994732206" },
-  { name: "Adopt Me!", value: "920587237" },
-  { name: "Brookhaven RP", value: "4924922222" },
-  { name: "Jailbreak", value: "606849621" },
-  { name: "Pet Simulator 99", value: "8737894078" },
-  { name: "Murder Mystery 2", value: "142823291" },
-  { name: "Tower Defense Simulator", value: "3260590327" },
+  { name: "Adopt Me!", value: "383310974" },
+  { name: "Brookhaven RP", value: "1686885941" },
+  { name: "Jailbreak", value: "245662005" },
+  { name: "Pet Simulator 99", value: "3317771874" },
+  { name: "Doors", value: "2440500124" },
   { name: "Arsenal", value: "111958650" },
-  { name: "Doors", value: "6516141723" },
+  { name: "Murder Mystery 2", value: "66654135" },
+  { name: "Tower Defense Simulator", value: "1176784616" },
 ];
 
 export async function handleScoutAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
