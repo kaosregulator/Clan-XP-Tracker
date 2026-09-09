@@ -20,6 +20,7 @@ import {
   type StringSelectMenuInteraction,
 } from "discord.js";
 import { renderOffThread } from "../canvas/render-pool";
+import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import {
   parseId,
   SCT_NAV,
@@ -130,28 +131,49 @@ function whenLabel(iso: string): string {
 }
 
 function navRows(st: ScoutState): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-  const primary = row(
-    btn("Home", SCT_NAV("home"), st.view === "home" ? ButtonStyle.Primary : ButtonStyle.Secondary),
-    btn("Trending", SCT_NAV("trending")),
-    btn("Top genre", SCT_NAV("top")),
-    btn("Upcoming", SCT_NAV("upcoming")),
-    btn("Search", SCT_SEARCH)
-  );
-  const secondary = row(
-    btn("MT snapshot", SCT_NAV("snapshot")),
-    btn("History", SCT_NAV("history")),
-    btn("Creators", SCT_NAV("creators")),
-    btn("Report", SCT_NAV("report")),
-    btn("Tracked", SCT_NAV("tracked"))
-  );
-  const tools = row(
-    btn("Compare", SCT_NAV("compare")),
-    btn("vs Genre", SCT_NAV("vsGenre")),
-    btn("DevEx", SCT_NAV("devex")),
-    btn("Revenue", SCT_NAV("revenue")),
-    btn("Refresh", SCT_REFRESH, ButtonStyle.Primary)
-  );
-  return [primary, secondary, tools];
+  // Home keeps discovery + tools visible. Deeper views drop to one chrome row
+  // so the card itself stays easy to read.
+  if (st.view === "home") {
+    return [
+      row(
+        btn("Trending", SCT_NAV("trending"), ButtonStyle.Primary),
+        btn("Top genre", SCT_NAV("top"), ButtonStyle.Primary),
+        btn("Upcoming", SCT_NAV("upcoming")),
+        btn("Search", SCT_SEARCH, ButtonStyle.Success)
+      ),
+      row(
+        btn("Compare", SCT_NAV("compare")),
+        btn("DevEx", SCT_NAV("devex")),
+        btn("Revenue", SCT_NAV("revenue")),
+        btn("MT snapshot", SCT_NAV("snapshot")),
+        btn("History", SCT_NAV("history"))
+      ),
+      row(
+        btn("Creators", SCT_NAV("creators")),
+        btn("Report", SCT_NAV("report")),
+        btn("Tracked", SCT_NAV("tracked")),
+        btn("vs Genre", SCT_NAV("vsGenre")),
+        btn("Refresh", SCT_REFRESH)
+      ),
+    ];
+  }
+
+  return [
+    row(
+      btn("Home", SCT_NAV("home"), ButtonStyle.Primary),
+      btn("Trending", SCT_NAV("trending")),
+      btn("Top", SCT_NAV("top")),
+      btn("Search", SCT_SEARCH),
+      btn("Refresh", SCT_REFRESH)
+    ),
+    row(
+      btn("Compare", SCT_NAV("compare")),
+      btn("DevEx", SCT_NAV("devex")),
+      btn("Snapshot", SCT_NAV("snapshot")),
+      btn("History", SCT_NAV("history")),
+      btn("More tools", SCT_NAV("home"))
+    ),
+  ];
 }
 
 function pageRow(st: ScoutState, hasMore: boolean) {
@@ -720,11 +742,11 @@ async function replyHub(
   try {
     ScoutService.startAutoSnapshots();
     const payload = await buildView(state);
-    const msg = await interaction.editReply(payload);
+    const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
   } catch (err) {
     logScoutError("replyHub", err);
-    await interaction.editReply({ content: toScoutUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toScoutUserError(err)));
   }
 }
 
@@ -734,11 +756,12 @@ async function updateHub(
 ): Promise<void> {
   try {
     const payload = await buildView(state);
-    await interaction.editReply(payload);
+    // Must clear prior attachments — otherwise every hub click stacks another PNG.
+    await interaction.editReply(replaceHubCard(payload));
     bindHub(interaction.message!.id, state);
   } catch (err) {
     logScoutError("updateHub", err);
-    await interaction.editReply({ content: toScoutUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toScoutUserError(err)));
   }
 }
 
@@ -790,135 +813,91 @@ export async function handleScoutAutocomplete(interaction: AutocompleteInteracti
   }
 }
 
+/**
+ * True hub: one slash command. Optional game jumps to that card; browse/compare
+ * via buttons. Legacy subcommands still resolve if Discord caches an old schema.
+ */
 export async function handleScoutCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  const sub = interaction.options.getSubcommand(false);
   const ownerId = interaction.user.id;
+  const sub = interaction.options.getSubcommand(false);
+  const gameOpt =
+    interaction.options.getString("game") ??
+    interaction.options.getString("keyword") ??
+    null;
 
   try {
-    if (!sub || sub === "hub") {
-      return replyHub(interaction, freshState(ownerId));
+    if (gameOpt && (!sub || sub === "game" || sub === "search" || sub === "hub")) {
+      // Keyword search vs universe resolve: pure numbers / known IDs → game card.
+      if (/^\d+$/.test(gameOpt.trim()) || sub === "game") {
+        const game = await ScoutService.resolveGame(gameOpt);
+        return replyHub(
+          interaction,
+          freshState(ownerId, { view: "game", universeId: game.universeId })
+        );
+      }
+      return replyHub(
+        interaction,
+        freshState(ownerId, { view: "search", keyword: gameOpt.trim() })
+      );
     }
 
-    if (sub === "search") {
-      const keyword = interaction.options.getString("keyword", true);
-      return replyHub(interaction, freshState(ownerId, { view: "search", keyword }));
-    }
-
+    // Legacy subcommand deep-links (still work if an old command tree is cached).
     if (sub === "trending") {
-      const genre = interaction.options.getString("genre");
-      return replyHub(interaction, freshState(ownerId, { view: "trending", genre }));
+      return replyHub(
+        interaction,
+        freshState(ownerId, { view: "trending", genre: interaction.options.getString("genre") })
+      );
     }
-
     if (sub === "top") {
-      const genre = interaction.options.getString("genre", true);
+      const genre = interaction.options.getString("genre") ?? "tycoon";
       return replyHub(interaction, freshState(ownerId, { view: "top", genre }));
     }
-
     if (sub === "upcoming") {
       return replyHub(interaction, freshState(ownerId, { view: "upcoming" }));
     }
-
-    if (sub === "game") {
-      const q = interaction.options.getString("game", true);
-      const game = await ScoutService.resolveGame(q);
-      return replyHub(
-        interaction,
-        freshState(ownerId, { view: "game", universeId: game.universeId })
-      );
-    }
-
     if (sub === "compare") {
-      const a = await ScoutService.resolveGame(interaction.options.getString("game_a", true));
-      const b = await ScoutService.resolveGame(interaction.options.getString("game_b", true));
-      return replyHub(
-        interaction,
-        freshState(ownerId, {
-          view: "compare",
-          compareIds: [a.universeId, b.universeId],
-          universeId: a.universeId,
-        })
-      );
+      const aRaw = interaction.options.getString("game_a");
+      const bRaw = interaction.options.getString("game_b");
+      if (aRaw && bRaw) {
+        const a = await ScoutService.resolveGame(aRaw);
+        const b = await ScoutService.resolveGame(bRaw);
+        return replyHub(
+          interaction,
+          freshState(ownerId, {
+            view: "compare",
+            compareIds: [a.universeId, b.universeId],
+            universeId: a.universeId,
+          })
+        );
+      }
+      return replyHub(interaction, freshState(ownerId, { view: "compare" }));
     }
-
-    if (sub === "genre") {
-      const game = await ScoutService.resolveGame(interaction.options.getString("game", true));
-      const genre = interaction.options.getString("genre");
-      return replyHub(
-        interaction,
-        freshState(ownerId, {
-          view: "vsGenre",
-          universeId: game.universeId,
-          genre,
-        })
-      );
+    if (sub === "devex") {
+      const robux = interaction.options.getInteger("robux");
+      return replyHub(interaction, freshState(ownerId, { view: "devex", robux }));
     }
-
-    if (sub === "snapshot") {
-      const raw = interaction.options.getString("game");
-      const game = raw
-        ? await ScoutService.resolveGame(raw)
-        : await ScoutService.getGame(MILITARY_TYCOON_UNIVERSE_ID);
-      return replyHub(
-        interaction,
-        freshState(ownerId, { view: "snapshot", universeId: game.universeId })
-      );
-    }
-
-    if (sub === "history") {
-      const raw = interaction.options.getString("game");
-      const game = raw
-        ? await ScoutService.resolveGame(raw)
-        : await ScoutService.getGame(MILITARY_TYCOON_UNIVERSE_ID);
-      return replyHub(
-        interaction,
-        freshState(ownerId, { view: "history", universeId: game.universeId })
-      );
-    }
-
-    if (sub === "creators") {
-      const genre = interaction.options.getString("genre", true);
-      return replyHub(interaction, freshState(ownerId, { view: "creators", genre }));
-    }
-
     if (sub === "group") {
       return replyHub(interaction, freshState(ownerId, { view: "group" }));
     }
-
-    if (sub === "report") {
-      const genre = interaction.options.getString("genre", true);
-      const focusRaw = interaction.options.getString("focus");
-      const focus = focusRaw ? await ScoutService.resolveGame(focusRaw) : null;
-      return replyHub(
-        interaction,
-        freshState(ownerId, {
-          view: "report",
-          genre,
-          universeId: focus?.universeId ?? MILITARY_TYCOON_UNIVERSE_ID,
-        })
-      );
-    }
-
-    if (sub === "revenue") {
+    if (sub === "snapshot" || sub === "history" || sub === "revenue") {
       const raw = interaction.options.getString("game");
       const game = raw
         ? await ScoutService.resolveGame(raw)
         : await ScoutService.getGame(MILITARY_TYCOON_UNIVERSE_ID);
       return replyHub(
         interaction,
-        freshState(ownerId, { view: "revenue", universeId: game.universeId })
+        freshState(ownerId, {
+          view: sub as ScoutView,
+          universeId: game.universeId,
+        })
       );
-    }
-
-    if (sub === "devex") {
-      const robux = interaction.options.getInteger("robux", true);
-      return replyHub(interaction, freshState(ownerId, { view: "devex", robux }));
     }
 
     return replyHub(interaction, freshState(ownerId));
   } catch (err) {
     logScoutError("handleScoutCommand", err);
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ content: toScoutUserError(err) });
+      await interaction.editReply(clearHubCard(toScoutUserError(err)));
     } else {
       await interaction.reply({ content: toScoutUserError(err), flags: 64 });
     }
@@ -1102,7 +1081,7 @@ export async function handleScoutModal(interaction: ModalSubmitInteraction): Pro
     } else if (action === "devexModal") {
       const robux = Number(interaction.fields.getTextInputValue("robux").replace(/[,_\s]/g, ""));
       if (!Number.isFinite(robux) || robux < 0) {
-        await interaction.editReply({ content: "Enter a valid Robux amount." });
+        await interaction.editReply(clearHubCard("Enter a valid Robux amount."));
         return;
       }
       st.robux = Math.floor(robux);
@@ -1110,10 +1089,10 @@ export async function handleScoutModal(interaction: ModalSubmitInteraction): Pro
     }
 
     const payload = await buildView(st);
-    const msg = await interaction.editReply(payload);
+    const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, st);
   } catch (err) {
     logScoutError("handleScoutModal", err);
-    await interaction.editReply({ content: toScoutUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toScoutUserError(err)));
   }
 }

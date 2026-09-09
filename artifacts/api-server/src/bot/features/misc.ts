@@ -36,9 +36,10 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/xp history  —  your past weeks`,
           `/warnings  —  your active ${activity} warnings`,
           `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
-          `/roblox  —  Roblox player hub · /military  —  Military Tycoon`,
-          `/scout  —  Game Intelligence (trends, snapshots, DevEx)`,
+          `/roblox  —  Players, avatars, games & Military Tycoon (one hub)`,
+          `/scout  —  Top games, trends, snapshots, DevEx`,
           `/market  —  Avatar Marketplace (clothing, accessories, limiteds)`,
+          `/military  —  Shortcut into the Military Tycoon section of /roblox`,
         ],
       },
     ];
