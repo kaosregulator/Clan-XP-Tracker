@@ -149,7 +149,7 @@ async function buildView(st: LinkState): Promise<BaseMessageOptions> {
         ? st.robloxUserId
           ? "Looks good? Confirm to save on their standing & warning cards."
           : "Search Roblox and pick from the top matches."
-        : "Search a Discord member, or start a role walkthrough.",
+        : "Pick a Discord user, pick a ROLE to walk, then search Roblox.",
     },
     "avatar-link.png"
   );
@@ -162,7 +162,7 @@ async function buildView(st: LinkState): Promise<BaseMessageOptions> {
       row(
         new RoleSelectMenuBuilder()
           .setCustomId(LNK_ROLE_PICK)
-          .setPlaceholder("Or pick a role to walk one-by-one…")
+          .setPlaceholder("Or pick a Discord ROLE to walk one-by-one…")
           .setMinValues(1)
           .setMaxValues(1)
       )
@@ -245,6 +245,52 @@ async function advanceQueue(
   }
 }
 
+async function startRoleQueue(
+  interaction: {
+    guild: ChatInputCommandInteraction["guild"];
+    guildId: string | null;
+    client: ChatInputCommandInteraction["client"];
+  },
+  st: LinkState,
+  roleId: string
+): Promise<string | null> {
+  const guild = interaction.guild;
+  if (!guild || !interaction.guildId) return "This command only works inside a server.";
+  const guildId = interaction.guildId;
+  const role = await guild.roles.fetch(roleId).catch(() => null);
+  if (!role) return "That role couldn't be found.";
+
+  const members = await guild.members.fetch();
+  const inRole = [...members.values()]
+    .filter((m) => !m.user.bot && m.roles.cache.has(role.id))
+    .map((m) => m.id);
+
+  if (!inRole.length) return "That role has no members to walk.";
+
+  st.queue = inRole;
+  st.queueIndex = 0;
+  const first = await loadDiscordIdentity(interaction, inRole[0]!);
+  st.discordUserId = first.id;
+  st.discordName = first.name;
+  st.discordAvatarUrl = first.avatarUrl;
+  st.robloxUserId = null;
+  st.robloxName = null;
+  st.robloxAvatarUrl = null;
+  const existing = await getMember(guildId, first.id);
+  if (existing?.robloxUserId) {
+    st.robloxUserId = existing.robloxUserId;
+    st.robloxName = existing.gameUsername;
+    st.robloxAvatarUrl = existing.robloxAvatarUrl;
+  }
+
+  // Ensure rows exist for everyone in the walk (best-effort).
+  for (const id of inRole.slice(0, 50)) {
+    const u = await interaction.client.users.fetch(id).catch(() => null);
+    if (u) await ensureMember(guildId, identityFromUser(u));
+  }
+  return null;
+}
+
 export async function handleLinkCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
@@ -261,10 +307,17 @@ export async function handleLinkCommand(interaction: ChatInputCommandInteraction
   const st = fresh(interaction.user.id);
   const memberOpt = interaction.options.getString("member");
   const userOpt = interaction.options.getUser("user");
+  const roleOpt = interaction.options.getRole("role");
   const targetId = memberOpt || userOpt?.id || null;
 
   try {
-    if (targetId) {
+    if (roleOpt && !targetId) {
+      const errMsg = await startRoleQueue(interaction, st, roleOpt.id);
+      if (errMsg) {
+        await interaction.editReply({ content: errMsg });
+        return;
+      }
+    } else if (targetId) {
       const user = await interaction.client.users.fetch(targetId);
       await ensureMember(interaction.guildId, identityFromUser(user));
       st.discordUserId = user.id;
@@ -449,38 +502,12 @@ export async function handleLinkRoleSelect(interaction: RoleSelectMenuInteractio
   }
   await interaction.deferUpdate();
   const role = interaction.roles.first();
-  if (!role || !interaction.guild) return;
+  if (!role) return;
 
-  const members = await interaction.guild.members.fetch();
-  const inRole = [...members.values()]
-    .filter((m) => !m.user.bot && m.roles.cache.has(role.id))
-    .map((m) => m.id);
-
-  if (!inRole.length) {
-    await interaction.followUp({ content: "That role has no members to walk.", flags: 64 });
+  const errMsg = await startRoleQueue(interaction, st, role.id);
+  if (errMsg) {
+    await interaction.followUp({ content: errMsg, flags: 64 });
     return;
-  }
-
-  st.queue = inRole;
-  st.queueIndex = 0;
-  const first = await loadDiscordIdentity(interaction, inRole[0]!);
-  st.discordUserId = first.id;
-  st.discordName = first.name;
-  st.discordAvatarUrl = first.avatarUrl;
-  st.robloxUserId = null;
-  st.robloxName = null;
-  st.robloxAvatarUrl = null;
-  const existing = await getMember(interaction.guildId!, first.id);
-  if (existing?.robloxUserId) {
-    st.robloxUserId = existing.robloxUserId;
-    st.robloxName = existing.gameUsername;
-    st.robloxAvatarUrl = existing.robloxAvatarUrl;
-  }
-
-  // Ensure rows exist for everyone in the walk.
-  for (const id of inRole.slice(0, 50)) {
-    const u = await interaction.client.users.fetch(id).catch(() => null);
-    if (u) await ensureMember(interaction.guildId!, identityFromUser(u));
   }
 
   const payload = await buildView(st);

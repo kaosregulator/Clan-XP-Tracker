@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { GlobalFonts } from "@napi-rs/canvas";
 import { logger } from "../../lib/logger";
 
@@ -16,13 +17,32 @@ export const FONT = {
 
 let registered = false;
 
+/**
+ * Resolve a font file. The render-worker bundle sits next to
+ * `assets/fonts/`; the main `index.mjs` bundle does not — build copies fonts
+ * to `dist/bot/canvas/assets/fonts/`, so we try several candidates.
+ */
+function resolveFontFile(file: string): string | null {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    path.join(here, "assets", "fonts", file),
+    path.join(here, "bot", "canvas", "assets", "fonts", file),
+    path.join(process.cwd(), "artifacts/api-server/dist/bot/canvas/assets/fonts", file),
+    path.join(process.cwd(), "dist/bot/canvas/assets/fonts", file),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
 function register(file: string, family: string) {
-  const path = fileURLToPath(new URL(`./assets/fonts/${file}`, import.meta.url));
-  if (!existsSync(path)) {
-    logger.warn({ path }, "Canvas font missing — falling back to system font");
+  const fontPath = resolveFontFile(file);
+  if (!fontPath) {
+    logger.warn({ file }, "Canvas font missing — falling back to system font");
     return;
   }
-  GlobalFonts.registerFromPath(path, family);
+  GlobalFonts.registerFromPath(fontPath, family);
 }
 
 /** Idempotently register the bundled fonts. Safe to call before every render. */

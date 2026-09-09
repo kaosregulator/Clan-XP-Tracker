@@ -64,6 +64,17 @@ Answer the prompts to create the tables. (Railway does not have a separate
 release phase, so this schema push is a manual step rather than part of the
 container start.)
 
+**After every merge that adds columns** (e.g. `roblox_user_id`, `clean_points`),
+run the same push again. Missing columns make `/link`, `/leaderboard`, and
+standing cards fail — often with a misleading “Roblox couldn't be reached”
+message.
+
+## 4b. Instant slash-command updates (recommended)
+
+Set `DISCORD_DEV_GUILD_ID` to your Discord server ID on the Railway app service.
+That registers slash commands to your guild instantly and clears stale global
+trees. Without it, Discord can take up to an hour to drop old commands like
+`/roblox profile` or `/scout devex`.
 ## 5. Generate a domain and finish OAuth
 
 1. App service → **Settings** → **Networking** → **Generate Domain**.

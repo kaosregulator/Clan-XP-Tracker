@@ -390,25 +390,34 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setDMPermission(false)
     .toJSON(),
 
-  // Avatar link hub — assign Roblox faces to Discord members
+  // Avatar link hub — Discord member + Roblox face (role walkthrough via option or hub)
   new SlashCommandBuilder()
     .setName("link")
     .setDescription("Link a Roblox avatar to a Discord member (officers)")
     .setDMPermission(false)
-    .addStringOption((o) =>
-      o
-        .setName("member")
-        .setDescription("Search a tracked Discord member")
-        .setRequired(false)
-        .setAutocomplete(true)
-    )
     .addUserOption((o) =>
-      o.setName("user").setDescription("Or pick a Discord user directly").setRequired(false)
+      o
+        .setName("user")
+        .setDescription("Discord server member to link")
+        .setRequired(false)
+    )
+    .addRoleOption((o) =>
+      o
+        .setName("role")
+        .setDescription("Walk every member of this role one-by-one")
+        .setRequired(false)
     )
     .addStringOption((o) =>
       o
         .setName("roblox")
-        .setDescription("Optional Roblox username / ID (autocomplete)")
+        .setDescription("Roblox username or ID to assign (autocomplete)")
+        .setRequired(false)
+        .setAutocomplete(true)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("member")
+        .setDescription("Or search a tracked member by name")
         .setRequired(false)
         .setAutocomplete(true)
     )
