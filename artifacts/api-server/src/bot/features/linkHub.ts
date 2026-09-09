@@ -32,6 +32,7 @@ import { listTracked } from "../services/progress";
 import { RobloxService, logRobloxError, toUserError } from "../services/roblox";
 import { renderOffThread } from "../canvas/render-pool";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
+import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
   parseId,
   LNK_SEARCH_DISCORD,
@@ -147,7 +148,7 @@ async function buildView(st: LinkState): Promise<BaseMessageOptions> {
       queueLabel,
       hint: st.discordUserId
         ? st.robloxUserId
-          ? "Looks good? Confirm to save on their standing & warning cards."
+          ? "Looks good? Hit Confirm link to save on their standing & warning cards."
           : "Search Roblox and pick from the top matches."
         : "Pick a Discord user, pick a ROLE to walk, then search Roblox.",
     },
@@ -196,8 +197,10 @@ async function applyRoblox(st: LinkState, robloxId: number) {
 }
 
 async function saveLink(guildId: string, st: LinkState) {
-  if (!st.discordUserId || !st.robloxUserId) return;
-  await db
+  if (!st.discordUserId || !st.robloxUserId) {
+    throw new Error("Pick both a Discord member and a Roblox user before confirming.");
+  }
+  const [updated] = await db
     .update(clanMembersTable)
     .set({
       gameUsername: st.robloxName,
@@ -206,7 +209,11 @@ async function saveLink(guildId: string, st: LinkState) {
     })
     .where(
       and(eq(clanMembersTable.guildId, guildId), eq(clanMembersTable.userId, st.discordUserId))
-    );
+    )
+    .returning({ id: clanMembersTable.id });
+  if (!updated) {
+    throw new Error("Couldn't find that member in the clan roster — try /link again.");
+  }
 }
 
 async function clearLink(guildId: string, userId: string) {
@@ -293,7 +300,7 @@ async function startRoleQueue(
 
 export async function handleLinkCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
-  await interaction.deferReply({ flags: 64 });
+  await deferPublicHub(interaction);
   const clan = await getClan(interaction.guildId);
   if (!clan) {
     await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
@@ -340,6 +347,7 @@ export async function handleLinkCommand(interaction: ChatInputCommandInteraction
     const payload = await buildView(st);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, st);
+    armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("handleLinkCommand", err);
     await interaction.editReply(clearHubCard(toUserError(err)));
@@ -424,44 +432,75 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
 
   await interaction.deferUpdate();
 
-  if (action === "home") {
-    Object.assign(st, fresh(st.ownerId));
-    return void interaction.editReply(replaceHubCard(await buildView(st)));
-  }
-
-  if (action === "refresh") {
-    return void interaction.editReply(replaceHubCard(await buildView(st)));
-  }
-
-  if (action === "confirm" && st.discordUserId && st.robloxUserId) {
-    const user = await interaction.client.users.fetch(st.discordUserId).catch(() => null);
-    if (user) await ensureMember(interaction.guildId!, identityFromUser(user));
-    await saveLink(interaction.guildId!, st);
-    if (st.queue.length) {
-      await advanceQueue(interaction, st);
+  try {
+    if (action === "home") {
+      Object.assign(st, fresh(st.ownerId));
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      armHubAutoDelete(interaction.message);
+      return;
     }
-    const payload = await buildView(st);
-    await interaction.editReply(replaceHubCard(payload));
-    bindHub(interaction.message.id, st);
-    return;
-  }
 
-  if (action === "clear" && st.discordUserId) {
-    await clearLink(interaction.guildId!, st.discordUserId);
-    st.robloxUserId = null;
-    st.robloxName = null;
-    st.robloxAvatarUrl = null;
-    const payload = await buildView(st);
-    await interaction.editReply(replaceHubCard(payload));
-    bindHub(interaction.message.id, st);
-    return;
-  }
+    if (action === "refresh") {
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      armHubAutoDelete(interaction.message);
+      return;
+    }
 
-  if (action === "skip" && st.queue.length) {
-    await advanceQueue(interaction, st);
-    const payload = await buildView(st);
-    await interaction.editReply(replaceHubCard(payload));
-    bindHub(interaction.message.id, st);
+    if (action === "confirm") {
+      if (!st.discordUserId || !st.robloxUserId) {
+        await interaction.followUp({
+          content: "Pick a Discord member and a Roblox user first, then hit Confirm link.",
+          flags: 64,
+        });
+        return;
+      }
+      const user = await interaction.client.users.fetch(st.discordUserId).catch(() => null);
+      if (user) await ensureMember(interaction.guildId!, identityFromUser(user));
+      await saveLink(interaction.guildId!, st);
+      const linkedName = st.discordName ?? "member";
+      const linkedRbx = st.robloxName ?? "Roblox";
+      if (st.queue.length) {
+        await advanceQueue(interaction, st);
+      }
+      const payload = await buildView(st);
+      // Surface success in the card title for the next person / idle state.
+      if (!st.queue.length) {
+        payload.content = `✅ Linked **${linkedName}** → **${linkedRbx}**. Standing & warning cards will use this face.`;
+      } else {
+        payload.content = `✅ Linked **${linkedName}** → **${linkedRbx}**. Next member in the role walk…`;
+      }
+      await interaction.editReply(replaceHubCard(payload));
+      bindHub(interaction.message.id, st);
+      armHubAutoDelete(interaction.message);
+      return;
+    }
+
+    if (action === "clear" && st.discordUserId) {
+      await clearLink(interaction.guildId!, st.discordUserId);
+      st.robloxUserId = null;
+      st.robloxName = null;
+      st.robloxAvatarUrl = null;
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      bindHub(interaction.message.id, st);
+      armHubAutoDelete(interaction.message);
+      return;
+    }
+
+    if (action === "skip" && st.queue.length) {
+      await advanceQueue(interaction, st);
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      bindHub(interaction.message.id, st);
+      armHubAutoDelete(interaction.message);
+    }
+  } catch (err) {
+    logRobloxError("handleLinkButton", err);
+    await interaction
+      .followUp({ content: toUserError(err), flags: 64 })
+      .catch(() => {});
   }
 }
 
@@ -485,6 +524,7 @@ export async function handleLinkSelect(interaction: StringSelectMenuInteraction)
       const payload = await buildView(st);
       await interaction.editReply(replaceHubCard(payload));
       bindHub(interaction.message.id, st);
+      armHubAutoDelete(interaction.message);
     } catch (err) {
       await interaction.followUp({ content: toUserError(err), flags: 64 }).catch(() => {});
     }
@@ -513,6 +553,7 @@ export async function handleLinkRoleSelect(interaction: RoleSelectMenuInteractio
   const payload = await buildView(st);
   await interaction.editReply(replaceHubCard(payload));
   bindHub(interaction.message.id, st);
+  armHubAutoDelete(interaction.message);
 }
 
 export async function handleLinkModal(interaction: ModalSubmitInteraction) {
@@ -593,6 +634,7 @@ export async function handleLinkModal(interaction: ModalSubmitInteraction) {
           replaceHubCard({ ...payload, components: [...(payload.components ?? []), select] })
         );
         bindHub(msg.id, st);
+        armHubAutoDelete(msg);
         return;
       }
     }
@@ -600,6 +642,7 @@ export async function handleLinkModal(interaction: ModalSubmitInteraction) {
     const payload = await buildView(st);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, st);
+    armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("handleLinkModal", err);
     await interaction.followUp({ content: toUserError(err), flags: 64 }).catch(() => {});

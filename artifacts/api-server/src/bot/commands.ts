@@ -440,12 +440,12 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   // Game Intelligence Hub
   new SlashCommandBuilder()
     .setName("scout")
-    .setDescription("Game Intelligence Hub — top games, trends, snapshots, DevEx")
+    .setDescription("Game Intelligence — opens Top 10 trending (search optional)")
     .setDMPermission(false)
     .addStringOption((o) =>
       o
         .setName("game")
-        .setDescription("Optional: open a game, or search by name")
+        .setDescription("Optional: pick a game (autocomplete suggests top titles)")
         .setRequired(false)
         .setAutocomplete(true)
     )

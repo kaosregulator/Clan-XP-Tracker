@@ -29,6 +29,7 @@ import { buildDisputePicker } from "./disputes";
 import { openDisputeTicket, findOpenDisputeForUser } from "../services/disputes";
 import { cleanRankOf, handleMemberSearchAutocomplete } from "./leaderboard";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
+import { armHubAutoDelete } from "../ui/hubVisibility";
 import {
   hubDispute,
   hubDisputeModal,
@@ -226,24 +227,26 @@ export async function buildMemberHub(
 
 export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
-  await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
+  // Officer dashboard stays private; standing cards are public showcase.
+  const requested = interaction.options.getUser("user");
+  const memberId = interaction.options.getString("member");
+  const officer = clan ? isOfficer(interaction.member, clan) : false;
+  const subjectId = memberId || requested?.id || null;
+  const showDashboard = Boolean(officer && !subjectId);
+  await interaction.deferReply(showDashboard ? { flags: 64 } : undefined);
+
   if (!clan) {
     await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
     return;
   }
-
-  const requested = interaction.options.getUser("user");
-  const memberId = interaction.options.getString("member");
-  const officer = isOfficer(interaction.member, clan);
-  const subjectId = memberId || requested?.id || null;
 
   if (subjectId && subjectId !== interaction.user.id && !officer) {
     await interaction.editReply({ content: "Only officers can view other members' warnings." });
     return;
   }
 
-  if (officer && !subjectId) {
+  if (showDashboard) {
     await interaction.editReply(await buildDashboardPayload(clan, "attention", 0));
     return;
   }
@@ -258,7 +261,7 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   }
 
   const officerView = officer && subject.id !== interaction.user.id;
-  await interaction.editReply(
+  const msg = await interaction.editReply(
     replaceHubCard(
       await buildMemberHub(
         clan,
@@ -272,6 +275,7 @@ export async function handleWarnings(interaction: ChatInputCommandInteraction) {
       )
     )
   );
+  armHubAutoDelete(msg);
 }
 
 export async function handleWarningsAutocomplete(interaction: AutocompleteInteraction) {

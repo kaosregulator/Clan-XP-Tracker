@@ -12,6 +12,7 @@ import { listTracked, formatProgress, statusOf } from "../services/progress";
 import { countLifetime, cardAvatarUrl } from "../services/warnings";
 import { renderOffThread } from "../canvas/render-pool";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
+import { armHubAutoDelete } from "../ui/hubVisibility";
 import { notConfiguredMessage } from "./xp";
 
 function sortClean(a: ClanMember, b: ClanMember): number {
@@ -73,11 +74,12 @@ export async function handleLeaderboard(interaction: ChatInputCommandInteraction
       neverWarnedCount: neverWarned.length,
       trackedCount: members.length,
     });
-    await interaction.editReply(
+    const msg = await interaction.editReply(
       replaceHubCard({
         files: [new AttachmentBuilder(png, { name: "clean-leaderboard.png" })],
       })
     );
+    armHubAutoDelete(msg);
   } catch {
     await interaction.editReply(clearHubCard("Couldn't render the leaderboard. Try again."));
   }
