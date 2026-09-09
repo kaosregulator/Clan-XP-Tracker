@@ -65,13 +65,18 @@ async function renderWarningCardSafe(
   clan: Clan,
   target: User,
   memberReason: string,
-  warningNumber: number | null
+  warningNumber: number | null,
+  member?: ClanMember | null
 ): Promise<Buffer | null> {
   try {
+    const discordUrl = target.displayAvatarURL({ size: 256, extension: "png" });
     return await renderOffThread("warningCard", {
       communityName: clan.clanName,
       memberName: target.username,
-      avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
+      avatarUrl: cardAvatarUrl(member ?? null, discordUrl),
+      discordAvatarUrl: discordUrl,
+      robloxAvatarUrl: member?.robloxAvatarUrl ?? null,
+      robloxUsername: member?.gameUsername ?? null,
       reason: memberReason,
       warningNumber,
       disputeCommand: DISPUTE_COMMAND,
@@ -133,7 +138,13 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
 
   await db
     .update(clanMembersTable)
-    .set({ warningsCount: sql`${clanMembersTable.warningsCount} + 1` })
+    .set({
+      warningsCount: sql`${clanMembersTable.warningsCount} + 1`,
+      // Lifetime never rolls back on remove — officers need the full history.
+      lifetimeWarnings: sql`${clanMembersTable.lifetimeWarnings} + 1`,
+      // A warning resets the clean-standing run.
+      cleanPoints: 0,
+    })
     .where(and(eq(clanMembersTable.guildId, guild.id), eq(clanMembersTable.userId, target.id)));
 
   // XP-enforcement bookkeeping: count this warning against the current period.
@@ -164,7 +175,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   const card =
     clan.cardStyle === "embed"
       ? null
-      : await renderWarningCardSafe(clan, target, memberFacingReason, warningNumber);
+      : await renderWarningCardSafe(clan, target, memberFacingReason, warningNumber, memberRow);
 
   // Post to the dedicated warning channel when one is configured. This is a
   // MEMBER-facing surface — never include staff accounting.
@@ -454,6 +465,15 @@ export async function countActive(guildId: string, userId: string): Promise<numb
   return row?.count ?? 0;
 }
 
+/** Lifetime warnings (active + removed) — the history officers review. */
+export async function countLifetime(guildId: string, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(warningsTable)
+    .where(and(eq(warningsTable.guildId, guildId), eq(warningsTable.userId, userId)));
+  return row?.count ?? 0;
+}
+
 export async function listActive(guildId: string, userId: string): Promise<Warning[]> {
   return db
     .select()
@@ -466,6 +486,25 @@ export async function listActive(guildId: string, userId: string): Promise<Warni
       )
     )
     .orderBy(desc(warningsTable.issuedAt));
+}
+
+/** Full warning history for a member (newest first). Includes soft-removed rows. */
+export async function listHistory(
+  guildId: string,
+  userId: string,
+  limit = 25
+): Promise<Warning[]> {
+  return db
+    .select()
+    .from(warningsTable)
+    .where(and(eq(warningsTable.guildId, guildId), eq(warningsTable.userId, userId)))
+    .orderBy(desc(warningsTable.issuedAt))
+    .limit(limit);
+}
+
+/** Prefer the linked Roblox avatar on member-facing cards when an officer assigned one. */
+export function cardAvatarUrl(member: ClanMember | null | undefined, discordUrl: string | null): string | null {
+  return member?.robloxAvatarUrl || discordUrl || member?.avatarUrl || null;
 }
 
 export interface RemoveWarningInput {

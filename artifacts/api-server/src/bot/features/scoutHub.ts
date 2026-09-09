@@ -34,6 +34,7 @@ import {
   SCT_GENRE_MODAL,
   SCT_COMPARE_MODAL,
   SCT_DEVEX_MODAL,
+  SCT_TOOLS,
 } from "../ui/ids";
 import {
   ScoutService,
@@ -130,31 +131,38 @@ function whenLabel(iso: string): string {
   });
 }
 
+function toolsMenu(placeholder = "More tools…") {
+  return row(
+    new StringSelectMenuBuilder()
+      .setCustomId(SCT_TOOLS)
+      .setPlaceholder(placeholder)
+      .addOptions(
+        { label: "Compare games", value: "compare", description: "Side-by-side two universes" },
+        { label: "DevEx calculator", value: "devex", description: "Robux → USD estimate" },
+        { label: "Revenue estimate", value: "revenue", description: "Rough income for a game" },
+        { label: "MT snapshot", value: "snapshot", description: "Capture Military Tycoon now" },
+        { label: "History", value: "history", description: "Local snapshot deltas" },
+        { label: "Creators", value: "creators", description: "Top creators by genre" },
+        { label: "Genre report", value: "report", description: "Genre overview card" },
+        { label: "Tracked games", value: "tracked", description: "Auto-snapshot list" },
+        { label: "vs Genre", value: "vsGenre", description: "Game vs genre peers" }
+      )
+  );
+}
+
 function navRows(st: ScoutState): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-  // Home keeps discovery + tools visible. Deeper views drop to one chrome row
-  // so the card itself stays easy to read.
+  // Home: one discovery row + tools select. Deeper views: short chrome + tools.
+  // Keeps Discord's 5-row budget free for game picks / paging.
   if (st.view === "home") {
     return [
       row(
         btn("Trending", SCT_NAV("trending"), ButtonStyle.Primary),
         btn("Top genre", SCT_NAV("top"), ButtonStyle.Primary),
         btn("Upcoming", SCT_NAV("upcoming")),
-        btn("Search", SCT_SEARCH, ButtonStyle.Success)
-      ),
-      row(
-        btn("Compare", SCT_NAV("compare")),
-        btn("DevEx", SCT_NAV("devex")),
-        btn("Revenue", SCT_NAV("revenue")),
-        btn("MT snapshot", SCT_NAV("snapshot")),
-        btn("History", SCT_NAV("history"))
-      ),
-      row(
-        btn("Creators", SCT_NAV("creators")),
-        btn("Report", SCT_NAV("report")),
-        btn("Tracked", SCT_NAV("tracked")),
-        btn("vs Genre", SCT_NAV("vsGenre")),
+        btn("Search", SCT_SEARCH, ButtonStyle.Success),
         btn("Refresh", SCT_REFRESH)
       ),
+      toolsMenu("Jump to a tool…"),
     ];
   }
 
@@ -166,13 +174,7 @@ function navRows(st: ScoutState): ActionRowBuilder<MessageActionRowComponentBuil
       btn("Search", SCT_SEARCH),
       btn("Refresh", SCT_REFRESH)
     ),
-    row(
-      btn("Compare", SCT_NAV("compare")),
-      btn("DevEx", SCT_NAV("devex")),
-      btn("Snapshot", SCT_NAV("snapshot")),
-      btn("History", SCT_NAV("history")),
-      btn("More tools", SCT_NAV("home"))
-    ),
+    toolsMenu(),
   ];
 }
 
@@ -367,7 +369,7 @@ async function buildCompare(st: ScoutState): Promise<BaseMessageOptions> {
   if (ids.length < 2) {
     return {
       content:
-        "Use `/scout compare` with two games, or open Compare and submit two universe IDs.",
+        "Use Compare → Enter games, or pass two games via `/scout game:…` then open Compare.",
       components: [
         ...navRows(st),
         row(btn("Enter games", SCT_COMPARE_MODAL, ButtonStyle.Primary)),
@@ -1035,6 +1037,21 @@ export async function handleScoutSelect(interaction: StringSelectMenuInteraction
     return;
   }
   await interaction.deferUpdate();
+  if (action === "tools") {
+    const view = interaction.values[0] as ScoutView | undefined;
+    if (view) {
+      st.page = 0;
+      if (view === "top" || view === "creators" || view === "report") {
+        st.genre = st.genre ?? "tycoon";
+      }
+      if (view === "history" || view === "vsGenre" || view === "revenue" || view === "snapshot") {
+        st.universeId = st.universeId ?? MILITARY_TYCOON_UNIVERSE_ID;
+      }
+      if (view === "devex") st.robux = st.robux ?? 100_000;
+      st.view = view;
+    }
+    return updateHub(interaction, st);
+  }
   if (action === "pickGame") {
     const id = Number(interaction.values[0]);
     if (Number.isFinite(id)) {

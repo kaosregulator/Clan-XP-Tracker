@@ -11,7 +11,6 @@ import { handleXpCommand } from "./features/xp";
 import { handleReviewButton } from "./features/review";
 import { handleDashButton, handleDashSelect } from "./features/dashboard";
 import { handleHelp, handleWarnRemoveSelect } from "./features/misc";
-import { handleWarnings, handleHubButton, handleHubModal } from "./features/userHub";
 import {
   openCommandCenter,
   handleCommandCenterButton,
@@ -51,10 +50,21 @@ import {
 } from "./features/scoutHub";
 import {
   handleMarketCommand,
+  handleMarketAutocomplete,
   handleMarketButton,
   handleMarketSelect,
   handleMarketModal,
 } from "./features/marketHub";
+import { handleLeaderboard } from "./features/leaderboard";
+import {
+  handleLinkCommand,
+  handleLinkAutocomplete,
+  handleLinkButton,
+  handleLinkSelect,
+  handleLinkRoleSelect,
+  handleLinkModal,
+} from "./features/linkHub";
+import { handleWarnings, handleHubButton, handleHubModal, handleWarningsAutocomplete } from "./features/userHub";
 
 /** Single entry point for every interaction. Thin dispatch by namespace/action. */
 export async function routeInteraction(interaction: Interaction): Promise<void> {
@@ -76,6 +86,10 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await openEnforcementPicker(interaction));
         case "warnings":
           return void (await handleWarnings(interaction));
+        case "leaderboard":
+          return void (await handleLeaderboard(interaction));
+        case "link":
+          return void (await handleLinkCommand(interaction));
         case "help":
           return void (await handleHelp(interaction));
         case "panel":
@@ -91,6 +105,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case "roblox":
           return void (await handleRobloxCommand(interaction));
         case "military":
+          // Legacy alias — opens the Military section of /roblox
           return void (await handleMilitaryCommand(interaction));
         case "scout":
           return void (await handleScoutCommand(interaction));
@@ -101,11 +116,20 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     }
 
     if (interaction.isAutocomplete()) {
+      if (interaction.commandName === "warnings" || interaction.commandName === "link") {
+        if (interaction.commandName === "link") {
+          return void (await handleLinkAutocomplete(interaction));
+        }
+        return void (await handleWarningsAutocomplete(interaction));
+      }
       if (interaction.commandName === "roblox" || interaction.commandName === "military") {
         return void (await handleRobloxAutocomplete(interaction));
       }
       if (interaction.commandName === "scout") {
         return void (await handleScoutAutocomplete(interaction));
+      }
+      if (interaction.commandName === "market") {
+        return void (await handleMarketAutocomplete(interaction));
       }
       return;
     }
@@ -141,6 +165,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleScoutButton(interaction));
         case NS.mkt:
           return void (await handleMarketButton(interaction));
+        case NS.link:
+          return void (await handleLinkButton(interaction));
       }
       return;
     }
@@ -163,12 +189,16 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.rbx) return void (await handleRobloxModal(interaction));
       if (ns === NS.scout) return void (await handleScoutModal(interaction));
       if (ns === NS.mkt) return void (await handleMarketModal(interaction));
+      if (ns === NS.link) return void (await handleLinkModal(interaction));
       return;
     }
 
     if (interaction.isChannelSelectMenu() || interaction.isRoleSelectMenu()) {
       const { ns } = parseId(interaction.customId);
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
+      if (ns === NS.link && interaction.isRoleSelectMenu()) {
+        return void (await handleLinkRoleSelect(interaction));
+      }
       return;
     }
 
@@ -183,6 +213,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.rbx) return void (await handleRobloxSelect(interaction));
       if (ns === NS.scout) return void (await handleScoutSelect(interaction));
       if (ns === NS.mkt) return void (await handleMarketSelect(interaction));
+      if (ns === NS.link) return void (await handleLinkSelect(interaction));
       return;
     }
   } catch (err) {

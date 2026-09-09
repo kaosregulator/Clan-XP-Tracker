@@ -19,47 +19,62 @@ export interface HelpCardView {
   sections: HelpSection[];
 }
 
-/** A clean, uniform help card matching the hubs/dashboards. */
+/** Help card — wider + larger type so Discord mobile still reads cleanly. */
 export async function renderHelpCard(view: HelpCardView): Promise<Buffer> {
-  const W = 960;
-  const pad = 40;
-  const headerH = 130;
-  const lineH = 34;
-  const sectionPadTop = 58;
-  const sectionGap = 22;
+  const W = 1100;
+  const pad = 48;
+  const headerH = 140;
+  const lineH = 40;
+  const sectionPadTop = 64;
+  const sectionGap = 24;
 
-  // Measure height from the content.
-  const sectionHeights = view.sections.map((s) => sectionPadTop + s.lines.length * lineH + 20);
-  const bodyH = sectionHeights.reduce((a, b) => a + b, 0) + sectionGap * (view.sections.length - 1);
-  const H = headerH + bodyH + 36;
+  const sectionHeights = view.sections.map((s) => sectionPadTop + s.lines.length * lineH + 28);
+  const bodyH = sectionHeights.reduce((a, b) => a + b, 0) + sectionGap * Math.max(0, view.sections.length - 1);
+  const H = headerH + bodyH + 48;
 
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
 
-  text(ctx, view.communityName.toUpperCase(), pad, 54, { size: 22, weight: "bold", color: PALETTE.soft, maxWidth: W - pad * 2 });
-  text(ctx, `How ${view.activityName} Tracking Works`, pad, 96, { size: 36, weight: "bold", color: PALETTE.text });
+  text(ctx, view.communityName.toUpperCase(), pad, 52, {
+    size: 18,
+    weight: "bold",
+    color: PALETTE.soft,
+    maxWidth: W - pad * 2,
+  });
+  text(ctx, `How ${view.activityName} tracking works`, pad, 100, {
+    size: 40,
+    weight: "bold",
+    color: PALETTE.text,
+    maxWidth: W - pad * 2,
+  });
 
   let y = headerH;
   for (let i = 0; i < view.sections.length; i++) {
     const s = view.sections[i]!;
     const h = sectionHeights[i]!;
-    card(ctx, pad, y, W - pad * 2, h, { fill: PALETTE.card, shadow: false });
+    card(ctx, pad, y, W - pad * 2, h, { fill: PALETTE.card, shadow: false, radius: 18 });
 
-    // accent bar
     ctx.fillStyle = s.accent;
-    ctx.fillRect(pad, y, 5, h);
+    ctx.fillRect(pad, y, 6, h);
 
-    text(ctx, s.title, pad + 28, y + 38, { size: 22, weight: "bold", color: PALETTE.text });
+    text(ctx, s.title, pad + 32, y + 42, {
+      size: 24,
+      weight: "bold",
+      color: PALETTE.text,
+    });
 
-    let ly = y + sectionPadTop + 12;
+    let ly = y + sectionPadTop + 14;
     for (const line of s.lines) {
-      // bullet dot
       ctx.beginPath();
-      ctx.arc(pad + 34, ly - 6, 4, 0, Math.PI * 2);
+      ctx.arc(pad + 40, ly - 7, 5, 0, Math.PI * 2);
       ctx.fillStyle = s.accent;
       ctx.fill();
-      text(ctx, line, pad + 50, ly, { size: 19, color: PALETTE.soft, maxWidth: W - pad * 2 - 76 });
+      text(ctx, line, pad + 58, ly, {
+        size: 22,
+        color: PALETTE.soft,
+        maxWidth: W - pad * 2 - 90,
+      });
       ly += lineH;
     }
     y += h + sectionGap;

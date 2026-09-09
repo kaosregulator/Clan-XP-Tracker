@@ -28,6 +28,17 @@ export const clanMembersTable = pgTable(
 
     // Main game account handle (e.g. Roblox username), optional.
     gameUsername: text("game_username"),
+    // Linked Roblox identity for clan cards (assigned by officers via /link).
+    robloxUserId: integer("roblox_user_id"),
+    robloxAvatarUrl: text("roblox_avatar_url"),
+    // Lifetime warning tally (active + removed). Never decremented on remove —
+    // officers need the full history when reviewing a member. warningsCount
+    // remains the active-only mirror used by role thresholds.
+    lifetimeWarnings: integer("lifetime_warnings").notNull().default(0),
+    // Clean-standing points: earned for weeks without a warning. Used by the
+    // leaderboard / "who can go without" bracket. Bumped by the scheduler and
+    // reset (or reduced) when a warning is issued.
+    cleanPoints: integer("clean_points").notNull().default(0),
 
     // Activity stats (canonical)
     currentStreak: integer("current_streak").notNull().default(0),

@@ -438,6 +438,18 @@ export async function rollWeek(clan: Clan, officer?: Officer): Promise<RollResul
     }
   }
 
+  // Clean-standing points: members who finished a tracked period without a
+  // warning earn points for the "who can go without" leaderboard.
+  const cleanBonus = getTrackingPeriod(clan) === "daily" ? 5 : 15;
+  for (const m of members) {
+    if (!m.weekKey || m.exempt || m.onLeave) continue;
+    if (m.weekWarnings > 0) continue;
+    await db
+      .update(clanMembersTable)
+      .set({ cleanPoints: sql`${clanMembersTable.cleanPoints} + ${cleanBonus}` })
+      .where(eq(clanMembersTable.id, m.id));
+  }
+
   await db
     .update(clanMembersTable)
     .set({

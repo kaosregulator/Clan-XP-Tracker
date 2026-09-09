@@ -66,6 +66,7 @@ export const DASH_FILTERS = [
   { value: "all", label: "All tracked", emoji: "📋" },
   { value: "attention", label: "Needs attention", emoji: "🔴" },
   { value: "complete", label: "Complete", emoji: "✅" },
+  { value: "clean", label: "Never warned", emoji: "💎" },
   { value: "reminded", label: "Reminded this week", emoji: "🔔" },
   { value: "warned", label: "Warned this week", emoji: "⚠️" },
   { value: "exempt", label: "Exempt", emoji: "🛡️" },
