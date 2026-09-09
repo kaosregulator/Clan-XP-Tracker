@@ -4,6 +4,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
+  type AutocompleteInteraction,
   type BaseMessageOptions,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
@@ -153,6 +154,27 @@ export async function openDisputeCommand(interaction: ChatInputCommandInteractio
     }
   }
 
+  // If they forgot warning_id for a warning dispute, list their active tickets.
+  if (disputeType === "warning" && !warningId) {
+    const active = await listActive(clan.guildId, interaction.user.id);
+    if (!active.length) {
+      await interaction.editReply({
+        content:
+          "You don't have any **active** warnings to dispute. Past/cleared warnings stay in history but can't be disputed.",
+      });
+      return;
+    }
+    const list = active
+      .slice(0, 10)
+      .map((w) => `• **#${w.id}** — ${w.reason.slice(0, 60)}${w.reason.length > 60 ? "…" : ""}`)
+      .join("\n");
+    await interaction.editReply({
+      content:
+        `Pick which warning with the **warning_id** option (autocomplete shows your tickets):\n${list}`,
+    });
+    return;
+  }
+
   const res = await openDisputeTicket({
     client: interaction.client,
     guild: interaction.guild,
@@ -169,7 +191,22 @@ export async function openDisputeCommand(interaction: ChatInputCommandInteractio
   });
 
   if (!res.ok) {
-    await interaction.editReply({ content: `⚠️ ${res.error}` });
+    let extra = "";
+    if (disputeType === "warning" && /warning|isn't one of yours|doesn't exist|already been removed/i.test(res.error)) {
+      const active = await listActive(clan.guildId, interaction.user.id);
+      if (active.length) {
+        extra =
+          `\n\nYour active warning tickets:\n` +
+          active
+            .slice(0, 10)
+            .map((w) => `• **#${w.id}**`)
+            .join("\n") +
+          `\nUse autocomplete on **warning_id** to pick one.`;
+      } else {
+        extra = `\n\nYou currently have **no active** warnings (history still exists for officers).`;
+      }
+    }
+    await interaction.editReply({ content: `⚠️ ${res.error}${extra}` });
     return;
   }
 
@@ -179,6 +216,34 @@ export async function openDisputeCommand(interaction: ChatInputCommandInteractio
       `Only you, configured staff, and the bot can see that channel.` +
       (evidenceAtt ? `\n📎 Evidence attached: **${evidenceAtt.name}**` : ""),
   });
+}
+
+/** Autocomplete `/dispute warning_id` from this member's active warning tickets. */
+export async function handleDisputeAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  if (!interaction.inCachedGuild()) {
+    await interaction.respond([]);
+    return;
+  }
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "warning_id") {
+    await interaction.respond([]);
+    return;
+  }
+  try {
+    const q = String(focused.value ?? "").trim();
+    const active = await listActive(interaction.guildId, interaction.user.id);
+    const filtered = active
+      .filter((w) => !q || String(w.id).includes(q) || w.reason.toLowerCase().includes(q.toLowerCase()))
+      .slice(0, 25);
+    await interaction.respond(
+      filtered.map((w) => ({
+        name: `#${w.id} · ${w.reason}`.slice(0, 100),
+        value: w.id,
+      }))
+    );
+  } catch {
+    await interaction.respond([]).catch(() => {});
+  }
 }
 
 /** @deprecated Hub used to open a modal with a URL field — redirect to /dispute. */

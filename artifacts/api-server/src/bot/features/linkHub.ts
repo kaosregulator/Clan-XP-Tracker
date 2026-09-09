@@ -46,6 +46,7 @@ import {
   LNK_ROLE_PICK,
   LNK_HOME,
 } from "../ui/ids";
+import { ensureSchema } from "../../lib/ensureSchema";
 import { notConfiguredMessage } from "./xp";
 import { handleMemberSearchAutocomplete } from "./leaderboard";
 
@@ -212,7 +213,9 @@ async function saveLink(guildId: string, st: LinkState) {
     )
     .returning({ id: clanMembersTable.id });
   if (!updated) {
-    throw new Error("Couldn't find that member in the clan roster — try /link again.");
+    throw new Error(
+      "Couldn't find that member in the clan roster. Open `/link` with the Discord user option first so they're tracked."
+    );
   }
 }
 
@@ -458,7 +461,19 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
       }
       const user = await interaction.client.users.fetch(st.discordUserId).catch(() => null);
       if (user) await ensureMember(interaction.guildId!, identityFromUser(user));
-      await saveLink(interaction.guildId!, st);
+      try {
+        await saveLink(interaction.guildId!, st);
+      } catch (err) {
+        // One-shot schema heal if columns were missing at boot.
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/column .* does not exist/i.test(msg)) {
+          await ensureSchema().catch(() => {});
+          if (user) await ensureMember(interaction.guildId!, identityFromUser(user));
+          await saveLink(interaction.guildId!, st);
+        } else {
+          throw err;
+        }
+      }
       const linkedName = st.discordName ?? "member";
       const linkedRbx = st.robloxName ?? "Roblox";
       if (st.queue.length) {

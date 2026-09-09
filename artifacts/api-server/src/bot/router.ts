@@ -23,6 +23,7 @@ import {
   handleDisputeButton,
   handleDisputeSelect,
   handleDisputeReasonModal,
+  handleDisputeAutocomplete,
 } from "./features/disputes";
 import { openTickets, handleTicketButton, handleTicketSelect } from "./features/tickets";
 import { handleMemberPanelButton, handleMemberPanelModal } from "./features/memberPanel";
@@ -121,6 +122,9 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleLinkAutocomplete(interaction));
         }
         return void (await handleWarningsAutocomplete(interaction));
+      }
+      if (interaction.commandName === "dispute") {
+        return void (await handleDisputeAutocomplete(interaction));
       }
       if (interaction.commandName === "roblox" || interaction.commandName === "military") {
         return void (await handleRobloxAutocomplete(interaction));

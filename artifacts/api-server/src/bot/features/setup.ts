@@ -601,10 +601,11 @@ function cardsPayload(clan: Clan): BaseMessageOptions {
             "• **Canvas cards** — the branded avatar cards.\n" +
             "• **Avatar embed** — the classic embed with the member's avatar.\n\n" +
             "**Warning role auto-removal** — the warning role is auto-assigned once a member " +
-            "reaches your warning threshold. Choose when it comes back off:\n" +
-            "• **Off** — cleared only when a member has no active warnings left (default).\n" +
-            "• **Hourly / Daily / Weekly / Monthly** — warnings expire at that age and the role is stripped.\n" +
-            "• **Custom interval…** — enter any number of hours, days, weeks or months.\n\n" +
+            "reaches your warning threshold. Choose when the **role** comes back off:\n" +
+            "• **Off** — role cleared only when staff remove their last active warning (default).\n" +
+            "• **Hourly / Daily / Weekly / Monthly** — role strips after that age; **warning records stay** for history & disputes.\n" +
+            "• **Custom interval…** — enter any number of hours, days, weeks or months.\n" +
+            "• Meeting the XP requirement also strips the role only — never auto-deletes warnings.\n\n" +
             `Currently: style **${cardStyleLabel(clan)}** · auto-removal **${warnRemovalLabel(clan.warningRemovalHours)}**`
         ),
     ],

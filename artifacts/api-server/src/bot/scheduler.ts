@@ -172,14 +172,13 @@ async function tick(client: Client) {
         await runOfficerMonitoring(client, clan, dateKey);
       }
 
-      // Timer-based warning expiration (owner-configured hours). Independent
-      // of requirement satisfaction.
+      // Timer-based warning-role clearance (owner-configured hours). Strips the
+      // role only — warning records stay for history / disputes.
       if (clan.warningRemovalHours > 0 && new Date().getMinutes() % 10 === 0) {
         await autoExpireWarnings(client, clan).catch(() => {});
       }
 
-      // Requirement-based warning-role clearance: only when the configured
-      // activity requirement is met — never because an XP row merely exists.
+      // Requirement-based warning-role clearance: role only, never auto-delete warnings.
       if (new Date().getMinutes() % 10 === 0) {
         await clearWarningRolesForSatisfiedMembers(client, clan).catch(() => {});
       }

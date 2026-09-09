@@ -155,26 +155,54 @@ export async function getScoutGame(universeId: number): Promise<ScoutGameRow> {
 export async function getTrending(limit = 12, genre?: string): Promise<ScoutGameRow[]> {
   const ctx = getScoutContext();
   // Prefer snapshot-based growth when we have enough history.
-  const growth = computeTrending(getScoutStore(), { limit });
-  if (!genre && growth.length >= 3) {
-    return enrichRows(
-      growth.map((e) =>
-        mapGameLike({
-          id: e.universeId,
-          name: e.name,
-          playing: e.currentPlaying,
-          deltaPct: e.deltaPct,
-          snapshotCount: e.snapshotCount,
-          rootPlaceId: 0,
-          visits: 0,
-          favoritedCount: 0,
-          creator: { name: "—", type: "User" },
-        })
-      )
-    );
+  const snapStore = getScoutStore();
+  if (snapStore && !genre) {
+    try {
+      const growth = computeTrending(snapStore, { limit });
+      if (growth.length >= 3) {
+        return enrichRows(
+          growth.map((e) =>
+            mapGameLike({
+              id: e.universeId,
+              name: e.name,
+              playing: e.currentPlaying,
+              deltaPct: e.deltaPct,
+              snapshotCount: e.snapshotCount,
+              rootPlaceId: 0,
+              visits: 0,
+              favoritedCount: 0,
+              creator: { name: "—", type: "User" },
+            })
+          )
+        );
+      }
+    } catch {
+      /* fall through to live chart */
+    }
   }
-  const out = await getTrendingGames.handler({ limit, genre }, ctx);
+  const args = genre?.trim() ? { limit, genre: genre.trim() } : { limit };
+  const out = await getTrendingGames.handler(args, ctx);
   return enrichRows((out.games as Array<Record<string, unknown>>).map((g) => mapGameLike(g)));
+}
+
+/** Guaranteed Top-N from known popular universe IDs (no charts API required). */
+export const SCOUT_PRESET_UNIVERSE_IDS = [
+  MILITARY_TYCOON_UNIVERSE_ID, // Military Tycoon
+  994732206, // Blox Fruits
+  383310974, // Adopt Me!
+  1686885941, // Brookhaven
+  245662005, // Jailbreak
+  3317771874, // Pet Simulator 99
+  2440500124, // Doors
+  111958650, // Arsenal
+  66654135, // Murder Mystery 2
+  1176784616, // Tower Defense Simulator
+] as const;
+
+export async function getPresetTopGames(limit = 10): Promise<ScoutGameRow[]> {
+  const ids = SCOUT_PRESET_UNIVERSE_IDS.slice(0, Math.max(1, limit));
+  const games = await getScoutClient().getGames([...ids]);
+  return enrichRows(games.map((g) => mapGameLike(g as unknown as Record<string, unknown>)));
 }
 
 export async function getTopGamesByGenre(genre: string, limit = 12): Promise<ScoutGameRow[]> {
@@ -187,7 +215,9 @@ export async function getUpAndComing(limit = 12): Promise<{
   rows: ScoutGameRow[];
   needHistory: boolean;
 }> {
-  const growth = computeUpAndComing(getScoutStore(), { limit });
+  const snapStore = getScoutStore();
+  if (!snapStore) return { rows: [], needHistory: true };
+  const growth = computeUpAndComing(snapStore, { limit });
   if (!growth.length) {
     return { rows: [], needHistory: true };
   }
@@ -265,6 +295,9 @@ export async function takeSnapshots(universeIds: number[]): Promise<{
 
 export async function getHistory(universeId: number, limit = 24): Promise<ScoutHistoryResult> {
   const store = getScoutStore();
+  if (!store) {
+    return { universeId, name: null, points: [], latest: null, previous: null };
+  }
   const snaps = store.getGameHistory(universeId, { limit });
   const meta = store.getMetadata(universeId);
   const points: ScoutSnapshotPoint[] = snaps.map((s, i) => {
@@ -420,6 +453,7 @@ export function listTracked(): Array<{
   lastSeen: string | null;
 }> {
   const store = getScoutStore();
+  if (!store) return [];
   return store.getTrackedUniverseIds().map((id) => {
     const meta = store.getMetadata(id);
     const latest = store.getLatestSnapshot(id);
@@ -447,6 +481,7 @@ export const ScoutService = {
   resolveGame: resolveScoutGame,
   getGame: getScoutGame,
   trending: getTrending,
+  presetTop: getPresetTopGames,
   topByGenre: getTopGamesByGenre,
   upAndComing: getUpAndComing,
   compare: compareScoutGames,
