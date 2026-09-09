@@ -139,6 +139,8 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   // Canvas fonts are loaded from disk at runtime by render-worker.mjs (at
   // dist/bot/canvas/render-worker.mjs). Paths resolve relative to import.meta.url
   // of that bundle, so fonts must land at dist/bot/canvas/assets/fonts/.
+  // The main index.mjs also calls ensureFonts() at boot — fonts.ts falls back
+  // to this path when the bundle is not next to assets/.
   await cp(
     path.resolve(artifactDir, "src/bot/canvas/assets"),
     path.resolve(distDir, "bot/canvas/assets"),

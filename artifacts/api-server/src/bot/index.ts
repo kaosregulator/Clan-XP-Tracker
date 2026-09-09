@@ -19,6 +19,11 @@ let client: Client | null = null;
 /**
  * Register slash commands. If DISCORD_DEV_GUILD_ID is set we register to those
  * guilds (instant, ideal while setting up/testing); otherwise globally.
+ *
+ * Important: Discord merges guild + global command sets. An old guild tree
+ * (e.g. `/roblox profile`, `/scout devex` from a prior DEV_GUILD_ID run) will
+ * keep showing forever unless we clear it — so every boot clears the other
+ * scope and wipes stale guild command lists.
  */
 async function registerCommands(client: Client) {
   const rest = new REST().setToken(DISCORD_BOT_TOKEN!);
@@ -26,19 +31,38 @@ async function registerCommands(client: Client) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const appId = DISCORD_CLIENT_ID!;
 
   try {
     if (guildIds.length) {
       for (const guildId of guildIds) {
-        await rest.put(Routes.applicationGuildCommands(DISCORD_CLIENT_ID!, guildId), { body: commands });
+        await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: commands });
       }
       // Clear any stale global commands so members don't see duplicates.
-      await rest.put(Routes.applicationCommands(DISCORD_CLIENT_ID!), { body: [] }).catch(() => {});
+      await rest.put(Routes.applicationCommands(appId), { body: [] }).catch(() => {});
+      // Also wipe guild commands on other joined servers (leftovers from an
+      // older DISCORD_DEV_GUILD_ID value).
+      for (const guild of client.guilds.cache.values()) {
+        if (guildIds.includes(guild.id)) continue;
+        await rest.put(Routes.applicationGuildCommands(appId, guild.id), { body: [] }).catch(() => {});
+      }
       logger.info({ count: commands.length, guilds: guildIds }, "Slash commands registered (guild — instant)");
     } else {
-      await rest.put(Routes.applicationCommands(DISCORD_CLIENT_ID!), { body: commands });
+      await rest.put(Routes.applicationCommands(appId), { body: commands });
+      // Wipe guild-scoped leftovers. Without this, a server that once used
+      // DISCORD_DEV_GUILD_ID keeps showing the OLD /roblox · /scout subcommand
+      // tree forever, layered on top of the new global hubs.
+      let cleared = 0;
+      for (const guild of client.guilds.cache.values()) {
+        try {
+          await rest.put(Routes.applicationGuildCommands(appId, guild.id), { body: [] });
+          cleared += 1;
+        } catch (err) {
+          logger.warn({ err, guildId: guild.id }, "Failed to clear stale guild slash commands");
+        }
+      }
       logger.info(
-        { count: commands.length },
+        { count: commands.length, clearedGuildCommandSets: cleared },
         "Slash commands registered (global — can take up to 1h to appear; set DISCORD_DEV_GUILD_ID for instant)"
       );
     }

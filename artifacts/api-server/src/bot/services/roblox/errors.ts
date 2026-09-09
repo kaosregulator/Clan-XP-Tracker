@@ -49,8 +49,22 @@ export function logRobloxError(context: string, err: unknown): void {
   logger.error({ err, context }, "Roblox unexpected error");
 }
 
+function looksLikeMissingSchema(err: unknown): boolean {
+  const msg =
+    err instanceof Error
+      ? `${err.message} ${String((err as { cause?: unknown }).cause ?? "")}`
+      : String(err ?? "");
+  return /roblox_user_id|roblox_avatar_url|lifetime_warnings|clean_points|column .* does not exist/i.test(
+    msg
+  );
+}
+
 export function toUserError(err: unknown): string {
   if (err instanceof RobloxServiceError) return err.message;
+  if (looksLikeMissingSchema(err)) {
+    logRobloxError("toUserError", err);
+    return "⚠️ Database is missing new columns. Run `pnpm --filter @workspace/db push` against Railway Postgres, then redeploy.";
+  }
   logRobloxError("toUserError", err);
   return userMessage("unavailable");
 }
