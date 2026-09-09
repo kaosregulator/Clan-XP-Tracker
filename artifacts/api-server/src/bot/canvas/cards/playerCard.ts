@@ -58,6 +58,9 @@ export interface PlayerCardView {
   cleanPoints: number;
   memberSinceLabel: string;
   lastActivityLabel: string;
+  /** Staff-logged activity totals shown as one breakdown (not separate cards). */
+  activityRows: Array<{ emoji: string; name: string; points: number }>;
+  warningRows: Array<{ label: string; count: number }>;
 }
 
 function panel(
@@ -98,7 +101,7 @@ function fillBar(
 
 export async function renderPlayerCard(view: PlayerCardView): Promise<Buffer> {
   const W = 1100;
-  const H = 780;
+  const H = 900;
   const rc = createSurface(W, H);
   const { ctx, canvas } = rc;
 
@@ -318,7 +321,37 @@ export async function renderPlayerCard(view: PlayerCardView): Promise<Buffer> {
     sx += tileW + 14;
   }
 
-  text(ctx, "DISCIPLINE  ·  UNITY  ·  VICTORY", W / 2, H - 28, {
+  
+  // ACTIVITY breakdown — one section, not a card per category.
+  const actY = H - 250;
+  panel(ctx, 44, actY, W - 88, 150, 16);
+  text(ctx, "ACTIVITY", 64, actY + 28, { size: 12, weight: "bold", color: HUD.muted });
+  const rows = (view.activityRows ?? []).filter((r) => r.points > 0).slice(0, 8);
+  if (!rows.length) {
+    text(ctx, "No staff-logged activity yet", 64, actY + 70, { size: 16, color: HUD.soft });
+  } else {
+    const colW = (W - 120) / 2;
+    rows.forEach((r, i) => {
+      const col = i < 4 ? 0 : 1;
+      const row = i % 4;
+      const x = 64 + col * colW;
+      const y = actY + 58 + row * 22;
+      text(ctx, `${r.emoji} ${r.name}`, x, y, { size: 15, color: HUD.text, maxWidth: colW - 80 });
+      text(ctx, String(r.points), x + colW - 70, y, { size: 15, weight: "bold", family: "mono", color: HUD.cyan });
+    });
+  }
+
+  const warnRows = (view.warningRows ?? []).filter((r) => r.count > 0).slice(0, 4);
+  if (warnRows.length) {
+    text(ctx, "WARNINGS BY CATEGORY", W / 2, actY + 28, {
+      size: 12,
+      weight: "bold",
+      color: HUD.muted,
+      align: "center",
+    });
+  }
+
+text(ctx, "DISCIPLINE  ·  UNITY  ·  VICTORY", W / 2, H - 28, {
     size: 13,
     weight: "bold",
     color: HUD.muted,

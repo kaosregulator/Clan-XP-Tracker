@@ -75,6 +75,8 @@ export interface PlayerProfile {
   lastActivityLabel: string;
   robloxLinked: boolean;
   hasCombatSupportRole: boolean;
+  activityRows: Array<{ key: string; name: string; emoji: string; points: number }>;
+  warningRows: Array<{ key: string; label: string; count: number }>;
 }
 
 function parseThresholds(clan: Clan): number[] {
@@ -201,6 +203,8 @@ export async function buildPlayerProfile(
     lastActivityLabel: last,
     robloxLinked: Boolean(member.robloxUserId || member.robloxAvatarUrl || member.gameUsername),
     hasCombatSupportRole: Boolean(opts?.hasCombatSupportRole),
+    activityRows: [],
+    warningRows: [],
   };
 }
 

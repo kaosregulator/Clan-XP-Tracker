@@ -24,6 +24,45 @@ const STATEMENTS = [
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS activity_xp_reward integer NOT NULL DEFAULT 50`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS combat_support_points integer NOT NULL DEFAULT 10`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS level_thresholds_json text`,
+  // Activity Manager — category-tagged warnings + staff activity logs.
+  `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS category_key text`,
+  `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS category_label text`,
+  `CREATE TABLE IF NOT EXISTS activity_categories (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      key text NOT NULL,
+      name text NOT NULL,
+      description text,
+      emoji text NOT NULL DEFAULT '📋',
+      default_points integer NOT NULL DEFAULT 1,
+      counts_as_activity boolean NOT NULL DEFAULT true,
+      awards_xp boolean NOT NULL DEFAULT false,
+      counts_as_combat_support boolean NOT NULL DEFAULT false,
+      show_on_card boolean NOT NULL DEFAULT true,
+      sort_order integer NOT NULL DEFAULT 100,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS activity_categories_guild_key_uidx
+     ON activity_categories (guild_id, key)`,
+  `CREATE TABLE IF NOT EXISTS activity_logs (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      user_id text NOT NULL,
+      username text NOT NULL,
+      category_key text NOT NULL,
+      category_name text NOT NULL,
+      points integer NOT NULL DEFAULT 1,
+      note text,
+      logged_by text NOT NULL,
+      logged_by_username text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE INDEX IF NOT EXISTS activity_logs_guild_user_idx
+     ON activity_logs (guild_id, user_id)`,
+  `CREATE INDEX IF NOT EXISTS activity_logs_guild_category_idx
+     ON activity_logs (guild_id, category_key)`,
   // Preserve history for members who already had active warnings before the column existed.
   `UPDATE clan_members
      SET lifetime_warnings = warnings_count

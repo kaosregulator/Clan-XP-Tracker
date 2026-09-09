@@ -546,16 +546,16 @@ export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
     v: { ...v, message: null },
     accent: LIGHT.red,
     accentSoft: LIGHT.redSoft,
-    title: ["XP", "WARNING"],
+    title: ["ACTIVITY", "WARNING"],
     // No count/threshold badge — those are staff-only accounting.
     icon: "warning",
     ticketLabel,
     bodySegs: [
-      [{ t: "You received an XP Warning.", color: LIGHT.ink, bold: true }],
+      [{ t: "You received an Activity Warning.", color: LIGHT.ink, bold: true }],
       [
         { t: "Dispute it with ", color: LIGHT.inkSoft },
         { t: dispute, color: LIGHT.red, bold: true },
-        { t: " — have your XP proof ready.", color: LIGHT.inkSoft },
+        { t: " — have your proof ready.", color: LIGHT.inkSoft },
       ],
     ],
   });

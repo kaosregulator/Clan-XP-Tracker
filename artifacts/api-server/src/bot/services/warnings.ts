@@ -96,6 +96,9 @@ export interface IssueWarningInput {
    * staff accounting is stripped) before it reaches the member.
    */
   memberReason?: string | null;
+  /** Activity category this warning is about (one warning system + selectable category). */
+  categoryKey?: string | null;
+  categoryLabel?: string | null;
   deliver?: WarnDelivery;
 }
 
@@ -139,7 +142,7 @@ async function renderWarningCardSafe(
 
 /** A fresh attachment for each send — Buffers must not be shared across sends. */
 function warningAttachment(card: Buffer): AttachmentBuilder {
-  return new AttachmentBuilder(card, { name: "xp-warning.png" });
+  return new AttachmentBuilder(card, { name: "activity-warning.png" });
 }
 
 /**
@@ -159,7 +162,7 @@ function memberWarningEmbed(
   const robloxUrl = faces?.robloxAvatarUrl || null;
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setAuthor({ name: `⚠️ XP WARNING • ${guildName}`, iconURL: discordUrl || undefined })
+    .setAuthor({ name: `⚠️ ACTIVITY WARNING • ${guildName}`, iconURL: discordUrl || undefined })
     .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(memberWarningBody(memberReason, warningNumber))
     .setTimestamp();
@@ -194,6 +197,8 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
       issuedBy: input.moderatorId,
       issuedByUsername: input.moderatorUsername,
       reason: staffReason,
+      categoryKey: input.categoryKey ?? null,
+      categoryLabel: input.categoryLabel ?? null,
     })
     .returning();
 
@@ -257,9 +262,9 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
         );
         await channel.send({
           content:
-            `⚠️ <@${target.id}> — you received an XP Warning` +
+            `⚠️ <@${target.id}> — you received an Activity Warning` +
             `${warningNumber ? ` (ticket **#${warningNumber}**)` : ""}. ` +
-            `Dispute with \`${DISPUTE_COMMAND}\` — have your XP proof ready.`,
+            `Dispute with \`${DISPUTE_COMMAND}\` — have your proof ready.`,
           ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
           allowedMentions: { users: [target.id] },
         });
@@ -507,7 +512,7 @@ export async function postWarningAnnouncement(opts: {
     if (!channel?.isTextBased() || !("send" in channel)) return false;
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
-      .setAuthor({ name: `⚠️ XP WARNING • ${clan.clanName}` })
+      .setAuthor({ name: `⚠️ ACTIVITY WARNING • ${clan.clanName}` })
       .setDescription(memberWarningBody(opts.reason))
       .setTimestamp();
     await channel.send({
@@ -560,6 +565,44 @@ export async function listActive(guildId: string, userId: string): Promise<Warni
 }
 
 /** Full warning history for a member (newest first). Includes soft-removed rows. */
+
+export interface WarningCategoryCount {
+  key: string;
+  label: string;
+  count: number;
+}
+
+/** Active warnings grouped by activity category (for the player card). */
+export async function warningBreakdownByCategory(
+  guildId: string,
+  userId: string
+): Promise<WarningCategoryCount[]> {
+  const rows = await db
+    .select({
+      categoryKey: warningsTable.categoryKey,
+      categoryLabel: warningsTable.categoryLabel,
+      count: sql<number>`count(*)::int`.mapWith(Number),
+    })
+    .from(warningsTable)
+    .where(
+      and(
+        eq(warningsTable.guildId, guildId),
+        eq(warningsTable.userId, userId),
+        isNull(warningsTable.removedAt)
+      )
+    )
+    .groupBy(warningsTable.categoryKey, warningsTable.categoryLabel);
+
+  return rows
+    .map((r) => ({
+      key: r.categoryKey || "activity",
+      label: r.categoryLabel || "Activity",
+      count: r.count,
+    }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
 export async function listHistory(
   guildId: string,
   userId: string,

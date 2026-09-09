@@ -32,8 +32,16 @@ import {
   openEnforcementPicker,
   handleEnforcementButton,
   handleEnforcementSelect,
+  handleEnforcementCategorySelect,
   handleEnforcementNoteModal,
 } from "./features/enforcementPicker";
+import {
+  openActivityLog,
+  handleActivityButton,
+  handleActivityUserSelect,
+  handleActivityCategorySelect,
+  handleActivityPointsModal,
+} from "./features/activityLog";
 import {
   handleRobloxCommand,
   handleMilitaryCommand,
@@ -85,6 +93,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case "xpreminder":
         case "xpwarn":
           return void (await openEnforcementPicker(interaction));
+        case "activity":
+          return void (await openActivityLog(interaction));
         case "warnings":
           return void (await handleWarnings(interaction));
         case "leaderboard":
@@ -163,6 +173,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleHubButton(interaction));
         case NS.enf:
           return void (await handleEnforcementButton(interaction));
+        case NS.act:
+          return void (await handleActivityButton(interaction));
         case NS.rbx:
           return void (await handleRobloxButton(interaction));
         case NS.scout:
@@ -180,6 +192,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.cc) return void (await handleCommandCenterSelect(interaction));
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
       if (ns === NS.enf) return void (await handleEnforcementSelect(interaction));
+      if (ns === NS.act) return void (await handleActivityUserSelect(interaction));
       return;
     }
 
@@ -189,6 +202,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.disp) return void (await handleDisputeReasonModal(interaction));
       if (ns === NS.mp) return void (await handleMemberPanelModal(interaction));
       if (ns === NS.enf) return void (await handleEnforcementNoteModal(interaction));
+      if (ns === NS.act) return void (await handleActivityPointsModal(interaction));
       if (ns === NS.hub) return void (await handleHubModal(interaction));
       if (ns === NS.rbx) return void (await handleRobloxModal(interaction));
       if (ns === NS.scout) return void (await handleScoutModal(interaction));
@@ -208,6 +222,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
 
     if (interaction.isStringSelectMenu()) {
       const { ns } = parseId(interaction.customId);
+      if (ns === NS.enf) return void (await handleEnforcementCategorySelect(interaction));
+      if (ns === NS.act) return void (await handleActivityCategorySelect(interaction));
       if (ns === NS.setup) return void (await handleSetupSelect(interaction));
       if (ns === NS.dash) return void (await handleDashSelect(interaction));
       if (ns === NS.warn) return void (await handleWarnRemoveSelect(interaction));

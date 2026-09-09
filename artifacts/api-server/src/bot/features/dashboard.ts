@@ -57,6 +57,8 @@ import {
   buildPlayerProfile,
   memberHasCombatSupportRole,
 } from "../services/player";
+import { activityBreakdownForUser } from "../services/activity";
+import { warningBreakdownByCategory } from "../services/warnings";
 
 export type DashBrowseView = "player" | "editor";
 
@@ -389,6 +391,8 @@ export async function buildMemberBrowsePayload(
   const profile = await buildPlayerProfile(clan, member, {
     hasCombatSupportRole: memberHasCombatSupportRole(clan, undefined),
   });
+  const activityRows = await activityBreakdownForUser(clan.guildId, member.userId);
+  const warningRows = await warningBreakdownByCategory(clan.guildId, member.userId);
   const png = await renderOffThread("playerCard", {
     clanName: clan.clanName,
     motto: "STRONGER TOGETHER",
@@ -419,6 +423,15 @@ export async function buildMemberBrowsePayload(
     cleanPoints: profile.cleanPoints,
     memberSinceLabel: formatMemberSince(profile.memberSince),
     lastActivityLabel: profile.lastActivityLabel,
+    activityRows: activityRows.map((r) => ({
+      emoji: r.emoji,
+      name: r.name,
+      points: r.points,
+    })),
+    warningRows: warningRows.map((r) => ({
+      label: r.label,
+      count: r.count,
+    })),
   });
 
   return {
