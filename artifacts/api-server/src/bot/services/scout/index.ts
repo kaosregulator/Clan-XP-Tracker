@@ -152,9 +152,64 @@ export async function getScoutGame(universeId: number): Promise<ScoutGameRow> {
   return row!;
 }
 
+/** Guaranteed Top-N from known popular universe IDs (no charts API required). */
+export const SCOUT_PRESET_UNIVERSE_IDS = [
+  MILITARY_TYCOON_UNIVERSE_ID, // Military Tycoon
+  994732206, // Blox Fruits
+  383310974, // Adopt Me!
+  1686885941, // Brookhaven RP
+  4924922222, // Brookhaven (alt)
+  245662005, // Jailbreak (legacy seed)
+  606849621, // Jailbreak
+  3317771874, // Pet Simulator 99
+  2440500124, // Doors
+  111958650, // Arsenal (legacy seed)
+  286090429, // Arsenal
+  66654135, // Murder Mystery 2
+  1176784616, // Tower Defense Simulator
+  920587237, // Bee Swarm Simulator
+  2788229376, // Da Hood
+  189707, // Natural Disaster Survival
+  4777817887, // Blade Ball
+] as const;
+
+/** Rank popular seed universes by live CCU — one Roblox games call, no omni-search. */
+export async function getPresetTopGames(limit = 10): Promise<ScoutGameRow[]> {
+  const seed = [...new Set(SCOUT_PRESET_UNIVERSE_IDS.filter((id) => Number.isFinite(id) && id > 0))].slice(
+    0,
+    40
+  );
+  const games = await getScoutClient().getGames(seed);
+  const ranked = games
+    .map((g) => mapGameLike(g as unknown as Record<string, unknown>))
+    .filter((g) => g.universeId > 0)
+    .sort((a, b) => b.playing - a.playing)
+    .slice(0, Math.max(1, limit));
+  return enrichRows(ranked);
+}
+
+/**
+ * Live "hot right now" ranking:
+ * 1) Fast path — popular seed universes sorted by live CCU (1 Roblox call).
+ * 2) Optional omni-search sweep (bloxscout) when it finishes quickly.
+ * Snapshot growth only when we already have enough history.
+ */
 export async function getTrending(limit = 12, genre?: string): Promise<ScoutGameRow[]> {
   const ctx = getScoutContext();
-  // Prefer snapshot-based growth when we have enough history.
+
+  if (genre?.trim()) {
+    try {
+      const out = await getTopByGenre.handler({ genre: genre.trim(), limit }, ctx);
+      const rows = await enrichRows(
+        (out.games as Array<Record<string, unknown>>).map((g) => mapGameLike(g))
+      );
+      if (rows.length) return rows;
+    } catch {
+      /* fall through to live seed */
+    }
+  }
+
+  // Snapshot growth when history exists (true trending).
   const snapStore = getScoutStore();
   if (snapStore && !genre) {
     try {
@@ -177,32 +232,47 @@ export async function getTrending(limit = 12, genre?: string): Promise<ScoutGame
         );
       }
     } catch {
-      /* fall through to live chart */
+      /* fall through */
     }
   }
-  const args = genre?.trim() ? { limit, genre: genre.trim() } : { limit };
-  const out = await getTrendingGames.handler(args, ctx);
-  return enrichRows((out.games as Array<Record<string, unknown>>).map((g) => mapGameLike(g)));
-}
 
-/** Guaranteed Top-N from known popular universe IDs (no charts API required). */
-export const SCOUT_PRESET_UNIVERSE_IDS = [
-  MILITARY_TYCOON_UNIVERSE_ID, // Military Tycoon
-  994732206, // Blox Fruits
-  383310974, // Adopt Me!
-  1686885941, // Brookhaven
-  245662005, // Jailbreak
-  3317771874, // Pet Simulator 99
-  2440500124, // Doors
-  111958650, // Arsenal
-  66654135, // Murder Mystery 2
-  1176784616, // Tower Defense Simulator
-] as const;
+  // Fast live CCU ranking of popular games — usually <2s.
+  let liveTop: ScoutGameRow[] = [];
+  try {
+    liveTop = await getPresetTopGames(limit);
+  } catch {
+    liveTop = [];
+  }
 
-export async function getPresetTopGames(limit = 10): Promise<ScoutGameRow[]> {
-  const ids = SCOUT_PRESET_UNIVERSE_IDS.slice(0, Math.max(1, limit));
-  const games = await getScoutClient().getGames([...ids]);
-  return enrichRows(games.map((g) => mapGameLike(g as unknown as Record<string, unknown>)));
+  // Broader omni-search trending if it finishes before the timeout.
+  try {
+    const args = genre?.trim() ? { limit, genre: genre.trim() } : { limit: Math.max(limit, 15) };
+    const out = await Promise.race([
+      getTrendingGames.handler(args, ctx),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
+    ]);
+    if (out && Array.isArray((out as { games?: unknown }).games)) {
+      const omni = await enrichRows(
+        ((out as { games: Array<Record<string, unknown>> }).games).map((g) => mapGameLike(g))
+      );
+      if (omni.length >= liveTop.length && omni.some((g) => g.playing > 0)) {
+        return omni.slice(0, limit);
+      }
+      // Merge: prefer higher CCU across both sets.
+      const byId = new Map<number, ScoutGameRow>();
+      for (const g of [...liveTop, ...omni]) {
+        const prev = byId.get(g.universeId);
+        if (!prev || g.playing > prev.playing) byId.set(g.universeId, g);
+      }
+      const merged = [...byId.values()].sort((a, b) => b.playing - a.playing).slice(0, limit);
+      if (merged.length) return merged;
+    }
+  } catch {
+    /* keep liveTop */
+  }
+
+  if (liveTop.length) return liveTop;
+  return [];
 }
 
 export async function getTopGamesByGenre(genre: string, limit = 12): Promise<ScoutGameRow[]> {
@@ -283,6 +353,16 @@ export async function takeSnapshots(universeIds: number[]): Promise<{
   const ids = Array.from(new Set(universeIds.filter((n) => Number.isFinite(n) && n > 0))).slice(0, 25);
   if (!ids.length) throw new ScoutServiceError("invalid", "no universe ids");
   const ctx = getScoutContext();
+  if (!ctx.store) {
+    // Still return live game cards so Snapshot doesn't wipe the hub.
+    const games = await Promise.all(ids.map((id) => getScoutGame(id).catch(() => null)));
+    return {
+      recorded: 0,
+      takenAt: new Date().toISOString(),
+      universeIds: ids,
+      games: games.filter((g): g is ScoutGameRow => Boolean(g)),
+    };
+  }
   const out = await snapshotGame.handler({ universeIds: ids }, ctx);
   const games = await Promise.all(out.universeIds.map((id) => getScoutGame(id).catch(() => null)));
   return {

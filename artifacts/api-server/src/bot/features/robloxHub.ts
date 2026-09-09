@@ -1077,7 +1077,22 @@ async function updateHub(
     if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logRobloxError("updateHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
+    // Keep chrome so a failed lookup doesn't strip the whole hub.
+    await interaction
+      .editReply(
+        replaceHubCard({
+          content: toUserError(err),
+          files: [],
+          components: [
+            row(btn(RBX_SEARCH, "New Search", ButtonStyle.Primary), btn(RBX_NAV("home"), "Hub Home")),
+          ],
+        })
+      )
+      .catch(() => {});
+    if (interaction.message) {
+      bindHub(interaction.message.id, state);
+      armHubAutoDelete(interaction.message);
+    }
   }
 }
 
