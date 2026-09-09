@@ -42,6 +42,17 @@ export const clanMembersTable = pgTable(
     // reset (or reduced) when a warning is issued.
     cleanPoints: integer("clean_points").notNull().default(0),
 
+    /* ------------------------------------------------------------------
+     * Player Manager progression (separate from weekly activity + warnings).
+     * progressionXp / playerLevel = lifetime progression. clanPoints =
+     * contribution/standing. combatSupportCount = Combat Support participations.
+     * Weekly activity still lives in weeklyProgress — it is NOT this XP.
+     * ---------------------------------------------------------------- */
+    progressionXp: integer("progression_xp").notNull().default(0),
+    playerLevel: integer("player_level").notNull().default(1),
+    clanPoints: integer("clan_points").notNull().default(0),
+    combatSupportCount: integer("combat_support_count").notNull().default(0),
+
     // Activity stats (canonical)
     currentStreak: integer("current_streak").notNull().default(0),
     longestStreak: integer("longest_streak").notNull().default(0),

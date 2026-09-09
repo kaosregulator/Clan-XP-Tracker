@@ -16,6 +16,7 @@ export const NS = {
   aud: "aud", // xp history / audit viewer
   hub: "hub", // member self-service hub (/warnings for members)
   enf: "enf", // unified enforcement picker (/xpreminder: reminder | warning)
+  act: "act", // staff activity log picker (/activity)
   rbx: "rbx", // Roblox Hub (/roblox, /military)
   scout: "sct", // Game Intelligence Hub (/scout) — Bloxscout
   mkt: "mkt", // Marketplace Hub (/market) — avatar items
@@ -57,6 +58,9 @@ export const dashPrev = (filter: string, index: number) =>
   id(NS.dash, "prev", `${filter}-${index}`);
 export const dashNext = (filter: string, index: number) =>
   id(NS.dash, "next", `${filter}-${index}`);
+/** Switch browse card mode: player (default) | editor. arg = `${filter}-${index}-player|editor`. */
+export const dashView = (filter: string, index: number, view: "player" | "editor") =>
+  id(NS.dash, "view", `${filter}-${index}-${view}`);
 /** Legacy page pager — kept so old messages still route. */
 export const dashPage = (filter: string, page: number) => id(NS.dash, "page", `${filter}-${page}`);
 
@@ -174,10 +178,19 @@ export const hubRefresh = (userId: string) => id(NS.hub, "refresh", userId);
 // (ephemeral) message id, so the ids themselves carry no per-panel payload.
 export const ENF_MODE = id(NS.enf, "mode"); // toggle Reminder ⇄ Warning
 export const ENF_SELECT = id(NS.enf, "select"); // native user multi-select
+export const ENF_CATEGORY = id(NS.enf, "category"); // activity category for the warning
 export const ENF_NOTE = id(NS.enf, "note"); // open optional-note modal
 export const ENF_NOTE_MODAL = id(NS.enf, "noteModal"); // note modal submit
 export const ENF_SEND = id(NS.enf, "send"); // dispatch to everyone selected
 export const ENF_CLEAR = id(NS.enf, "clear"); // clear the current selection
+
+// Staff activity log (/activity) — multi-member + category + points.
+export const ACT_SELECT = id(NS.act, "select");
+export const ACT_CATEGORY = id(NS.act, "category");
+export const ACT_POINTS = id(NS.act, "points");
+export const ACT_POINTS_MODAL = id(NS.act, "pointsModal");
+export const ACT_CLEAR = id(NS.act, "clear");
+export const ACT_SUBMIT = id(NS.act, "submit");
 
 // Persistent live command center. Buttons route staff into existing hubs; the
 // category shortcuts open the warning dashboard already filtered.

@@ -5,6 +5,8 @@ export * from "./tracked_accounts";
 export * from "./xp_submissions";
 export * from "./xp_entries";
 export * from "./warnings";
+export * from "./activity_categories";
+export * from "./activity_logs";
 export * from "./vacations";
 export * from "./reminders";
 export * from "./dashboards";

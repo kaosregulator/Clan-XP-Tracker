@@ -23,6 +23,7 @@ import { renderReminderCard } from "./cards/reminderCard";
 import { renderEnforcementPicker } from "./cards/enforcementPickerCard";
 import { renderStandingCard } from "./cards/standingCard";
 import { renderMemberEditorCard } from "./cards/memberEditorCard";
+import { renderPlayerCard } from "./cards/playerCard";
 import { renderLeaderboardCard } from "./cards/leaderboardCard";
 import { renderLinkPreviewCard } from "./cards/linkPreviewCard";
 import {
@@ -109,6 +110,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderStandingCard(p as any);
     case "memberEditorCard":
       return renderMemberEditorCard(p as any);
+    case "playerCard":
+      return renderPlayerCard(p as any);
     case "leaderboardCard":
       return renderLeaderboardCard(p as any);
     case "linkPreview":

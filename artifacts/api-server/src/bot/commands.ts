@@ -288,6 +288,12 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .addChoices({ name: "⚠️ Warning", value: "warning" }, { name: "🔔 Reminder", value: "reminder" })
     )
     .toJSON(),
+  new SlashCommandBuilder()
+    .setName("activity")
+    .setDescription("Log activity for one or many members — pick category & points (officers)")
+    .setDMPermission(false)
+    .toJSON(),
+
 
   new SlashCommandBuilder()
     .setName("entry")

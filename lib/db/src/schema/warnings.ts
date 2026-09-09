@@ -16,6 +16,12 @@ export const warningsTable = pgTable("warnings", {
   issuedBy: text("issued_by").notNull(),
   issuedByUsername: text("issued_by_username").notNull(),
   reason: text("reason").notNull(),
+  /**
+   * Activity category this warning is about (e.g. "xp", "combat_support").
+   * One warning system — the category fills "required [category] activity".
+   */
+  categoryKey: text("category_key"),
+  categoryLabel: text("category_label"),
   issuedAt: timestamp("issued_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

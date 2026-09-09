@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   UserSelectMenuBuilder,
+  StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -10,6 +11,7 @@ import {
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type UserSelectMenuInteraction,
+  type StringSelectMenuInteraction,
   type ModalSubmitInteraction,
   type MessageActionRowComponentBuilder,
   type Guild,
@@ -33,6 +35,7 @@ import { renderOffThread } from "../canvas/render-pool";
 import {
   ENF_MODE,
   ENF_SELECT,
+  ENF_CATEGORY,
   ENF_NOTE,
   ENF_NOTE_MODAL,
   ENF_SEND,
@@ -40,6 +43,8 @@ import {
   parseId,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
+import { ensureDefaultCategories, categoryActivityLabel, getCategory } from "../services/activity";
+import { activityMissedReason } from "../services/tracking";
 import type { PickerMemberView } from "../canvas/cards/enforcementPickerCard";
 
 /**
@@ -65,6 +70,7 @@ type Mode = "warning" | "reminder";
 interface PanelState {
   mode: Mode;
   userIds: string[];
+  categoryKey: string;
   note: string | null;
   ownerId: string;
   ts: number;
@@ -144,17 +150,12 @@ async function buildPanel(
 
   const n = state.userIds.length;
   const modeLabel = state.mode === "warning" ? "Warning" : "Reminder";
-  const header = state.mode === "warning" ? "⚠️ **XP Warning**" : "🔔 **XP Reminder**";
+  const header = state.mode === "warning" ? "⚠️ **Activity Warning**" : "🔔 **XP Reminder**";
   const modeNote =
     state.mode === "warning"
       ? "admin-only · recorded with a dispute ticket #"
       : "friendly nudge · never a warning";
   const noteLine = state.note ? `\n📝 **Note:** ${state.note.slice(0, 150)}` : "";
-  const content =
-    `${header} — pick members, then **Send**.\n` +
-    `**Mode:** ${modeLabel}  ·  _${modeNote}_  ·  **Selected:** ${n}\n` +
-    "`1` choose members below (many at once)   `2` switch mode / add a note   `3` Send" +
-    noteLine;
 
   const select = new UserSelectMenuBuilder()
     .setCustomId(ENF_SELECT)
@@ -163,8 +164,49 @@ async function buildPanel(
     .setMaxValues(MAX_SELECT);
   if (state.userIds.length) select.setDefaultUsers(state.userIds.slice(0, MAX_SELECT));
 
+  const cats = await ensureDefaultCategories(clan.guildId);
+  const catSelect = new StringSelectMenuBuilder()
+    .setCustomId(ENF_CATEGORY)
+    .setPlaceholder(state.mode === "warning" ? "Warning category (required activity)…" : "Category (optional for reminders)…")
+    .addOptions(
+      [
+        ...cats.slice(0, 24).map((c) => ({
+          label: c.name.slice(0, 100),
+          value: c.key,
+          description: (c.description || "Required activity category").slice(0, 100),
+          emoji: c.emoji.length <= 8 ? c.emoji : undefined,
+          default: c.key === state.categoryKey,
+        })),
+        {
+          label: "Custom / Other",
+          value: "custom",
+          description: "Use the note as the reason",
+          emoji: "✏️",
+          default: state.categoryKey === "custom",
+        },
+      ]
+    );
+
+
+  const cat = cats.find((c) => c.key === state.categoryKey);
+  const catLine =
+    state.mode === "warning"
+      ? cat
+        ? `\n📂 **Category:** ${cat.emoji} ${cat.name}`
+        : state.categoryKey === "custom"
+          ? `\n📂 **Category:** Custom`
+          : ""
+      : "";
+  const content =
+    `${header} — pick members, then **Send**.\n` +
+    `**Mode:** ${modeLabel}  ·  _${modeNote}_  ·  **Selected:** ${n}\n` +
+    "`1` choose members below (many at once)   `2` pick category / add a note   `3` Send" +
+    catLine +
+    noteLine;
+
   const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(select),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(catSelect),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(ENF_MODE)
@@ -225,9 +267,12 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
   const requested = (interaction.options.getString("mode") ?? "warning").toLowerCase();
   const mode: Mode = requested === "reminder" ? "reminder" : "warning";
 
+  const cats = await ensureDefaultCategories(clan.guildId);
+  const defaultCat = cats.find((c) => c.key === "xp") ?? cats[0];
   const state: PanelState = {
     mode,
     userIds: [],
+    categoryKey: defaultCat?.key ?? "xp",
     note: null,
     ownerId: interaction.user.id,
     ts: Date.now(),
@@ -241,7 +286,7 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
 /* ----------------------------------------------------------------- routing */
 
 /** Ownership guard shared by every panel component. */
-function ownsPanel(interaction: ButtonInteraction | UserSelectMenuInteraction, state: PanelState | null): boolean {
+function ownsPanel(interaction: ButtonInteraction | UserSelectMenuInteraction | StringSelectMenuInteraction, state: PanelState | null): boolean {
   return !!state && state.ownerId === interaction.user.id;
 }
 
@@ -264,6 +309,28 @@ export async function handleEnforcementSelect(interaction: UserSelectMenuInterac
 }
 
 /** Panel buttons: mode toggle, note, clear, send. */
+
+/** Activity category changed on the warning/reminder panel. */
+export async function handleEnforcementCategorySelect(interaction: StringSelectMenuInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  const state = getState(interaction.message.id);
+  if (!ownsPanel(interaction, state) || !state) {
+    await interaction.reply({
+      content: "This panel isn't yours (or it expired — rerun /xpwarn).",
+      flags: 64,
+    });
+    return;
+  }
+  await interaction.deferUpdate();
+  const clan = await getClan(interaction.guildId);
+  if (!clan) return;
+  const key = interaction.values[0];
+  if (key) state.categoryKey = key;
+  state.ts = Date.now();
+  const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
+  await interaction.editReply({ ...panel, attachments: [] });
+}
+
 export async function handleEnforcementButton(interaction: ButtonInteraction) {
   if (!interaction.inCachedGuild()) return;
   const { action } = parseId(interaction.customId);
@@ -416,6 +483,14 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
           ? staffWarningReason(clan, member)
           : `Missed the ${periodAdjective(clan)} ${clan.activityName} goal.`);
       try {
+        const category =
+          state.categoryKey && state.categoryKey !== "custom"
+            ? await getCategory(clan.guildId, state.categoryKey)
+            : null;
+        const categoryLabel =
+          state.categoryKey === "custom"
+            ? "Custom"
+            : categoryActivityLabel(category ?? state.categoryKey);
         const { activeCount } = await issueWarning({
           client: interaction.client,
           clan,
@@ -424,7 +499,13 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
           moderatorId,
           moderatorUsername,
           reason,
-          memberReason: customNote ? sanitizeMemberReason(customNote) : memberSafeWarningReason(clan),
+          memberReason: customNote
+            ? sanitizeMemberReason(customNote)
+            : state.categoryKey && state.categoryKey !== "custom"
+              ? activityMissedReason(categoryLabel)
+              : memberSafeWarningReason(clan),
+          categoryKey: state.categoryKey === "custom" ? "custom" : state.categoryKey,
+          categoryLabel,
         });
         results.push(`⚠️ ${user.username} — ${activeCount} active`);
         done++;

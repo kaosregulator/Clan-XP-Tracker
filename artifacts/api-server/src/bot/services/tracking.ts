@@ -197,10 +197,10 @@ export function memberWarningBody(reason?: string | null, warningId?: number | n
   const safe = sanitizeMemberReason(reason);
   const ticket = warningId ? `\n\n**Warning ticket:** #${warningId}` : "";
   return (
-    `⚠️ You received an **XP Warning**.\n\n` +
+    `⚠️ You received an **Activity Warning**.\n\n` +
     `**Reason:** ${safe}\n\n` +
     `If you believe this warning is incorrect, run \`${DISPUTE_COMMAND}\` to dispute it — ` +
-    `have your XP proof/screenshot ready to submit with the dispute.` +
+    `have your proof/screenshot ready to submit with the dispute.` +
     ticket
   );
 }
@@ -209,8 +209,8 @@ export function memberWarningBody(reason?: string | null, warningId?: number | n
 export function memberWarningCanvasMessage(reason?: string | null): string {
   const safe = sanitizeMemberReason(reason);
   return (
-    `You received an XP Warning. Reason: ${safe}. ` +
-    `If this is incorrect, run ${DISPUTE_COMMAND} to dispute it — have your XP proof ready.`
+    `You received an Activity Warning. Reason: ${safe}. ` +
+    `If this is incorrect, run ${DISPUTE_COMMAND} to dispute it — have your proof ready.`
   );
 }
 
@@ -218,19 +218,29 @@ export function memberWarningCanvasMessage(reason?: string | null): string {
 export function memberWarningDmContent(reason?: string | null, warningId?: number | null): string {
   const ticket = warningId ? ` (ticket #${warningId})` : "";
   return (
-    `⚠️ You received an **XP Warning**${ticket}.\n` +
+    `⚠️ You received an **Activity Warning**${ticket}.\n` +
     `**Reason:** ${sanitizeMemberReason(reason)}\n` +
-    `Dispute with \`${DISPUTE_COMMAND}\` — have your XP proof/screenshot ready.`
+    `Dispute with \`${DISPUTE_COMMAND}\` — have your proof/screenshot ready.`
   );
 }
 
 /** Canvas / embed title fragments. */
-export const MEMBER_WARNING_TITLE = "XP WARNING";
+export const MEMBER_WARNING_TITLE = "ACTIVITY WARNING";
 export const MEMBER_REMINDER_TITLE = "XP REMINDER";
 
-/** Default reason stored for auto / bulk warnings (staff DB + logs keep detail separately). */
+/**
+ * Default member-facing reason for a missed activity category.
+ * Example: "Failure to complete the required Combat Support activity."
+ */
+export function activityMissedReason(categoryLabel: string): string {
+  const label = (categoryLabel || "activity").trim() || "activity";
+  return `Failure to complete the required ${label} activity.`;
+}
+
+/** Default reason when no category is selected (legacy weekly XP path). */
 export function memberSafeWarningReason(clan: Pick<Clan, "activityName" | "trackingPeriod">): string {
-  return `Failure to complete the required ${periodAdjective(clan)} ${clan.activityName} activity.`;
+  const label = (clan.activityName || "XP").trim() || "XP";
+  return activityMissedReason(label);
 }
 
 /* ------------------------------------------------------- staff-facing copy */

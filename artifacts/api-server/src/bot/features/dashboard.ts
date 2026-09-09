@@ -46,12 +46,21 @@ import {
   dashBrowse,
   dashPrev,
   dashNext,
+  dashView,
   mpAddXp,
   mpComplete,
   mpRemind,
   mpWarn,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
+import {
+  buildPlayerProfile,
+  memberHasCombatSupportRole,
+} from "../services/player";
+import { activityBreakdownForUser } from "../services/activity";
+import { warningBreakdownByCategory } from "../services/warnings";
+
+export type DashBrowseView = "player" | "editor";
 
 function editorStatusLabel(clan: Clan, member: ClanMember): string {
   const s = statusOf(clan, member);
@@ -60,6 +69,14 @@ function editorStatusLabel(clan: Clan, member: ClanMember): string {
   if (s === "leave") return "On leave";
   if (s === "inProgress") return "In progress";
   return "Not started";
+}
+
+function formatMemberSince(d: Date): string {
+  try {
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "—";
+  }
 }
 
 function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): ClanMember[] {
@@ -147,7 +164,8 @@ function browseComponents(
   filter: DashFilter,
   index: number,
   total: number,
-  userId: string | null
+  userId: string | null,
+  view: DashBrowseView
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   const select = new StringSelectMenuBuilder()
     .setCustomId(DASH_FILTER)
@@ -160,9 +178,6 @@ function browseComponents(
         default: f.value === filter,
       }))
     );
-
-  const prev = Math.max(0, index - 1);
-  const next = Math.min(Math.max(total - 1, 0), index + 1);
 
   const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [
     row(select),
@@ -182,6 +197,18 @@ function browseComponents(
         .setCustomId(dashBrowse(filter, index))
         .setStyle(ButtonStyle.Secondary)
         .setLabel("Refresh")
+    ),
+    row(
+      new ButtonBuilder()
+        .setCustomId(dashView(filter, index, "player"))
+        .setStyle(view === "player" ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setLabel("Player card")
+        .setDisabled(view === "player"),
+      new ButtonBuilder()
+        .setCustomId(dashView(filter, index, "editor"))
+        .setStyle(view === "editor" ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setLabel("Member editor")
+        .setDisabled(view === "editor")
     ),
   ];
 
@@ -203,7 +230,7 @@ function browseComponents(
         new ButtonBuilder()
           .setCustomId(mpAddXp(userId))
           .setStyle(ButtonStyle.Secondary)
-          .setLabel("Add XP")
+          .setLabel("Add activity")
       )
     );
   }
@@ -276,11 +303,12 @@ export async function buildOverviewPayload(clan: Clan): Promise<BaseMessageOptio
   };
 }
 
-/** One-member profile browser for a filter queue. */
+/** One-member profile browser for a filter queue. Player card is the default. */
 export async function buildMemberBrowsePayload(
   clan: Clan,
   filter: DashFilter,
-  index: number
+  index: number,
+  view: DashBrowseView = "player"
 ): Promise<BaseMessageOptions> {
   const members = await listTracked(clan);
   const queue = filterMembers(clan, members, filter);
@@ -326,13 +354,48 @@ export async function buildMemberBrowsePayload(
 
   const clamped = Math.min(Math.max(0, index), queue.length - 1);
   const member = queue[clamped]!;
-  const goal = effectiveGoal(clan, member);
-  const progress = currentProgress(clan, member);
-  const pct = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : progress > 0 ? 100 : 0;
-  const rank = await cleanRankOf(clan, member.userId);
 
-  const png = await renderOffThread("memberEditorCard", {
-    communityName: clan.clanName,
+  if (view === "editor") {
+    const goal = effectiveGoal(clan, member);
+    const progress = currentProgress(clan, member);
+    const pct = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : progress > 0 ? 100 : 0;
+    const rank = await cleanRankOf(clan, member.userId);
+    const png = await renderOffThread("memberEditorCard", {
+      communityName: clan.clanName,
+      queueLabel: meta.label,
+      queueIndex: clamped,
+      queueTotal: queue.length,
+      username: member.username,
+      displayName: member.displayName || member.username,
+      discordAvatarUrl: member.avatarUrl,
+      robloxAvatarUrl: member.robloxAvatarUrl,
+      robloxUsername: member.gameUsername,
+      statusLabel: editorStatusLabel(clan, member),
+      progressPct: pct,
+      progressLabel: formatProgress(clan, member),
+      cleanPoints: member.cleanPoints ?? 0,
+      cleanRank: rank,
+      activeWarnings: member.warningsCount ?? 0,
+      lifetimeWarnings: member.lifetimeWarnings ?? 0,
+      weekReminders: member.weekKey === weekKey(clan) ? member.weekReminders : 0,
+      notesPreview: member.notes ? member.notes.slice(0, 80) : null,
+    });
+    return {
+      content: "",
+      embeds: [],
+      files: [new AttachmentBuilder(png, { name: "member-editor.png" })],
+      components: browseComponents(filter, clamped, queue.length, member.userId, "editor"),
+    };
+  }
+
+  const profile = await buildPlayerProfile(clan, member, {
+    hasCombatSupportRole: memberHasCombatSupportRole(clan, undefined),
+  });
+  const activityRows = await activityBreakdownForUser(clan.guildId, member.userId);
+  const warningRows = await warningBreakdownByCategory(clan.guildId, member.userId);
+  const png = await renderOffThread("playerCard", {
+    clanName: clan.clanName,
+    motto: "STRONGER TOGETHER",
     queueLabel: meta.label,
     queueIndex: clamped,
     queueTotal: queue.length,
@@ -341,22 +404,41 @@ export async function buildMemberBrowsePayload(
     discordAvatarUrl: member.avatarUrl,
     robloxAvatarUrl: member.robloxAvatarUrl,
     robloxUsername: member.gameUsername,
-    statusLabel: editorStatusLabel(clan, member),
-    progressPct: pct,
-    progressLabel: formatProgress(clan, member),
-    cleanPoints: member.cleanPoints ?? 0,
-    cleanRank: rank,
-    activeWarnings: member.warningsCount ?? 0,
-    lifetimeWarnings: member.lifetimeWarnings ?? 0,
-    weekReminders: member.weekKey === weekKey(clan) ? member.weekReminders : 0,
-    notesPreview: member.notes ? member.notes.slice(0, 80) : null,
+    robloxLinked: profile.robloxLinked,
+    rankTitle: profile.level.title,
+    standing: profile.standing,
+    standingHint: profile.standingHint,
+    level: profile.level.level,
+    xpLabel: `${profile.level.xpIntoLevel.toLocaleString()} / ${profile.level.xpForNext.toLocaleString()}`,
+    xpPct: profile.level.pct,
+    clanPoints: profile.clanPoints,
+    weeklyActivityLabel: profile.weeklyActivityLabel,
+    weeklyActivityPct: profile.weeklyActivityPct,
+    weeklyActivityDone: profile.weeklyActivityDone,
+    combatSupportCount: profile.combatSupportCount,
+    hasCombatSupportRole: profile.hasCombatSupportRole,
+    activeWarnings: profile.activeWarnings,
+    warningCap: profile.warningCap,
+    openDisputes: profile.openDisputes,
+    cleanPoints: profile.cleanPoints,
+    memberSinceLabel: formatMemberSince(profile.memberSince),
+    lastActivityLabel: profile.lastActivityLabel,
+    activityRows: activityRows.map((r) => ({
+      emoji: r.emoji,
+      name: r.name,
+      points: r.points,
+    })),
+    warningRows: warningRows.map((r) => ({
+      label: r.label,
+      count: r.count,
+    })),
   });
 
   return {
     content: "",
     embeds: [],
-    files: [new AttachmentBuilder(png, { name: "member-editor.png" })],
-    components: browseComponents(filter, clamped, queue.length, member.userId),
+    files: [new AttachmentBuilder(png, { name: "player-card.png" })],
+    components: browseComponents(filter, clamped, queue.length, member.userId, "player"),
   };
 }
 
@@ -411,7 +493,18 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   if (action === "browse" || action === "page") {
     const { filter, index } = parseFilterIndex(arg);
     await interaction.editReply({
-      ...(await buildMemberBrowsePayload(clan, filter, index)),
+      ...(await buildMemberBrowsePayload(clan, filter, index, "player")),
+      attachments: [],
+    });
+    return;
+  }
+
+  if (action === "view") {
+    const parts = (arg ?? "").split("-");
+    const view = parts.pop() === "editor" ? "editor" : "player";
+    const { filter, index } = parseFilterIndex(parts.join("-"));
+    await interaction.editReply({
+      ...(await buildMemberBrowsePayload(clan, filter, index, view)),
       attachments: [],
     });
     return;
@@ -421,7 +514,7 @@ export async function handleDashButton(interaction: ButtonInteraction) {
     const { filter, index } = parseFilterIndex(arg);
     const delta = action === "next" ? 1 : -1;
     await interaction.editReply({
-      ...(await buildMemberBrowsePayload(clan, filter, index + delta)),
+      ...(await buildMemberBrowsePayload(clan, filter, index + delta, "player")),
       attachments: [],
     });
   }
