@@ -8,5 +8,18 @@
  * for another user.
  */
 import { startBot } from "./bot/index.js";
+import { ensureSchema } from "./lib/ensureSchema.js";
+import { logger } from "./lib/logger.js";
 
-startBot();
+async function main() {
+  // Bot worker has its own DB pool — ensure columns exist here too (main thread
+  // also runs this before spawn; this covers race / restart edge cases).
+  try {
+    await ensureSchema();
+  } catch (err) {
+    logger.warn({ err }, "Bot worker schema ensure failed — /link may error until fixed");
+  }
+  startBot();
+}
+
+void main();

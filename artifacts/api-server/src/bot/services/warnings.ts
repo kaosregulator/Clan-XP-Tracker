@@ -558,18 +558,16 @@ export async function removeWarning(input: RemoveWarningInput): Promise<Warning 
 }
 
 /**
- * Auto-remove the warning role on the schedule a server owner configured.
+ * Auto-remove the warning **role** on the schedule a server owner configured.
  *
- * When `clan.warningRemovalHours` is > 0, every active warning older than that
- * many hours is expired (marked removed), which decrements the member's count
- * and — via removeWarning — strips the warning role once they have no active
- * warnings left. This is the timer counterpart to requirement-based clearance.
- *
- * Best-effort and idempotent: safe to call every scheduler tick. Returns how
- * many warnings were expired so the caller can log a summary.
+ * When `clan.warningRemovalHours` is > 0, members whose oldest *active* warning
+ * is older than that many hours lose the warning role. Warning rows are NOT
+ * expired — history, disputes, and the leaderboard keep them until staff
+ * explicitly removes a warning.
  */
 export async function autoExpireWarnings(client: Client, clan: Clan): Promise<number> {
   if (!clan.warningRemovalHours || clan.warningRemovalHours <= 0) return 0;
+  if (!clan.warningRoleIds.length) return 0;
 
   const cutoff = new Date(Date.now() - clan.warningRemovalHours * 3600_000);
   const stale = await db
@@ -587,37 +585,36 @@ export async function autoExpireWarnings(client: Client, clan: Clan): Promise<nu
   const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
   if (!guild) return 0;
 
-  let removed = 0;
-  for (const w of stale) {
-    const res = await removeWarning({
-      guild,
-      clan,
-      warningId: w.id,
-      moderatorId: "system",
-      moderatorUsername: "Auto-removal",
-    });
-    if (res) removed++;
+  const userIds = [...new Set(stale.map((w) => w.userId))];
+  let cleared = 0;
+  for (const userId of userIds) {
+    const gm = await guild.members.fetch(userId).catch(() => null);
+    if (!gm) continue;
+    if (!clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) continue;
+    await gm.roles.remove(clan.warningRoleIds).catch(() => {});
+    cleared++;
   }
 
-  if (removed > 0) {
+  if (cleared > 0) {
     logger.info(
-      { event: "warnings_auto_expired", guildId: clan.guildId, removed, hours: clan.warningRemovalHours },
-      `Auto-expired ${removed} warning(s) older than ${clan.warningRemovalHours}h`
+      {
+        event: "warning_roles_auto_cleared",
+        guildId: clan.guildId,
+        cleared,
+        hours: clan.warningRemovalHours,
+      },
+      `Auto-cleared warning role(s) for ${cleared} member(s) (warnings kept for history/disputes)`
     );
   }
-  return removed;
+  return cleared;
 }
 
 /**
  * Clear warning roles for members who have **satisfied the configured
  * activity requirement** for the current tracking period.
  *
- * Eligibility is driven ONLY by requirement satisfaction
- * (`isRequirementSatisfied`), never by "an XP ledger row exists" or "XP was
- * sent". Completing the requirement expires active warnings (which strips the
- * role once none remain). Incomplete members keep the role.
- *
- * Safe to call after progress writes and on the scheduler cadence.
+ * Roles only — warning records stay until an officer removes them. That keeps
+ * dispute tickets and lifetime history intact.
  */
 export async function clearWarningRolesForSatisfiedMembers(
   client: Client,
@@ -632,30 +629,13 @@ export async function clearWarningRolesForSatisfiedMembers(
   let cleared = 0;
 
   for (const member of members) {
-    // XP bookkeeping alone is not enough — the configured requirement must be met.
     if (!isRequirementSatisfied(clan, member)) continue;
     if (member.exempt || member.onLeave) continue;
 
-    const active = await listActive(clan.guildId, member.userId);
-    if (!active.length) {
-      // Role may linger with zero active warnings — strip it if present.
-      const gm = await guild.members.fetch(member.userId).catch(() => null);
-      if (gm && clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) {
-        await gm.roles.remove(clan.warningRoleIds).catch(() => {});
-        cleared++;
-      }
-      continue;
-    }
-
-    for (const w of active) {
-      await removeWarning({
-        guild,
-        clan,
-        warningId: w.id,
-        moderatorId: "system",
-        moderatorUsername: "Auto-removal (requirement met)",
-      });
-    }
+    const gm = await guild.members.fetch(member.userId).catch(() => null);
+    if (!gm) continue;
+    if (!clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) continue;
+    await gm.roles.remove(clan.warningRoleIds).catch(() => {});
     cleared++;
   }
 
@@ -667,7 +647,7 @@ export async function clearWarningRolesForSatisfiedMembers(
         cleared,
         period: periodAdjective(clan),
       },
-      `Cleared warning role(s) for ${cleared} member(s) who met the ${periodAdjective(clan)} requirement`
+      `Cleared warning role(s) for ${cleared} member(s) who met the ${periodAdjective(clan)} requirement (warnings kept)`
     );
   }
   return cleared;
@@ -675,9 +655,8 @@ export async function clearWarningRolesForSatisfiedMembers(
 
 /**
  * After a single member's progress is updated: if they just satisfied the
- * requirement, expire their active warnings / strip the warning role.
- * No-ops when the member is still short of the goal — including the case
- * where an XP ledger entry exists but does not meet the requirement.
+ * requirement, strip the warning **role** only. Warning rows stay for history
+ * and disputes until staff removes them.
  */
 export async function clearWarningRoleIfRequirementMet(
   guild: Guild,
@@ -688,24 +667,9 @@ export async function clearWarningRoleIfRequirementMet(
   const member = await getMember(clan.guildId, userId);
   if (!member || !isRequirementSatisfied(clan, member)) return false;
 
-  const active = await listActive(clan.guildId, userId);
-  if (!active.length) {
-    const gm = await guild.members.fetch(userId).catch(() => null);
-    if (gm && clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) {
-      await gm.roles.remove(clan.warningRoleIds).catch(() => {});
-      return true;
-    }
-    return false;
-  }
-
-  for (const w of active) {
-    await removeWarning({
-      guild,
-      clan,
-      warningId: w.id,
-      moderatorId: "system",
-      moderatorUsername: "Auto-removal (requirement met)",
-    });
-  }
+  const gm = await guild.members.fetch(userId).catch(() => null);
+  if (!gm) return false;
+  if (!clan.warningRoleIds.some((id) => gm.roles.cache.has(id))) return false;
+  await gm.roles.remove(clan.warningRoleIds).catch(() => {});
   return true;
 }

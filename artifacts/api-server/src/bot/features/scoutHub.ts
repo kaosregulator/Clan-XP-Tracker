@@ -673,16 +673,21 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
       return buildListView(st, "SEARCH", st.keyword ?? "Search", null, rows);
     }
     case "trending": {
-      const rows = await ScoutService.trending(10, st.genre ?? undefined);
-      return buildListView(
-        st,
-        "TOP 10 · TRENDING",
-        st.genre ? `${st.genre} · live CCU` : "Hot right now",
-        st.genre
-          ? null
-          : "Live CCU ranking — pick a game below or search",
-        rows
-      );
+      try {
+        const rows = await ScoutService.trending(10, st.genre ?? undefined);
+        if (rows.length) {
+          return buildListView(
+            st,
+            "TOP 10 · TRENDING",
+            st.genre ? `${st.genre} · live CCU` : "Hot right now",
+            st.genre ? null : "Live CCU ranking — pick a game below or search",
+            rows
+          );
+        }
+      } catch (err) {
+        logScoutError("trending", err);
+      }
+      return buildHome(st);
     }
     case "top": {
       const genre = st.genre ?? "tycoon";

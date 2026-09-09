@@ -48,9 +48,10 @@ function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
     .addIntegerOption((o) =>
       o
         .setName("warning_id")
-        .setDescription("Warning number (required when type is XP warning)")
+        .setDescription("Your warning ticket # (autocomplete — required for XP warning)")
         .setRequired(false)
         .setMinValue(1)
+        .setAutocomplete(true)
     )
     .setDMPermission(false)
     .toJSON();

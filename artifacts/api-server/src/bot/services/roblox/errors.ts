@@ -54,7 +54,9 @@ function looksLikeMissingSchema(err: unknown): boolean {
     err instanceof Error
       ? `${err.message} ${String((err as { cause?: unknown }).cause ?? "")}`
       : String(err ?? "");
-  return /roblox_user_id|roblox_avatar_url|lifetime_warnings|clean_points|column .* does not exist/i.test(
+  // Require an actual "column … does not exist" signal — don't match every
+  // query that merely mentions roblox_user_id in SQL text.
+  return /column ["']?(roblox_user_id|roblox_avatar_url|lifetime_warnings|clean_points)["']? does not exist/i.test(
     msg
   );
 }
@@ -63,7 +65,13 @@ export function toUserError(err: unknown): string {
   if (err instanceof RobloxServiceError) return err.message;
   if (looksLikeMissingSchema(err)) {
     logRobloxError("toUserError", err);
-    return "⚠️ Database is still updating. Wait ~30s after deploy (or redeploy), then try `/link` again.";
+    return "⚠️ Database columns for avatar linking are missing. Redeploy once (boot auto-fixes them), then try `/link` again.";
+  }
+  if (err instanceof Error && err.message && !/fetch|network|timeout|ECONN|ENOTFOUND/i.test(err.message)) {
+    // Preserve intentional link/hub messages (roster missing, confirm validation, etc.)
+    if (/member|roster|confirm|pick|link|discord|roblox user/i.test(err.message)) {
+      return `⚠️ ${err.message}`;
+    }
   }
   logRobloxError("toUserError", err);
   return userMessage("unavailable");
