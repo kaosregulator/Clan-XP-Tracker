@@ -17,6 +17,8 @@ export interface LeaderboardRow {
   username: string;
   displayName: string;
   avatarUrl: string | null;
+  discordAvatarUrl?: string | null;
+  robloxAvatarUrl?: string | null;
   cleanPoints: number;
   lifetimeWarnings: number;
   progressLabel: string;
@@ -79,8 +81,17 @@ export async function renderLeaderboardCard(view: LeaderboardCardView): Promise<
       const spot = spots[i]!;
       if (!row) continue;
       card(ctx, spot.x, spot.y, podiumW, spot.h, { radius: 18, shadow: false });
-      const img = await fetchAvatar(row.avatarUrl);
-      drawAvatar(ctx, img, spot.x + podiumW / 2 - 36, spot.y + 16, 72, row.username[0] ?? "?", "#00a2ff");
+      const discordUrl = row.discordAvatarUrl || row.avatarUrl;
+      const robloxUrl = row.robloxAvatarUrl || null;
+      if (robloxUrl && discordUrl) {
+        const dImg = await fetchAvatar(discordUrl);
+        const rImg = await fetchAvatar(robloxUrl);
+        drawAvatar(ctx, dImg, spot.x + podiumW / 2 - 70, spot.y + 18, 56, row.username[0] ?? "?", PALETTE.blurpleSoft);
+        drawAvatar(ctx, rImg, spot.x + podiumW / 2 + 8, spot.y + 18, 56, "R", "#00a2ff");
+      } else {
+        const img = await fetchAvatar(row.avatarUrl);
+        drawAvatar(ctx, img, spot.x + podiumW / 2 - 36, spot.y + 16, 72, row.username[0] ?? "?", "#00a2ff");
+      }
       text(ctx, `#${ranks[i]}`, spot.x + 20, spot.y + 36, {
         size: 22,
         weight: "bold",
@@ -114,19 +125,39 @@ export async function renderLeaderboardCard(view: LeaderboardCardView): Promise<
         weight: "bold",
         color: PALETTE.blurple,
       });
-      const img = await fetchAvatar(row.avatarUrl);
-      drawAvatar(ctx, img, 110, y + 8, 44, row.username[0] ?? "?", PALETTE.blurpleSoft);
-      text(ctx, row.displayName || row.username, 170, y + 28, {
-        size: 18,
-        weight: "bold",
-        color: PALETTE.text,
-        maxWidth: 360,
-      });
-      text(ctx, row.progressLabel, 170, y + 48, {
-        size: 13,
-        color: PALETTE.muted,
-        maxWidth: 360,
-      });
+      const discordUrl = row.discordAvatarUrl || row.avatarUrl;
+      const robloxUrl = row.robloxAvatarUrl || null;
+      if (robloxUrl && discordUrl) {
+        const dImg = await fetchAvatar(discordUrl);
+        const rImg = await fetchAvatar(robloxUrl);
+        drawAvatar(ctx, dImg, 110, y + 10, 40, row.username[0] ?? "?", PALETTE.blurpleSoft);
+        drawAvatar(ctx, rImg, 158, y + 10, 40, "R", "#00a2ff");
+        text(ctx, row.displayName || row.username, 214, y + 28, {
+          size: 18,
+          weight: "bold",
+          color: PALETTE.text,
+          maxWidth: 320,
+        });
+        text(ctx, row.progressLabel, 214, y + 48, {
+          size: 13,
+          color: PALETTE.muted,
+          maxWidth: 320,
+        });
+      } else {
+        const img = await fetchAvatar(row.avatarUrl);
+        drawAvatar(ctx, img, 110, y + 8, 44, row.username[0] ?? "?", PALETTE.blurpleSoft);
+        text(ctx, row.displayName || row.username, 170, y + 28, {
+          size: 18,
+          weight: "bold",
+          color: PALETTE.text,
+          maxWidth: 360,
+        });
+        text(ctx, row.progressLabel, 170, y + 48, {
+          size: 13,
+          color: PALETTE.muted,
+          maxWidth: 360,
+        });
+      }
       text(ctx, `${row.cleanPoints} pts`, W - 64, y + 28, {
         size: 18,
         weight: "bold",

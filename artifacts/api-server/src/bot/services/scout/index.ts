@@ -93,6 +93,21 @@ async function enrichRows(rows: ScoutGameRow[]): Promise<ScoutGameRow[]> {
   return rows.map((r) => ({ ...r, iconUrl: icons.get(r.universeId) ?? r.iconUrl }));
 }
 
+/** Race a promise against a timer; returns null on timeout or rejection. */
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then((v) => v).catch(() => null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Resolve a game query — universe id, place id, or keyword search. */
 export async function resolveScoutGame(query: string): Promise<ScoutGameRow> {
   const q = query.trim();
@@ -129,8 +144,22 @@ export async function resolveScoutGame(query: string): Promise<ScoutGameRow> {
 
 export async function searchScoutGames(keyword: string, limit = 15): Promise<ScoutGameRow[]> {
   const ctx = getScoutContext();
-  const out = await searchGamesTool.handler({ keyword: keyword.trim(), limit }, ctx);
-  const rows = (out.results as Array<Record<string, unknown>>).map((r) =>
+  const out = await withTimeout(
+    searchGamesTool.handler({ keyword: keyword.trim(), limit }, ctx),
+    6_000
+  );
+  if (!out || !Array.isArray((out as { results?: unknown }).results)) {
+    // Omni-search blocked — still try exact universe / place resolve via games API.
+    if (/^\d+$/.test(keyword.trim())) {
+      try {
+        return [await getScoutGame(Number(keyword.trim()))];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+  const rows = ((out as { results: Array<Record<string, unknown>> }).results).map((r) =>
     mapGameLike({
       ...r,
       id: r.universeId,
@@ -195,18 +224,9 @@ export async function getPresetTopGames(limit = 10): Promise<ScoutGameRow[]> {
  * Snapshot growth only when we already have enough history.
  */
 export async function getTrending(limit = 12, genre?: string): Promise<ScoutGameRow[]> {
-  const ctx = getScoutContext();
-
   if (genre?.trim()) {
-    try {
-      const out = await getTopByGenre.handler({ genre: genre.trim(), limit }, ctx);
-      const rows = await enrichRows(
-        (out.games as Array<Record<string, unknown>>).map((g) => mapGameLike(g))
-      );
-      if (rows.length) return rows;
-    } catch {
-      /* fall through to live seed */
-    }
+    const byGenre = await getTopGamesByGenre(genre.trim(), limit);
+    if (byGenre.length) return byGenre;
   }
 
   // Snapshot growth when history exists (true trending).
@@ -246,11 +266,9 @@ export async function getTrending(limit = 12, genre?: string): Promise<ScoutGame
 
   // Broader omni-search trending if it finishes before the timeout.
   try {
-    const args = genre?.trim() ? { limit, genre: genre.trim() } : { limit: Math.max(limit, 15) };
-    const out = await Promise.race([
-      getTrendingGames.handler(args, ctx),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 6_000)),
-    ]);
+    const ctx = getScoutContext();
+    const args = { limit: Math.max(limit, 15) };
+    const out = await withTimeout(getTrendingGames.handler(args, ctx), 5_000);
     if (out && Array.isArray((out as { games?: unknown }).games)) {
       const omni = await enrichRows(
         ((out as { games: Array<Record<string, unknown>> }).games).map((g) => mapGameLike(g))
@@ -258,7 +276,6 @@ export async function getTrending(limit = 12, genre?: string): Promise<ScoutGame
       if (omni.length >= liveTop.length && omni.some((g) => g.playing > 0)) {
         return omni.slice(0, limit);
       }
-      // Merge: prefer higher CCU across both sets.
       const byId = new Map<number, ScoutGameRow>();
       for (const g of [...liveTop, ...omni]) {
         const prev = byId.get(g.universeId);
@@ -275,10 +292,38 @@ export async function getTrending(limit = 12, genre?: string): Promise<ScoutGame
   return [];
 }
 
+/**
+ * Top-by-genre with a hard timeout on omni-search. If Roblox search is blocked
+ * or slow (common on Railway), fall back to live CCU ranking of popular games
+ * so the Top button never hangs the hub.
+ */
 export async function getTopGamesByGenre(genre: string, limit = 12): Promise<ScoutGameRow[]> {
+  const g = genre.trim() || "tycoon";
   const ctx = getScoutContext();
-  const out = await getTopByGenre.handler({ genre: genre.trim(), limit }, ctx);
-  return enrichRows((out.games as Array<Record<string, unknown>>).map((g) => mapGameLike(g)));
+  const out = await withTimeout(getTopByGenre.handler({ genre: g, limit }, ctx), 5_000);
+  if (out && Array.isArray((out as { games?: unknown }).games)) {
+    const rows = await enrichRows(
+      ((out as { games: Array<Record<string, unknown>> }).games).map((game) => mapGameLike(game))
+    );
+    if (rows.length) return rows;
+  }
+
+  // Backup API path: games.roblox.com/v1/games on curated seeds (no omni-search).
+  const live = await getPresetTopGames(Math.max(limit, 12)).catch(() => [] as ScoutGameRow[]);
+  if (!live.length) return [];
+  const needle = g.toLowerCase().replace(/[-_]/g, " ");
+  const filtered = live.filter((row) => {
+    const hay = `${row.name} ${row.genre ?? ""} ${row.creator}`.toLowerCase();
+    if (hay.includes(needle)) return true;
+    if (needle === "tycoon" || needle === "simulator") {
+      return /tycoon|simulator|military|pet|bee|adopt|garden/i.test(hay);
+    }
+    if (needle === "horror") return /door|horror|scary|flee/i.test(hay);
+    if (needle === "shooter" || needle === "fps") return /arsenal|shoot|gun|hood/i.test(hay);
+    if (needle === "social" || needle === "roleplay") return /brookhaven|adopt|role/i.test(hay);
+    return false;
+  });
+  return (filtered.length >= 3 ? filtered : live).slice(0, limit);
 }
 
 export async function getUpAndComing(limit = 12): Promise<{
@@ -327,7 +372,35 @@ export async function analyzeVsGenre(
   cohortLimit = 20
 ): Promise<ScoutVsGenreResult> {
   const ctx = getScoutContext();
-  const out = await analyzeGameVsGenre.handler({ universeId, genre, cohortLimit }, ctx);
+  const out = await withTimeout(
+    analyzeGameVsGenre.handler({ universeId, genre, cohortLimit }, ctx),
+    8_000
+  );
+  if (!out) {
+    // Soft backup: show the focus game vs live popular peers without omni cohort.
+    const game = await getScoutGame(universeId);
+    const peers = (await getPresetTopGames(12)).filter((g) => g.universeId !== universeId);
+    const peerPlaying = peers.map((p) => p.playing);
+    const median =
+      peerPlaying.length === 0
+        ? game.playing
+        : [...peerPlaying].sort((a, b) => a - b)[Math.floor(peerPlaying.length / 2)]!;
+    return {
+      game,
+      genre: genre?.trim() || game.genre || "popular",
+      cohortSize: peers.length,
+      metrics: [
+        {
+          key: "playing",
+          value: game.playing,
+          median,
+          p75: median,
+          max: Math.max(game.playing, ...peerPlaying, 0),
+          percentile: median === 0 ? 100 : Math.min(100, (game.playing / median) * 50),
+        },
+      ],
+    };
+  }
   const [game] = await enrichRows([mapGameLike(out.game)]);
   return {
     game: game!,
@@ -408,7 +481,11 @@ export async function getHistory(universeId: number, limit = 24): Promise<ScoutH
 }
 
 export async function getCreators(genre: string, limit = 10): Promise<ScoutCreatorRow[]> {
-  const rows = await getTopCreatorsByGenre(getScoutClient(), genre.trim(), { limit });
+  const rows = await withTimeout(
+    getTopCreatorsByGenre(getScoutClient(), genre.trim(), { limit }),
+    6_000
+  );
+  if (!rows?.length) return [];
   return rows.map((c) => ({
     creatorId: c.creatorId,
     creatorType: c.creatorType,
@@ -482,10 +559,37 @@ export async function buildReport(
   limit = 8
 ): Promise<ScoutReportResult> {
   const ctx = getScoutContext();
-  const out = await generateMarketReport.handler(
-    { genre: genre.trim(), focusUniverseId, limit },
-    ctx
+  const out = await withTimeout(
+    generateMarketReport.handler({ genre: genre.trim(), focusUniverseId, limit }, ctx),
+    10_000
   );
+  if (!out) {
+    const topGames = await getTopGamesByGenre(genre, limit);
+    const totalCcu = topGames.reduce((s, g) => s + g.playing, 0);
+    const medianCcu =
+      topGames.length === 0
+        ? 0
+        : [...topGames.map((g) => g.playing)].sort((a, b) => a - b)[
+            Math.floor(topGames.length / 2)
+          ]!;
+    return {
+      genre: genre.trim(),
+      generatedAt: new Date().toISOString(),
+      markdown: `## ${genre.trim()}\n\nLive CCU snapshot (search API briefly unavailable).\n\n${topGames
+        .map((g, i) => `${i + 1}. **${g.name}** — ${g.playing} playing`)
+        .join("\n")}`,
+      topGames,
+      aggregates: {
+        gameCount: topGames.length,
+        totalCcu,
+        medianCcu,
+        totalVisits: topGames.reduce((s, g) => s + g.visits, 0),
+        totalFavorites: topGames.reduce((s, g) => s + g.favorites, 0),
+        topCreatorName: topGames[0]?.creator ?? null,
+      },
+      focus: undefined,
+    };
+  }
   const topGames = await enrichRows(
     (out.structured.topGames as Array<Record<string, unknown>>).map((g) => mapGameLike(g))
   );

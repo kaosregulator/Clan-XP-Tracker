@@ -70,12 +70,13 @@ async function renderWarningCardSafe(
 ): Promise<Buffer | null> {
   try {
     const discordUrl = target.displayAvatarURL({ size: 256, extension: "png" });
+    const faces = cardAvatarPair(member ?? null, discordUrl);
     return await renderOffThread("warningCard", {
       communityName: clan.clanName,
       memberName: target.username,
-      avatarUrl: cardAvatarUrl(member ?? null, discordUrl),
-      discordAvatarUrl: discordUrl,
-      robloxAvatarUrl: member?.robloxAvatarUrl ?? null,
+      avatarUrl: faces.primaryAvatarUrl,
+      discordAvatarUrl: faces.discordAvatarUrl,
+      robloxAvatarUrl: faces.robloxAvatarUrl,
       robloxUsername: member?.gameUsername ?? null,
       reason: memberReason,
       warningNumber,
@@ -505,6 +506,25 @@ export async function listHistory(
 /** Prefer the linked Roblox avatar on member-facing cards when an officer assigned one. */
 export function cardAvatarUrl(member: ClanMember | null | undefined, discordUrl: string | null): string | null {
   return member?.robloxAvatarUrl || discordUrl || member?.avatarUrl || null;
+}
+
+/** Discord + linked Roblox faces for dual-avatar cards (standing / warning / reminder / board). */
+export function cardAvatarPair(
+  member: ClanMember | null | undefined,
+  discordUrl: string | null
+): {
+  discordAvatarUrl: string | null;
+  robloxAvatarUrl: string | null;
+  /** Primary face for single-avatar layouts: Roblox when linked, else Discord. */
+  primaryAvatarUrl: string | null;
+} {
+  const discord = discordUrl || member?.avatarUrl || null;
+  const roblox = member?.robloxAvatarUrl ?? null;
+  return {
+    discordAvatarUrl: discord,
+    robloxAvatarUrl: roblox,
+    primaryAvatarUrl: roblox || discord,
+  };
 }
 
 export interface RemoveWarningInput {
