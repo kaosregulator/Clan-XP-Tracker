@@ -17,6 +17,7 @@ import {
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { renderOffThread } from "../canvas/render-pool";
 import { logger } from "../../lib/logger";
+import { cardAvatarPair } from "./warnings";
 
 /**
  * Where a reminder is delivered. Both default to the clan settings when
@@ -46,17 +47,23 @@ export interface SendReminderResult {
   delivered: boolean;
 }
 
-/** Render the XP reminder canvas card with the member's avatar, best-effort. */
+/** Render the XP reminder canvas card with Discord + linked Roblox avatars. */
 async function renderReminderCardSafe(
   clan: Clan,
   target: User,
-  body: string
+  body: string,
+  member: ClanMember | null
 ): Promise<Buffer | null> {
   try {
+    const discordUrl = target.displayAvatarURL({ size: 256, extension: "png" });
+    const faces = cardAvatarPair(member, discordUrl);
     return await renderOffThread("reminderCard", {
       communityName: clan.clanName,
       memberName: target.username,
-      avatarUrl: target.displayAvatarURL({ size: 256, extension: "png" }),
+      avatarUrl: faces.primaryAvatarUrl,
+      discordAvatarUrl: faces.discordAvatarUrl,
+      robloxAvatarUrl: faces.robloxAvatarUrl,
+      robloxUsername: member?.gameUsername ?? null,
       message: body,
       periodLabel: periodAdjective(clan),
     });
@@ -111,7 +118,7 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   // stays as a fallback when a render fails so a reminder always gets through.
   // When the server picked the classic embed style, skip the card entirely.
   const card =
-    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, body);
+    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, body, member);
 
   // Delivery targets: explicit override wins; otherwise the clan defaults
   // (DM when dmReminders is on, and the reminder channel when configured).

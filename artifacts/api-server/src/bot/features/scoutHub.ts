@@ -520,6 +520,22 @@ async function buildVsGenre(st: ScoutState): Promise<BaseMessageOptions> {
 async function buildCreators(st: ScoutState): Promise<BaseMessageOptions> {
   const genre = st.genre ?? "tycoon";
   const creators = await ScoutService.creators(genre, 12);
+  if (!creators.length) {
+    const rows = await ScoutService.topByGenre(genre, 12).catch(() => [] as ScoutGameRow[]);
+    if (rows.length) {
+      return buildListView(
+        st,
+        "TOP GAMES",
+        genre,
+        "Creator ranking briefly unavailable — showing live games instead",
+        rows
+      );
+    }
+    return softErrorView(
+      st,
+      "⚠️ Creator ranking needs Roblox search. Try Trending or Search for now."
+    );
+  }
   const { slice, hasMore } = listRows(
     creators.map((c) => ({
       universeId: c.topGameUniverseId,
@@ -787,22 +803,14 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
       }
       case "top": {
         const genre = st.genre ?? "tycoon";
-        try {
-          const rows = await ScoutService.topByGenre(genre, 25);
-          if (rows.length) {
-            return await buildListView(st, "TOP BY GENRE", genre, "Ranked by live players", rows);
-          }
-        } catch (err) {
-          logScoutError("buildView.top", err);
-        }
-        const fallback = await ScoutService.presetTop(10).catch(() => []);
-        if (fallback.length) {
+        const rows = await ScoutService.topByGenre(genre, 25);
+        if (rows.length) {
           return await buildListView(
             st,
-            "TOP · LIVE CCU",
+            "TOP BY GENRE",
             genre,
-            "Genre search briefly unavailable — showing live popular games",
-            fallback
+            "Ranked by live players (search + live CCU backup)",
+            rows
           );
         }
         return softErrorView(
@@ -862,6 +870,21 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
     }
   } catch (err) {
     logScoutError(`buildView.${st.view}`, err);
+    // Last resort: keep a live Top list so the hub never "closes" on a tool failure.
+    try {
+      const rows = await ScoutService.presetTop(10);
+      if (rows.length) {
+        return await buildListView(
+          st,
+          "TOP · LIVE CCU",
+          "Popular now",
+          "That tool briefly failed — showing live popular games",
+          rows
+        );
+      }
+    } catch (fallbackErr) {
+      logScoutError("buildView.fallback", fallbackErr);
+    }
     return softErrorView(st, toScoutUserError(err));
   }
 }
