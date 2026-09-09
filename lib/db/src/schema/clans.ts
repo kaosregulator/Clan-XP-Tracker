@@ -179,6 +179,18 @@ export const clansTable = pgTable("clans", {
   adminRoleIds: text("admin_role_ids").array().notNull().default([]),
   exemptRoleIds: text("exempt_role_ids").array().notNull().default([]),
   leaveRoleIds: text("leave_role_ids").array().notNull().default([]),
+  // Discord role(s) that mark Combat Support participants. Reuses the real
+  // server role — the bot does not invent a combat system. Empty = unset.
+  combatSupportRoleIds: text("combat_support_role_ids").array().notNull().default([]),
+
+  // Player Manager progression knobs (independent of weekly activity).
+  // XP awarded once when a member newly completes the period activity.
+  activityXpReward: integer("activity_xp_reward").notNull().default(50),
+  // Clan Points awarded when recording a Combat Support participation.
+  combatSupportPoints: integer("combat_support_points").notNull().default(10),
+  // Optional JSON array of cumulative XP thresholds per level, e.g. [0,100,250,500].
+  // null/invalid → built-in default curve in services/player.ts.
+  levelThresholdsJson: text("level_thresholds_json"),
 
   // Delivery settings for reminders.
   dmReminders: boolean("dm_reminders").notNull().default(true),

@@ -15,6 +15,15 @@ const STATEMENTS = [
   `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS roblox_avatar_url text`,
   `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS lifetime_warnings integer NOT NULL DEFAULT 0`,
   `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS clean_points integer NOT NULL DEFAULT 0`,
+  // Player Manager progression (safe additive — everyone starts at 0 / level 1).
+  `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS progression_xp integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS player_level integer NOT NULL DEFAULT 1`,
+  `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS clan_points integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS combat_support_count integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS combat_support_role_ids text[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS activity_xp_reward integer NOT NULL DEFAULT 50`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS combat_support_points integer NOT NULL DEFAULT 10`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS level_thresholds_json text`,
   // Preserve history for members who already had active warnings before the column existed.
   `UPDATE clan_members
      SET lifetime_warnings = warnings_count

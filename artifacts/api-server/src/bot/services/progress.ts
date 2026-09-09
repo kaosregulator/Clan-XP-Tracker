@@ -190,13 +190,27 @@ export async function applyProgress(
 
   scheduleDashboardRefresh(clan.guildId);
 
-  return {
+  const result = {
     member: updated ?? row,
     before,
     after,
     goal,
     completedNow: isComplete && !wasComplete,
   };
+
+  // Progression XP is separate from weekly activity. Completing the period
+  // requirement awards progression XP once — it never touches warnings.
+  if (result.completedNow) {
+    try {
+      const { grantActivityCompletionXp } = await import("./player");
+      result.member = await grantActivityCompletionXp(clan, identity);
+    } catch (err) {
+      // Never fail the activity write if progression award has a problem.
+      console.error("grantActivityCompletionXp failed", err);
+    }
+  }
+
+  return result;
 }
 
 /** Set/clear the exempt or on-leave flag with an audit trail. */

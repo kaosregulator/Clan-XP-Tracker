@@ -57,6 +57,9 @@ export const dashPrev = (filter: string, index: number) =>
   id(NS.dash, "prev", `${filter}-${index}`);
 export const dashNext = (filter: string, index: number) =>
   id(NS.dash, "next", `${filter}-${index}`);
+/** Switch browse card mode: player (default) | editor. arg = `${filter}-${index}-player|editor`. */
+export const dashView = (filter: string, index: number, view: "player" | "editor") =>
+  id(NS.dash, "view", `${filter}-${index}-${view}`);
 /** Legacy page pager — kept so old messages still route. */
 export const dashPage = (filter: string, page: number) => id(NS.dash, "page", `${filter}-${page}`);
 
