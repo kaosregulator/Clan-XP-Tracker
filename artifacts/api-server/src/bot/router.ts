@@ -50,6 +50,7 @@ import {
 } from "./features/scoutHub";
 import {
   handleMarketCommand,
+  handleMarketAutocomplete,
   handleMarketButton,
   handleMarketSelect,
   handleMarketModal,
@@ -126,6 +127,9 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       }
       if (interaction.commandName === "scout") {
         return void (await handleScoutAutocomplete(interaction));
+      }
+      if (interaction.commandName === "market") {
+        return void (await handleMarketAutocomplete(interaction));
       }
       return;
     }

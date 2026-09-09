@@ -210,6 +210,7 @@ export const SCT_SNAPSHOT = id(NS.scout, "snap");
 export const SCT_GENRE_MODAL = id(NS.scout, "genreModal");
 export const SCT_COMPARE_MODAL = id(NS.scout, "compareModal");
 export const SCT_DEVEX_MODAL = id(NS.scout, "devexModal");
+export const SCT_TOOLS = id(NS.scout, "tools"); // string select of secondary tools
 
 // Marketplace Hub — avatar items (not Creator Store)
 export const MKT_NAV = (view: string) => id(NS.mkt, "nav", view);
@@ -224,6 +225,8 @@ export const MKT_CREATOR_MODAL = id(NS.mkt, "creatorModal");
 export const MKT_PICK = id(NS.mkt, "pick");
 export const MKT_BACK = id(NS.mkt, "back");
 export const MKT_MORE = id(NS.mkt, "more");
+export const MKT_CAT_MENU = id(NS.mkt, "catMenu"); // string select of categories
+export const MKT_PRICE_MENU = id(NS.mkt, "priceMenu");
 
 // Avatar link hub — assign a Roblox face to a Discord member's clan cards.
 export const LNK_SEARCH_DISCORD = id(NS.link, "searchDiscord");

@@ -50,7 +50,7 @@ export async function renderScoutHomeCard(view: ScoutHomeCardView = {}): Promise
   text(ctx, "Scout Hub", 40, 88, { size: 40, weight: "bold", color: RBX.ink });
   text(
     ctx,
-    "Top games, trends, and snapshots — tap a button under this card.",
+    "Top games, trends, and snapshots — use the buttons and tools menu below.",
     40,
     136,
     { size: 18, color: RBX.soft, maxWidth: W - 80 }

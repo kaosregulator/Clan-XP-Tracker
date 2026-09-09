@@ -35,7 +35,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/leaderboard  —  who can go without warnings (top 3 + board)`,
           `/calendar  —  your ${activity} month calendar`,
           `/dispute  —  contest a warning (or use the button on /warnings)`,
-          `/roblox · /scout · /market  —  Roblox hubs (buttons, not slash sprawl)`,
+          `/roblox · /scout · /market  —  Roblox hubs (menus & buttons inside)`,
         ],
       },
     ];

@@ -48,7 +48,7 @@ export async function renderMarketHomeCard(view: MarketHomeCardView = {}): Promi
   text(
     ctx,
     view.subtitle ??
-      "Clothing, accessories, bodies & limiteds — browse with the buttons below.",
+      "Clothing, accessories, bodies & limiteds — browse with the menus below.",
     40,
     145,
     { size: 18, color: RBX.soft, maxWidth: W - 80 }

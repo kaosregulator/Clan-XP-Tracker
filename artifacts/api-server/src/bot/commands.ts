@@ -450,8 +450,9 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addStringOption((o) =>
       o
         .setName("query")
-        .setDescription("Optional search (or just open the hub and use buttons)")
+        .setDescription("Optional search (or just open the hub and use menus)")
         .setRequired(false)
+        .setAutocomplete(true)
     )
     .toJSON(),
 ];

@@ -12,6 +12,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   AttachmentBuilder,
+  type AutocompleteInteraction,
   type BaseMessageOptions,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
@@ -34,6 +35,8 @@ import {
   MKT_PICK,
   MKT_BACK,
   MKT_MORE,
+  MKT_CAT_MENU,
+  MKT_PRICE_MENU,
 } from "../ui/ids";
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import {
@@ -165,36 +168,36 @@ function restrictionBadge(item: MarketItem): string | null {
 
 /* --------------------------------------------------------------- chrome */
 
-function categoryRow(st: MarketState) {
-  const cats: MarketCategory[] = ["all", "clothing", "accessories", "bodies", "collectibles"];
-  return row(
-    ...cats.map((c) =>
-      btn(CATEGORY_LABELS[c], MKT_CAT(c), st.category === c ? ButtonStyle.Primary : ButtonStyle.Secondary)
-    )
-  );
-}
+const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as MarketCategory[];
+const ALL_PRICES = Object.keys(PRICE_LABELS) as MarketPriceFilter[];
 
-function categoryRow2(st: MarketState) {
-  const cats: MarketCategory[] = ["animations", "gear", "military"];
+function categoryMenu(st: MarketState) {
   return row(
-    ...cats.map((c) =>
-      btn(CATEGORY_LABELS[c], MKT_CAT(c), st.category === c ? ButtonStyle.Primary : ButtonStyle.Secondary)
-    ),
-    btn("Search", MKT_SEARCH, ButtonStyle.Success),
-    btn("Creator", MKT_NAV("creator"), ButtonStyle.Success)
-  );
-}
-
-function priceRow(st: MarketState) {
-  const prices: MarketPriceFilter[] = ["all", "free", "under50", "under100", "over100"];
-  return row(
-    ...prices.map((p) =>
-      btn(
-        p === "all" ? "Any $" : PRICE_LABELS[p].replace(" R$", ""),
-        MKT_PRICE(p),
-        st.price === p ? ButtonStyle.Primary : ButtonStyle.Secondary
+    new StringSelectMenuBuilder()
+      .setCustomId(MKT_CAT_MENU)
+      .setPlaceholder(`Category · ${CATEGORY_LABELS[st.category]}`)
+      .addOptions(
+        ALL_CATEGORIES.map((c) => ({
+          label: CATEGORY_LABELS[c],
+          value: c,
+          default: st.category === c,
+        }))
       )
-    )
+  );
+}
+
+function priceMenu(st: MarketState) {
+  return row(
+    new StringSelectMenuBuilder()
+      .setCustomId(MKT_PRICE_MENU)
+      .setPlaceholder(`Price · ${PRICE_LABELS[st.price]}`)
+      .addOptions(
+        ALL_PRICES.map((p) => ({
+          label: PRICE_LABELS[p],
+          value: p,
+          default: st.price === p,
+        }))
+      )
   );
 }
 
@@ -208,27 +211,33 @@ function pageRow(st: MarketState, hasPrev: boolean, hasNext: boolean) {
   return row(
     btn("◀ Prev", MKT_PAGE("prev"), ButtonStyle.Secondary, !hasPrev),
     btn(`Sort: ${SORT_LABELS[st.sort]}`, MKT_SORT("cycle"), ButtonStyle.Secondary),
-    btn("Refresh", MKT_REFRESH, ButtonStyle.Primary),
+    btn("Search", MKT_SEARCH, ButtonStyle.Success),
     btn("Home", MKT_NAV("home")),
     btn("Next ▶", MKT_PAGE("next"), ButtonStyle.Secondary, !hasNext)
   );
 }
 
 function homeNav() {
+  // One featured row + one select keeps the home under Discord's 5-row cap
+  // and reads as a hub instead of a button wall.
   return [
     row(
       btn("Browse all", MKT_CAT("all"), ButtonStyle.Primary),
       btn("Military", MKT_CAT("military"), ButtonStyle.Primary),
       btn("Collectibles", MKT_CAT("collectibles")),
-      btn("Clothing", MKT_CAT("clothing")),
-      btn("Accessories", MKT_CAT("accessories"))
-    ),
-    row(
-      btn("Bodies", MKT_CAT("bodies")),
-      btn("Animations", MKT_CAT("animations")),
-      btn("Gear", MKT_CAT("gear")),
       btn("Search", MKT_SEARCH, ButtonStyle.Success),
       btn("By creator", MKT_NAV("creator"), ButtonStyle.Success)
+    ),
+    row(
+      new StringSelectMenuBuilder()
+        .setCustomId(MKT_CAT_MENU)
+        .setPlaceholder("Or jump to a category…")
+        .addOptions(
+          ALL_CATEGORIES.filter((c) => c !== "all").map((c) => ({
+            label: CATEGORY_LABELS[c],
+            value: c,
+          }))
+        )
     ),
   ];
 }
@@ -236,9 +245,13 @@ function homeNav() {
 /* --------------------------------------------------------------- builders */
 
 async function buildHome(st: MarketState): Promise<BaseMessageOptions> {
+  void st;
   const file = await fileFrom(
     "marketHome",
-    { subtitle: "Tap a category below — filters & sort live on the buttons." },
+    {
+      subtitle:
+        "One hub — jump in with a category, search, or creator. Filters use the menus on browse.",
+    },
     "market-home.png"
   );
   return { files: [file], components: homeNav() };
@@ -257,6 +270,7 @@ async function buildBrowse(st: MarketState): Promise<BaseMessageOptions> {
     limit: 28,
   });
   st.lastItems = page.items;
+  st.nextCursor = page.nextCursor;
 
   const titleParts = [CATEGORY_LABELS[st.category]];
   if (st.keyword) titleParts.push(`“${st.keyword}”`);
@@ -278,12 +292,8 @@ async function buildBrowse(st: MarketState): Promise<BaseMessageOptions> {
     "market-browse.png"
   );
 
-  const components = [
-    categoryRow(st),
-    categoryRow2(st),
-    priceRow(st),
-  ];
-
+  // Max 4 rows: category · price · pick · nav — stays readable & under Discord's 5-row limit.
+  const components = [categoryMenu(st), priceMenu(st)];
   if (page.items.length) {
     components.push(
       row(
@@ -300,12 +310,7 @@ async function buildBrowse(st: MarketState): Promise<BaseMessageOptions> {
       )
     );
   }
-
-  components.push(
-    pageRow(st, st.cursorStack.length > 0, Boolean(page.nextCursor))
-  );
-
-  st.nextCursor = page.nextCursor;
+  components.push(pageRow(st, st.cursorStack.length > 0, Boolean(page.nextCursor)));
 
   return { files: [file], components };
 }
@@ -532,6 +537,49 @@ async function updateHub(
 
 /* -------------------------------------------------------------- commands */
 
+const MARKET_QUERY_SEEDS = [
+  "military helmet",
+  "tactical vest",
+  "camo pants",
+  "combat boots",
+  "black hoodie",
+  "limited",
+  "headless",
+  "korblox",
+];
+
+/** Autocomplete for `/market query` — seeds + live catalog hits. */
+export async function handleMarketAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  const focused = interaction.options.getFocused(true);
+  if (focused.name !== "query") {
+    await interaction.respond([]);
+    return;
+  }
+  const q = focused.value.trim();
+  try {
+    if (q.length < 2) {
+      const seeds = MARKET_QUERY_SEEDS.filter((s) =>
+        q ? s.toLowerCase().includes(q.toLowerCase()) : true
+      ).slice(0, 8);
+      await interaction.respond(seeds.map((s) => ({ name: s, value: s })));
+      return;
+    }
+    const page = await searchMarketplace({ keyword: q, category: "all", limit: 10 });
+    const choices = page.items.slice(0, 8).map((it) => ({
+      name: `${it.name.slice(0, 80)} · ${priceLabel(it)}`.slice(0, 100),
+      value: it.name.slice(0, 100),
+    }));
+    if (!choices.length) {
+      await interaction.respond([{ name: q.slice(0, 100), value: q.slice(0, 100) }]);
+      return;
+    }
+    await interaction.respond(choices);
+  } catch (err) {
+    logRobloxError("marketAutocomplete", err);
+    await interaction.respond(q ? [{ name: q.slice(0, 100), value: q.slice(0, 100) }] : []).catch(() => {});
+  }
+}
+
 /** Single slash entry — optional query opens browse. Everything else is buttons. */
 export async function handleMarketCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const query = interaction.options.getString("query");
@@ -663,6 +711,25 @@ export async function handleMarketSelect(interaction: StringSelectMenuInteractio
     return;
   }
   await interaction.deferUpdate();
+
+  if (action === "catMenu") {
+    const cat = interaction.values[0] as MarketCategory | undefined;
+    if (cat && cat in CATEGORY_LABELS) {
+      st.category = cat;
+      st.view = "browse";
+      resetPaging(st);
+    }
+    return updateHub(interaction, st);
+  }
+  if (action === "priceMenu") {
+    const price = interaction.values[0] as MarketPriceFilter | undefined;
+    if (price && price in PRICE_LABELS) {
+      st.price = price;
+      st.view = "browse";
+      resetPaging(st);
+    }
+    return updateHub(interaction, st);
+  }
   if (action === "pick") {
     const raw = interaction.values[0] ?? "";
     const [type, idStr] = raw.split(":");
