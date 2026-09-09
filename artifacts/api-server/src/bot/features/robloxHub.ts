@@ -1049,12 +1049,17 @@ async function replyHub(
 ): Promise<void> {
   await interaction.deferReply({ flags: 64 });
   try {
-    const payload = await buildView(state);
+    const payload = await Promise.race([
+      buildView(state),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Roblox hub timed out building the card")), 25_000)
+      ),
+    ]);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
   } catch (err) {
     logRobloxError("replyHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err)));
+    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
   }
 }
 
@@ -1124,7 +1129,13 @@ export async function handleRobloxAutocomplete(interaction: AutocompleteInteract
 export async function handleRobloxCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   const ownerId = interaction.user.id;
   // Legacy subcommands still resolve if Discord caches an old command schema.
-  const sub = interaction.options.getSubcommand(false);
+  // Guard: flat /roblox (no subcommands) must not throw when Discord.js probes.
+  let sub: string | null = null;
+  try {
+    sub = interaction.options.getSubcommand(false);
+  } catch {
+    sub = null;
+  }
   const raw =
     interaction.options.getString("username") ??
     interaction.options.getString("user") ??
@@ -1187,9 +1198,9 @@ export async function handleRobloxCommand(interaction: ChatInputCommandInteracti
   } catch (err) {
     logRobloxError("handleRobloxCommand", err);
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(clearHubCard(toUserError(err)));
+      await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
     } else {
-      await interaction.reply({ content: toUserError(err), flags: 64 });
+      await interaction.reply({ content: toUserError(err), flags: 64 }).catch(() => {});
     }
   }
 }

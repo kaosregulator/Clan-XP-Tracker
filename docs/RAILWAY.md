@@ -65,9 +65,10 @@ release phase, so this schema push is a manual step rather than part of the
 container start.)
 
 **After every merge that adds columns** (e.g. `roblox_user_id`, `clean_points`),
-run the same push again. Missing columns make `/link`, `/leaderboard`, and
-standing cards fail — often with a misleading “Roblox couldn't be reached”
-message.
+the app now runs an automatic `ensureSchema` on boot (safe `ADD COLUMN IF NOT
+EXISTS`). You usually do **not** need a manual push after deploy. Keep the
+manual `pnpm --filter @workspace/db push` step for the **first** install only
+(creating all tables from scratch).
 
 ## 4b. Instant slash-command updates (optional)
 
@@ -104,5 +105,5 @@ wipe `/link`, hubs, or the dashboard anymore.
   `Missing Access` (see §4b). Otherwise wait up to ~1h for global sync, or set a
   valid `DISCORD_DEV_GUILD_ID`. Fully quit the Discord client after a successful
   “Slash commands registered globally” log line.
-- **`/link` says Roblox couldn't be reached** → usually missing DB columns; run
-  the schema push in §4.
+- **`/link` says database is updating / missing columns** → redeploy so boot
+  `ensureSchema` can add them, or run the schema push in §4 once.

@@ -2,6 +2,7 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { ensureSchema } from "./lib/ensureSchema";
 
 const rawPort = process.env["PORT"];
 
@@ -35,13 +36,21 @@ function spawnBotWorker() {
   });
 }
 
-app.listen(port, (err) => {
+app.listen(port, async (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
 
   logger.info({ port }, "Server listening");
+
+  // Railway has no release phase — add missing columns before the Discord bot
+  // starts answering /link, /leaderboard, and standing cards.
+  try {
+    await ensureSchema();
+  } catch {
+    // Logged inside ensureSchema; continue so HTTP health checks still pass.
+  }
 
   // Spawn the bot in a dedicated worker thread. Canvas rendering (CPU-bound
   // synchronous work) runs on the worker's event loop and never blocks HTTP
