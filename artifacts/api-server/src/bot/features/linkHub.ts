@@ -464,9 +464,16 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
       try {
         await saveLink(interaction.guildId!, st);
       } catch (err) {
-        // One-shot schema heal if columns were missing at boot.
+        // One-shot schema heal: missing columns OR int4 overflow on roblox_user_id.
         const msg = err instanceof Error ? err.message : String(err);
-        if (/column .* does not exist/i.test(msg)) {
+        const cause =
+          err instanceof Error && (err as { cause?: unknown }).cause instanceof Error
+            ? ((err as { cause: Error }).cause.message ?? "")
+            : "";
+        const healable =
+          /column .* does not exist/i.test(`${msg} ${cause}`) ||
+          /out of range for type integer|integer out of range/i.test(`${msg} ${cause}`);
+        if (healable) {
           await ensureSchema().catch(() => {});
           if (user) await ensureMember(interaction.guildId!, identityFromUser(user));
           await saveLink(interaction.guildId!, st);

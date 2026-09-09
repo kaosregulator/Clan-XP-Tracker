@@ -8,7 +8,10 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const STATEMENTS = [
-  `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS roblox_user_id integer`,
+  // Prefer bigint up front — Roblox user IDs often exceed int4 (2_147_483_647).
+  `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS roblox_user_id bigint`,
+  // Heal installs that already got the column as integer from an earlier ensureSchema.
+  `ALTER TABLE clan_members ALTER COLUMN roblox_user_id TYPE bigint USING roblox_user_id::bigint`,
   `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS roblox_avatar_url text`,
   `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS lifetime_warnings integer NOT NULL DEFAULT 0`,
   `ALTER TABLE clan_members ADD COLUMN IF NOT EXISTS clean_points integer NOT NULL DEFAULT 0`,
