@@ -35,6 +35,7 @@ import {
   RBX_PICK_FRIEND,
   RBX_BACK,
 } from "../ui/ids";
+import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import {
   RobloxService,
   toUserError,
@@ -156,7 +157,18 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
   const primary: Row[] = [];
 
   if (st.view === "home" || st.view === "search") {
-    primary.push(row(btn(RBX_SEARCH, "Search User", ButtonStyle.Primary)));
+    primary.push(
+      row(
+        btn(RBX_SEARCH, "Find Player", ButtonStyle.Primary),
+        btn(RBX_NAV("military"), "Military Tycoon", ButtonStyle.Primary),
+        btn(RBX_NAV("games"), "MT Game Info")
+      ),
+      row(
+        btn(RBX_NAV("servers"), "Public Servers"),
+        btn(RBX_NAV("passes"), "Game Passes"),
+        btn(RBX_NAV("integration"), "What's Public")
+      )
+    );
     return primary;
   }
 
@@ -164,23 +176,19 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
     primary.push(
       row(
         btn(RBX_NAV("profile"), "Profile", st.view === "profile" ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        btn(RBX_NAV("games"), "Games"),
+        btn(RBX_NAV("avatar"), "Avatar"),
+        btn(RBX_NAV("status"), "Status"),
         btn(RBX_NAV("groups"), "Groups"),
-        btn(RBX_NAV("badges"), "Badges"),
-        btn(RBX_NAV("avatar"), "Avatar")
+        btn(RBX_NAV("friends"), "Friends")
       ),
       row(
-        btn(RBX_NAV("friends"), "Friends"),
-        btn(RBX_NAV("status"), "Status"),
+        btn(RBX_NAV("badges"), "Badges"),
         btn(RBX_NAV("history"), "History"),
         btn(RBX_NAV("inventory"), "Inventory"),
-        btn(RBX_NAV("military"), "Military Tycoon")
-      ),
-      row(
-        btn(RBX_NAV("passes"), "Game Passes"),
-        btn(RBX_SEARCH, "Search User"),
+        btn(RBX_NAV("military"), "Military"),
         btn(RBX_REFRESH, "Refresh", ButtonStyle.Primary)
-      )
+      ),
+      row(btn(RBX_SEARCH, "New Search"), btn(RBX_NAV("home"), "Hub Home"))
     );
     return primary;
   }
@@ -188,7 +196,7 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
   // Sub-views: back + pagination + search
   const nav: MessageActionRowComponentBuilder[] = [
     btn(RBX_BACK, "Back"),
-    btn(RBX_NAV("player"), "Player Card", hasUser ? ButtonStyle.Secondary : ButtonStyle.Secondary, !hasUser),
+    btn(RBX_NAV("player"), "Player Card", ButtonStyle.Secondary, !hasUser),
   ];
   if (opts.hasPrev || opts.hasNext) {
     nav.push(btn(RBX_PAGE("prev"), "◀ Prev", ButtonStyle.Secondary, !opts.hasPrev));
@@ -199,19 +207,25 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
   const rows: Row[] = [row(...nav.slice(0, 5))];
   if (opts.extra) rows.push(...opts.extra);
 
-  if (st.view === "military" || st.view.startsWith("military") || st.view === "passes" || st.view === "passesOnSale" || st.view === "integration") {
+  if (
+    st.view === "military" ||
+    st.view.startsWith("military") ||
+    st.view === "passes" ||
+    st.view === "passesOnSale" ||
+    st.view === "integration"
+  ) {
     rows.unshift(
       row(
         btn(RBX_NAV("militaryPlayer"), "Player", ButtonStyle.Primary, !hasUser),
-        btn(RBX_NAV("militaryRank"), "My Rank", ButtonStyle.Secondary, !hasUser),
+        btn(RBX_NAV("militaryRank"), "Rank", ButtonStyle.Secondary, !hasUser),
         btn(RBX_NAV("military"), "Game"),
-        btn(RBX_NAV("militaryBadges"), "Badges"),
-        btn(RBX_NAV("servers"), "Servers")
+        btn(RBX_NAV("servers"), "Servers"),
+        btn(RBX_NAV("passes"), "Passes")
       ),
       row(
-        btn(RBX_NAV("passes"), "All Passes"),
         btn(RBX_NAV("passesOnSale"), "On Sale"),
         btn(RBX_NAV("militaryItems"), "My Passes", ButtonStyle.Secondary, !hasUser),
+        btn(RBX_NAV("militaryBadges"), "Badges"),
         btn(RBX_NAV("integration"), "Integrate"),
         btn(RBX_REFRESH, "Refresh")
       )
@@ -222,7 +236,7 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
     rows.unshift(
       row(
         btn(RBX_NAV("servers"), "Servers"),
-        btn(RBX_NAV("badges"), "Badges"),
+        btn(RBX_NAV("passes"), "Passes"),
         btn(RBX_REFRESH, "Refresh")
       )
     );
@@ -1036,11 +1050,11 @@ async function replyHub(
   await interaction.deferReply({ flags: 64 });
   try {
     const payload = await buildView(state);
-    const msg = await interaction.editReply(payload);
+    const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
   } catch (err) {
     logRobloxError("replyHub", err);
-    await interaction.editReply({ content: toUserError(err), components: [], files: [], embeds: [] });
+    await interaction.editReply(clearHubCard(toUserError(err)));
   }
 }
 
@@ -1050,11 +1064,12 @@ async function updateHub(
 ): Promise<void> {
   try {
     const payload = await buildView(state);
-    await interaction.editReply(payload);
+    // Must clear prior attachments — otherwise every hub click stacks another PNG.
+    await interaction.editReply(replaceHubCard(payload));
     bindHub(interaction.message!.id, state);
   } catch (err) {
     logRobloxError("updateHub", err);
-    await interaction.editReply({ content: toUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toUserError(err)));
   }
 }
 
@@ -1102,36 +1117,25 @@ export async function handleRobloxAutocomplete(interaction: AutocompleteInteract
   }
 }
 
+/**
+ * True hub: one slash command. Optional username jumps straight to that player;
+ * everything else is buttons inside the hub (no subcommand sprawl).
+ */
 export async function handleRobloxCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  const sub = interaction.options.getSubcommand(false);
   const ownerId = interaction.user.id;
-
-  // Bare /roblox hub or /roblox search → home hub
-  if (!sub || sub === "hub" || sub === "search") {
-    return replyHub(interaction, freshState(ownerId, { view: "home" }));
-  }
+  // Legacy subcommands still resolve if Discord caches an old command schema.
+  const sub = interaction.options.getSubcommand(false);
+  const raw =
+    interaction.options.getString("username") ??
+    interaction.options.getString("user") ??
+    null;
 
   try {
-    if (sub === "user" || sub === "profile" || sub === "avatar" ||
-        sub === "status" || sub === "groups" || sub === "friends" || sub === "followers" ||
-        sub === "following" || sub === "badges" || sub === "history" || sub === "inventory") {
-      const raw =
-        interaction.options.getString("username") ??
-        interaction.options.getString("user") ??
-        "";
-      if (!raw) {
-        await interaction.reply({
-          content: "Provide a Roblox username (autocomplete available).",
-          flags: 64,
-        });
-        return;
-      }
+    if (raw) {
       const user = /^\d+$/.test(raw)
         ? await RobloxService.getUserById(Number(raw))
         : await RobloxService.resolveUsername(raw);
-
       const viewMap: Record<string, HubView> = {
-        user: "player",
         profile: "profile",
         avatar: "avatar",
         status: "status",
@@ -1142,191 +1146,99 @@ export async function handleRobloxCommand(interaction: ChatInputCommandInteracti
         badges: "badges",
         history: "history",
         inventory: "inventory",
+        user: "player",
       };
       return replyHub(
         interaction,
         freshState(ownerId, {
-          view: viewMap[sub] ?? "player",
+          view: (sub && viewMap[sub]) || "player",
           robloxUserId: user.id,
         })
       );
     }
 
     if (sub === "game") {
-      const q = interaction.options.getString("game", true);
-      const game = await RobloxService.resolveGame(q);
-      const st = freshState(ownerId, {
-        view: "game",
-        gameUniverseId: game.universeId,
-        gamePlaceId: game.rootPlaceId,
-      });
-      return replyHub(interaction, st);
+      const q = interaction.options.getString("game");
+      if (q) {
+        const game = await RobloxService.resolveGame(q);
+        return replyHub(
+          interaction,
+          freshState(ownerId, {
+            view: "game",
+            gameUniverseId: game.universeId,
+            gamePlaceId: game.rootPlaceId,
+          })
+        );
+      }
     }
 
-    if (sub === "servers") {
-      const q = interaction.options.getString("game");
-      const game = q
-        ? await RobloxService.resolveGame(q)
-        : await RobloxService.military.getMilitaryGame();
+    if (sub === "military" || sub === "passes" || sub === "servers") {
       return replyHub(
         interaction,
         freshState(ownerId, {
-          view: "servers",
-          gameUniverseId: game.universeId,
-          gamePlaceId: game.rootPlaceId,
+          view: sub === "servers" ? "servers" : sub === "passes" ? "passes" : "military",
+          gameUniverseId: RobloxService.MILITARY_TYCOON_UNIVERSE_ID,
+          gamePlaceId: RobloxService.MILITARY_TYCOON_PLACE_ID,
         })
       );
     }
 
-    if (sub === "passes") {
-      const q = interaction.options.getString("game");
-      const onsale = interaction.options.getBoolean("onsale") ?? false;
-      const game = q
-        ? await RobloxService.resolveGame(q)
-        : await RobloxService.military.getMilitaryGame();
-      return replyHub(
-        interaction,
-        freshState(ownerId, {
-          view: onsale ? "passesOnSale" : "passes",
-          gameUniverseId: game.universeId,
-          gamePlaceId: game.rootPlaceId,
-        })
-      );
-    }
-
-    // default
     return replyHub(interaction, freshState(ownerId, { view: "home" }));
   } catch (err) {
     logRobloxError("handleRobloxCommand", err);
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ content: toUserError(err) });
+      await interaction.editReply(clearHubCard(toUserError(err)));
     } else {
       await interaction.reply({ content: toUserError(err), flags: 64 });
     }
   }
 }
 
+/** Shortcut into the Military Tycoon section of the Roblox Hub (no subcommands). */
 export async function handleMilitaryCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  const sub = interaction.options.getSubcommand(false);
   const ownerId = interaction.user.id;
+  const sub = interaction.options.getSubcommand(false);
+  const raw = interaction.options.getString("username");
 
   try {
-    if (!sub || sub === "game") {
-      return replyHub(interaction, freshState(ownerId, { view: "military" }));
-    }
-    if (sub === "group") {
-      // Show InfinityInteractive via military rank view without a user → game+group link
-      const st = freshState(ownerId, { view: "military" });
-      await interaction.deferReply({ flags: 64 });
-      const group = await RobloxService.getGroupDetails(RobloxService.INFINITY_INTERACTIVE_GROUP_ID);
-      const game = await RobloxService.military.getMilitaryGame();
-      const file = await fileFrom(
-        "robloxGame",
-        {
-          name: group.name,
-          description: group.description || game.description,
-          creator: "Community",
-          creatorType: "Group",
-          playing: RobloxService.formatCount(group.memberCount),
-          visits: RobloxService.formatCount(game.visits),
-          favorites: RobloxService.formatCount(game.favoritedCount),
-          likes: null,
-          updated: null,
-          created: null,
-          universeId: game.universeId,
-          placeId: game.rootPlaceId,
-          iconUrl: group.iconUrl,
-          thumbnailUrl: game.thumbnailUrl,
-          accentLabel: "INFINITYINTERACTIVE",
-        },
-        "military-group.png"
-      );
-      const msg = await interaction.editReply({
-        files: [file],
-        components: [
-          ...navRows(st),
-          row(
-            new ButtonBuilder()
-              .setStyle(ButtonStyle.Link)
-              .setLabel("Open Community")
-              .setURL(RobloxService.ROBLOX_GROUP_URL(group.id))
-          ),
-        ],
-      });
-      bindHub(msg.id, st);
-      return;
-    }
-    if (sub === "servers") {
-      return replyHub(
-        interaction,
-        freshState(ownerId, {
-          view: "servers",
-          gameUniverseId: RobloxService.MILITARY_TYCOON_UNIVERSE_ID,
-          gamePlaceId: RobloxService.MILITARY_TYCOON_PLACE_ID,
-        })
-      );
-    }
-    if (sub === "items" || sub === "passes") {
-      const raw = interaction.options.getString("username");
-      const onsale = interaction.options.getBoolean("onsale") ?? false;
-      let robloxUserId: number | null = null;
-      if (raw) {
-        const user = /^\d+$/.test(raw)
-          ? await RobloxService.getUserById(Number(raw))
-          : await RobloxService.resolveUsername(raw);
-        robloxUserId = user.id;
-      }
-      return replyHub(
-        interaction,
-        freshState(ownerId, {
-          view:
-            sub === "items" && robloxUserId
-              ? "militaryItems"
-              : onsale
-                ? "passesOnSale"
-                : "passes",
-          robloxUserId,
-          gameUniverseId: RobloxService.MILITARY_TYCOON_UNIVERSE_ID,
-          gamePlaceId: RobloxService.MILITARY_TYCOON_PLACE_ID,
-        })
-      );
-    }
-    if (sub === "integrate") {
-      return replyHub(interaction, freshState(ownerId, { view: "integration" }));
-    }
-    if (sub === "badges") {
-      const raw = interaction.options.getString("username");
-      if (raw) {
-        const user = /^\d+$/.test(raw)
-          ? await RobloxService.getUserById(Number(raw))
-          : await RobloxService.resolveUsername(raw);
-        return replyHub(
-          interaction,
-          freshState(ownerId, { view: "militaryBadges", robloxUserId: user.id })
-        );
-      }
-      return replyHub(interaction, freshState(ownerId, { view: "militaryBadges" }));
-    }
-    if (sub === "search") {
-      return replyHub(interaction, freshState(ownerId, { view: "home" }));
-    }
-    if (sub === "player" || sub === "rank" || sub === "profile") {
-      const raw = interaction.options.getString("username", true);
+    if (raw) {
       const user = /^\d+$/.test(raw)
         ? await RobloxService.getUserById(Number(raw))
         : await RobloxService.resolveUsername(raw);
       const view: HubView =
-        sub === "rank" ? "militaryRank" : sub === "profile" ? "militaryPlayer" : "militaryPlayer";
+        sub === "rank" ? "militaryRank" : sub === "badges" ? "militaryBadges" : "militaryPlayer";
       return replyHub(
         interaction,
-        freshState(ownerId, { view, robloxUserId: user.id })
+        freshState(ownerId, {
+          view,
+          robloxUserId: user.id,
+          gameUniverseId: RobloxService.MILITARY_TYCOON_UNIVERSE_ID,
+          gamePlaceId: RobloxService.MILITARY_TYCOON_PLACE_ID,
+        })
       );
     }
-    return replyHub(interaction, freshState(ownerId, { view: "military" }));
+
+    const view: HubView =
+      sub === "servers"
+        ? "servers"
+        : sub === "passes" || sub === "items"
+          ? "passes"
+          : sub === "integrate"
+            ? "integration"
+            : "military";
+
+    return replyHub(
+      interaction,
+      freshState(ownerId, {
+        view,
+        gameUniverseId: RobloxService.MILITARY_TYCOON_UNIVERSE_ID,
+        gamePlaceId: RobloxService.MILITARY_TYCOON_PLACE_ID,
+      })
+    );
   } catch (err) {
     logRobloxError("handleMilitaryCommand", err);
     if (interaction.deferred || interaction.replied) {
-      await interaction.editReply({ content: toUserError(err) });
+      await interaction.editReply(clearHubCard(toUserError(err)));
     } else {
       await interaction.reply({ content: toUserError(err), flags: 64 });
     }
@@ -1396,9 +1308,24 @@ export async function handleRobloxButton(interaction: ButtonInteraction): Promis
   if (action === "nav" && arg) {
     st.returnView = st.view;
     resetPaging(st);
-    if (arg === "military") {
-      st.gameUniverseId = RobloxService.MILITARY_TYCOON_UNIVERSE_ID;
-      st.gamePlaceId = RobloxService.MILITARY_TYCOON_PLACE_ID;
+    if (
+      arg === "military" ||
+      arg === "militaryPlayer" ||
+      arg === "militaryRank" ||
+      arg === "militaryItems" ||
+      arg === "militaryBadges" ||
+      arg === "servers" ||
+      arg === "passes" ||
+      arg === "passesOnSale" ||
+      arg === "integration" ||
+      arg === "game"
+    ) {
+      st.gameUniverseId = st.gameUniverseId ?? RobloxService.MILITARY_TYCOON_UNIVERSE_ID;
+      st.gamePlaceId = st.gamePlaceId ?? RobloxService.MILITARY_TYCOON_PLACE_ID;
+    }
+    if (arg === "home") {
+      st.robloxUserId = null;
+      st.returnView = null;
     }
     st.view = arg as HubView;
     return updateHub(interaction, st);
@@ -1458,14 +1385,14 @@ export async function handleRobloxModal(interaction: ModalSubmitInteraction): Pr
     st.view = "player";
     resetPaging(st);
     const payload = await buildView(st);
-    const msg = await interaction.editReply(payload);
+    const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(messageId ?? msg.id, st);
   } catch (err) {
     logRobloxError("handleRobloxModal", err);
     if (hasMessage) {
       await interaction.followUp({ content: toUserError(err), flags: 64 }).catch(() => {});
     } else {
-      await interaction.editReply({ content: toUserError(err) }).catch(() => {});
+      await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
     }
   }
 }

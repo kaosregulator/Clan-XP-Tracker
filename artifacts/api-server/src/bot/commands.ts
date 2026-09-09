@@ -56,16 +56,6 @@ function disputeCommand(): RESTPostAPIApplicationCommandsJSONBody {
     .toJSON();
 }
 
-function robloxUserOption(
-  o: import("discord.js").SlashCommandStringOption
-): import("discord.js").SlashCommandStringOption {
-  return o
-    .setName("username")
-    .setDescription("Roblox username or user ID")
-    .setRequired(true)
-    .setAutocomplete(true);
-}
-
 export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()
     .setName("setup")
@@ -390,282 +380,45 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setDMPermission(false)
     .toJSON(),
 
-  // ── Roblox Hub ──────────────────────────────────────────────────────────
+  // ── Roblox Hub (true hub — buttons, not subcommand sprawl) ──────────────
   new SlashCommandBuilder()
     .setName("roblox")
-    .setDescription("Open the Roblox Hub — profiles, games, groups, and more")
+    .setDescription("Roblox Hub — players, avatars, games, Military Tycoon")
     .setDMPermission(false)
-    .addSubcommand((s) => s.setName("hub").setDescription("Open the Roblox Hub home"))
-    .addSubcommand((s) =>
-      s.setName("user").setDescription("Open a Roblox player card").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("profile").setDescription("Full Roblox profile view").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("avatar").setDescription("Roblox avatar views").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("status").setDescription("Online / in-game status").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("groups").setDescription("Roblox groups & roles").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("friends").setDescription("Friends list").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("followers").setDescription("Followers list").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("following").setDescription("Following list").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s.setName("badges").setDescription("Earned badges").addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("history")
-        .setDescription("Username history")
-        .addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("inventory")
-        .setDescription("Public inventory (if the user allows it)")
-        .addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("game")
-        .setDescription("Look up a Roblox experience")
-        .addStringOption((o) =>
-          o
-            .setName("game")
-            .setDescription("Name, place ID, or universe ID")
-            .setRequired(true)
-            .setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("servers")
-        .setDescription("Browse public servers for an experience")
-        .addStringOption((o) =>
-          o
-            .setName("game")
-            .setDescription("Name, place ID, or universe ID (default: Military Tycoon)")
-            .setRequired(false)
-            .setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("passes")
-        .setDescription("Browse game passes (default: Military Tycoon)")
-        .addStringOption((o) =>
-          o
-            .setName("game")
-            .setDescription("Name, place ID, or universe ID")
-            .setRequired(false)
-            .setAutocomplete(true)
-        )
-        .addBooleanOption((o) =>
-          o.setName("onsale").setDescription("Only show passes currently for sale").setRequired(false)
-        )
-    )
-    .addSubcommand((s) =>
-      s.setName("search").setDescription("Open the Roblox Hub search")
+    .addStringOption((o) =>
+      o
+        .setName("username")
+        .setDescription("Optional: jump straight to this Roblox user")
+        .setRequired(false)
+        .setAutocomplete(true)
     )
     .toJSON(),
 
-  // ── Military Tycoon (public data only) ──────────────────────────────────
+  // Shortcut into the Military Tycoon section of /roblox
   new SlashCommandBuilder()
     .setName("military")
-    .setDescription("Military Tycoon / InfinityInteractive public info")
+    .setDescription("Military Tycoon hub — same as /roblox → Military")
     .setDMPermission(false)
-    .addSubcommand((s) =>
-      s
-        .setName("player")
-        .setDescription("Military Tycoon player card (public Roblox data)")
-        .addStringOption(robloxUserOption)
+    .addStringOption((o) =>
+      o
+        .setName("username")
+        .setDescription("Optional: open this player's Military Tycoon card")
+        .setRequired(false)
+        .setAutocomplete(true)
     )
-    .addSubcommand((s) =>
-      s
-        .setName("rank")
-        .setDescription("InfinityInteractive group rank")
-        .addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("profile")
-        .setDescription("Military profile (public data)")
-        .addStringOption(robloxUserOption)
-    )
-    .addSubcommand((s) => s.setName("game").setDescription("Military Tycoon experience info"))
-    .addSubcommand((s) => s.setName("group").setDescription("InfinityInteractive community"))
-    .addSubcommand((s) =>
-      s
-        .setName("badges")
-        .setDescription("Military Tycoon badges (game or player)")
-        .addStringOption((o) =>
-          o
-            .setName("username")
-            .setDescription("Optional player — show their MT-related badges")
-            .setRequired(false)
-            .setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) => s.setName("servers").setDescription("Military Tycoon public servers"))
-    .addSubcommand((s) =>
-      s
-        .setName("items")
-        .setDescription("MT game passes (optionally check a player's ownership)")
-        .addStringOption((o) =>
-          o
-            .setName("username")
-            .setDescription("Optional player — mark which passes they own")
-            .setRequired(false)
-            .setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("passes")
-        .setDescription("Military Tycoon game pass browser with store links")
-        .addBooleanOption((o) =>
-          o.setName("onsale").setDescription("Only passes currently for sale").setRequired(false)
-        )
-    )
-    .addSubcommand((s) =>
-      s.setName("integrate").setDescription("What public MT data this bot can use")
-    )
-    .addSubcommand((s) => s.setName("search").setDescription("Open Roblox Hub search"))
     .toJSON(),
 
+  // Game Intelligence Hub
   new SlashCommandBuilder()
     .setName("scout")
-    .setDescription("Game Intelligence Hub — search, trends, snapshots, DevEx (Bloxscout)")
+    .setDescription("Game Intelligence Hub — top games, trends, snapshots, DevEx")
     .setDMPermission(false)
-    .addSubcommand((s) => s.setName("hub").setDescription("Open the Game Intelligence Hub"))
-    .addSubcommand((s) =>
-      s
-        .setName("search")
-        .setDescription("Search Roblox games")
-        .addStringOption((o) =>
-          o.setName("keyword").setDescription("Game name or keyword").setRequired(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("trending")
-        .setDescription("Find trending / hot games")
-        .addStringOption((o) =>
-          o.setName("genre").setDescription("Optional genre filter").setRequired(false).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("top")
-        .setDescription("Top games by genre")
-        .addStringOption((o) =>
-          o.setName("genre").setDescription("Genre (tycoon, simulator, rpg…)").setRequired(true).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s.setName("upcoming").setDescription("Up-and-coming games (needs snapshot history)")
-    )
-    .addSubcommand((s) =>
-      s
+    .addStringOption((o) =>
+      o
         .setName("game")
-        .setDescription("Game intelligence card")
-        .addStringOption((o) =>
-          o.setName("game").setDescription("Name or universe ID").setRequired(true).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("compare")
-        .setDescription("Compare two games")
-        .addStringOption((o) =>
-          o.setName("game_a").setDescription("First game").setRequired(true).setAutocomplete(true)
-        )
-        .addStringOption((o) =>
-          o.setName("game_b").setDescription("Second game").setRequired(true).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("genre")
-        .setDescription("Compare a game against its genre cohort")
-        .addStringOption((o) =>
-          o.setName("game").setDescription("Game name or universe ID").setRequired(true).setAutocomplete(true)
-        )
-        .addStringOption((o) =>
-          o.setName("genre").setDescription("Override genre").setRequired(false).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("snapshot")
-        .setDescription("Save a local SQLite snapshot (defaults to Military Tycoon)")
-        .addStringOption((o) =>
-          o.setName("game").setDescription("Game name or universe ID").setRequired(false).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("history")
-        .setDescription("Show local snapshot history & deltas")
-        .addStringOption((o) =>
-          o.setName("game").setDescription("Game name or universe ID").setRequired(false).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("creators")
-        .setDescription("Top creators by genre")
-        .addStringOption((o) =>
-          o.setName("genre").setDescription("Genre").setRequired(true).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s.setName("group").setDescription("InfinityInteractive group information")
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("report")
-        .setDescription("Generate a genre market report")
-        .addStringOption((o) =>
-          o.setName("genre").setDescription("Genre").setRequired(true).setAutocomplete(true)
-        )
-        .addStringOption((o) =>
-          o
-            .setName("focus")
-            .setDescription("Optional focus game (defaults to Military Tycoon)")
-            .setRequired(false)
-            .setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("revenue")
-        .setDescription("Heuristic revenue estimate for a game")
-        .addStringOption((o) =>
-          o.setName("game").setDescription("Game name or universe ID").setRequired(false).setAutocomplete(true)
-        )
-    )
-    .addSubcommand((s) =>
-      s
-        .setName("devex")
-        .setDescription("Robux → USD DevEx calculator")
-        .addIntegerOption((o) =>
-          o
-            .setName("robux")
-            .setDescription("Earned Robux amount")
-            .setRequired(true)
-            .setMinValue(0)
-        )
+        .setDescription("Optional: open a game, or search by name")
+        .setRequired(false)
+        .setAutocomplete(true)
     )
     .toJSON(),
 

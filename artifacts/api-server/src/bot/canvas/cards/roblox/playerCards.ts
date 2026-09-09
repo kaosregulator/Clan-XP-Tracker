@@ -19,51 +19,51 @@ export interface RobloxHomeCardView {
 }
 
 export async function renderRobloxHomeCard(view: RobloxHomeCardView = {}): Promise<Buffer> {
-  const W = 920;
-  const H = 520;
+  const W = 960;
+  const H = 560;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
 
-  text(ctx, "ROBLOX HUB", 48, 56, { size: 18, weight: "bold", color: RBX.blueDeep });
-  text(ctx, view.title ?? "Search for a Roblox user", 48, 110, {
-    size: 40,
+  text(ctx, "ROBLOX HUB", 48, 48, { size: 16, weight: "bold", color: RBX.blueDeep });
+  text(ctx, view.title ?? "Players · Avatars · Games", 48, 100, {
+    size: 38,
     weight: "bold",
     color: RBX.ink,
     maxWidth: W - 96,
   });
   text(
     ctx,
-    view.hint ??
-      "Use /roblox user with autocomplete, or tap Search below to look up any player.",
+    view.hint ?? "One hub — tap a path below. Optional: /roblox username to jump straight in.",
     48,
-    160,
-    { size: 20, color: RBX.soft, maxWidth: W - 96 }
+    148,
+    { size: 18, color: RBX.soft, maxWidth: W - 96 }
   );
 
-  card(ctx, 48, 220, W - 96, 220, { radius: 22, shadow: false });
-  text(ctx, "WHAT YOU CAN EXPLORE", 80, 270, {
-    size: 14,
-    weight: "bold",
-    color: RBX.muted,
-  });
-  const lines = [
-    "Profiles, presence, and avatar views",
-    "Groups & ranks · Friends · Followers",
-    "Badges · Username history · Public inventory",
-    "Experiences, servers, and Military Tycoon",
+  const tiles: Array<[string, string, string]> = [
+    ["FIND PLAYER", "Profiles, presence,", "avatar & groups"],
+    ["MILITARY TYCOON", "Game, servers,", "passes & ranks"],
+    ["PUBLIC DATA", "No cookies · No", "private game stats"],
   ];
-  let y = 310;
-  for (const line of lines) {
+  let x = 48;
+  for (const [title, line1, line2] of tiles) {
+    card(ctx, x, 210, 280, 220, { radius: 20, shadow: false });
     ctx.beginPath();
-    ctx.arc(88, y - 6, 5, 0, Math.PI * 2);
+    ctx.arc(x + 36, 250, 8, 0, Math.PI * 2);
     ctx.fillStyle = RBX.blue;
     ctx.fill();
-    text(ctx, line, 108, y, { size: 20, color: RBX.ink, maxWidth: W - 180 });
-    y += 36;
+    text(ctx, title, x + 56, 256, {
+      size: 15,
+      weight: "bold",
+      color: RBX.blueDeep,
+      maxWidth: 200,
+    });
+    text(ctx, line1, x + 28, 310, { size: 22, weight: "bold", color: RBX.ink, maxWidth: 224 });
+    text(ctx, line2, x + 28, 348, { size: 22, weight: "bold", color: RBX.ink, maxWidth: 224 });
+    x += 300;
   }
 
-  footerNote(ctx, W, H, "Public Roblox data only · No cookies · No private game stats");
+  footerNote(ctx, W, H, "Public Roblox APIs only · Use the buttons under this card");
   return toPng(rc.canvas);
 }
 

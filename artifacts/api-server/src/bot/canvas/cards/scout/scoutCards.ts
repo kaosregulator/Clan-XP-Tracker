@@ -41,29 +41,29 @@ export interface ScoutHomeCardView {
 
 export async function renderScoutHomeCard(view: ScoutHomeCardView = {}): Promise<Buffer> {
   const W = 960;
-  const H = 560;
+  const H = 580;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
   brand(ctx);
 
-  text(ctx, "Scout Hub", 40, 90, { size: 40, weight: "bold", color: RBX.ink });
+  text(ctx, "Scout Hub", 40, 88, { size: 40, weight: "bold", color: RBX.ink });
   text(
     ctx,
-    "Search, trend, compare, and snapshot Roblox games — powered by Bloxscout.",
+    "Top games, trends, and snapshots — tap a button under this card.",
     40,
-    140,
+    136,
     { size: 18, color: RBX.soft, maxWidth: W - 80 }
   );
 
-  card(ctx, 40, 190, W - 80, 120, { radius: 18, shadow: false });
-  text(ctx, "MILITARY TYCOON TIMELINE", 64, 230, {
+  card(ctx, 40, 180, W - 80, 130, { radius: 18, shadow: false });
+  text(ctx, "MILITARY TYCOON LIVE", 64, 220, {
     size: 13,
     weight: "bold",
     color: SCOUT.accentDeep,
   });
-  text(ctx, view.mtName ?? "Military Tycoon", 64, 268, {
-    size: 24,
+  text(ctx, view.mtName ?? "Military Tycoon", 64, 258, {
+    size: 28,
     weight: "bold",
     color: RBX.ink,
   });
@@ -71,24 +71,22 @@ export async function renderScoutHomeCard(view: ScoutHomeCardView = {}): Promise
     ctx,
     `Players ${view.mtPlaying ?? "—"}   ${view.mtDelta ? view.mtDelta : "Snapshot to start history"}`,
     64,
-    300,
+    292,
     { size: 16, color: RBX.soft }
   );
 
-  const features = [
-    "Trending & top-by-genre discovery",
-    "Compare games · Genre benchmarks",
-    "SQLite snapshots & growth history",
-    "DevEx calculator · Revenue estimate",
+  const tiles: Array<[string, string]> = [
+    ["TRENDING", "Hot games right now"],
+    ["TOP GENRE", "Leaders by category"],
+    ["COMPARE", "Side-by-side stats"],
+    ["DEVEX", "Robux → USD"],
   ];
-  let y = 340;
-  for (const line of features) {
-    ctx.beginPath();
-    ctx.arc(56, y - 5, 4, 0, Math.PI * 2);
-    ctx.fillStyle = SCOUT.accent;
-    ctx.fill();
-    text(ctx, line, 72, y, { size: 17, color: RBX.ink });
-    y += 32;
+  let x = 40;
+  for (const [title, sub] of tiles) {
+    card(ctx, x, 340, 215, 130, { radius: 16, shadow: false });
+    text(ctx, title, x + 20, 385, { size: 15, weight: "bold", color: SCOUT.accentDeep });
+    text(ctx, sub, x + 20, 425, { size: 18, weight: "bold", color: RBX.ink, maxWidth: 175 });
+    x += 230;
   }
 
   footerNote(

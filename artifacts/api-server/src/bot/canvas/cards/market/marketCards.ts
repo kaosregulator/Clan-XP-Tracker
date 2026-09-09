@@ -35,7 +35,7 @@ export interface MarketHomeCardView {
 
 export async function renderMarketHomeCard(view: MarketHomeCardView = {}): Promise<Buffer> {
   const W = 960;
-  const H = 520;
+  const H = 540;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
@@ -48,27 +48,28 @@ export async function renderMarketHomeCard(view: MarketHomeCardView = {}): Promi
   text(
     ctx,
     view.subtitle ??
-      "Browse clothing, accessories, bodies, animations & collectibles players wear.",
+      "Clothing, accessories, bodies & limiteds — browse with the buttons below.",
     40,
     145,
     { size: 18, color: RBX.soft, maxWidth: W - 80 }
   );
 
   const tiles = [
-    ["Clothing", "Shirts · pants · layered"],
-    ["Accessories", "Hats · hair · gear"],
-    ["Bodies", "Bundles · heads"],
-    ["Collectibles", "Limiteds · resale"],
+    ["CLOTHING", "Shirts · pants", "Layered clothing"],
+    ["ACCESSORIES", "Hats · hair", "Gear & more"],
+    ["BODIES", "Bundles", "Heads & packages"],
+    ["COLLECTIBLES", "Limiteds", "Resale items"],
   ] as const;
   let x = 40;
-  for (const [title, sub] of tiles) {
-    card(ctx, x, 220, 210, 140, { radius: 16, shadow: false });
-    text(ctx, title, x + 20, 270, { size: 20, weight: "bold", color: RBX.ink });
-    text(ctx, sub, x + 20, 305, { size: 14, color: RBX.soft, maxWidth: 170 });
+  for (const [title, line1, line2] of tiles) {
+    card(ctx, x, 220, 210, 180, { radius: 18, shadow: false });
+    text(ctx, title, x + 20, 270, { size: 15, weight: "bold", color: MKT.accentDeep });
+    text(ctx, line1, x + 20, 320, { size: 20, weight: "bold", color: RBX.ink, maxWidth: 170 });
+    text(ctx, line2, x + 20, 352, { size: 18, color: RBX.soft, maxWidth: 170 });
     x += 225;
   }
 
-  footerNote(ctx, W, H, "Player Marketplace only · Not Creator Store · Public catalog · No cookies");
+  footerNote(ctx, W, H, "Player Marketplace only · Not Creator Store · Public catalog");
   return toPng(rc.canvas);
 }
 

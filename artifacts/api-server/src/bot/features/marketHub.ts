@@ -35,6 +35,7 @@ import {
   MKT_BACK,
   MKT_MORE,
 } from "../ui/ids";
+import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import {
   searchMarketplace,
   getMarketItem,
@@ -237,7 +238,7 @@ function homeNav() {
 async function buildHome(st: MarketState): Promise<BaseMessageOptions> {
   const file = await fileFrom(
     "marketHome",
-    { subtitle: "Tap a category below — filters and sorting are buttons, not slash commands." },
+    { subtitle: "Tap a category below — filters & sort live on the buttons." },
     "market-home.png"
   );
   return { files: [file], components: homeNav() };
@@ -506,11 +507,11 @@ async function replyHub(interaction: ChatInputCommandInteraction, state: MarketS
   await interaction.deferReply({ flags: 64 });
   try {
     const payload = await buildView(state);
-    const msg = await interaction.editReply(payload);
+    const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, state);
   } catch (err) {
     logRobloxError("marketReplyHub", err);
-    await interaction.editReply({ content: toUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toUserError(err)));
   }
 }
 
@@ -520,11 +521,12 @@ async function updateHub(
 ) {
   try {
     const payload = await buildView(state);
-    await interaction.editReply(payload);
+    // Must clear prior attachments — otherwise every hub click stacks another PNG.
+    await interaction.editReply(replaceHubCard(payload));
     bindHub(interaction.message!.id, state);
   } catch (err) {
     logRobloxError("marketUpdateHub", err);
-    await interaction.editReply({ content: toUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toUserError(err)));
   }
 }
 
@@ -704,10 +706,10 @@ export async function handleMarketModal(interaction: ModalSubmitInteraction): Pr
     }
 
     const payload = await buildView(st);
-    const msg = await interaction.editReply(payload);
+    const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, st);
   } catch (err) {
     logRobloxError("handleMarketModal", err);
-    await interaction.editReply({ content: toUserError(err), components: [], files: [] });
+    await interaction.editReply(clearHubCard(toUserError(err)));
   }
 }
