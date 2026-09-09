@@ -21,6 +21,9 @@ import { renderCommandCenter } from "./cards/commandCenterCard";
 import { renderWarningCard } from "./cards/warningCard";
 import { renderReminderCard } from "./cards/reminderCard";
 import { renderEnforcementPicker } from "./cards/enforcementPickerCard";
+import { renderStandingCard } from "./cards/standingCard";
+import { renderLeaderboardCard } from "./cards/leaderboardCard";
+import { renderLinkPreviewCard } from "./cards/linkPreviewCard";
 import {
   renderRobloxHomeCard,
   renderRobloxPlayerCard,
@@ -101,6 +104,12 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderReminderCard(p as any);
     case "enforcementPicker":
       return renderEnforcementPicker(p as any);
+    case "standingCard":
+      return renderStandingCard(p as any);
+    case "leaderboardCard":
+      return renderLeaderboardCard(p as any);
+    case "linkPreview":
+      return renderLinkPreviewCard(p as any);
     case "robloxHome":
       return renderRobloxHomeCard(p as any);
     case "robloxPlayer":

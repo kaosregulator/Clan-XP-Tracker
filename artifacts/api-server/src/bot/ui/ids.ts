@@ -19,6 +19,7 @@ export const NS = {
   rbx: "rbx", // Roblox Hub (/roblox, /military)
   scout: "sct", // Game Intelligence Hub (/scout) — Bloxscout
   mkt: "mkt", // Marketplace Hub (/market) — avatar items
+  link: "lnk", // Avatar link hub (/link) — Discord ↔ Roblox face
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -223,3 +224,17 @@ export const MKT_CREATOR_MODAL = id(NS.mkt, "creatorModal");
 export const MKT_PICK = id(NS.mkt, "pick");
 export const MKT_BACK = id(NS.mkt, "back");
 export const MKT_MORE = id(NS.mkt, "more");
+
+// Avatar link hub — assign a Roblox face to a Discord member's clan cards.
+export const LNK_SEARCH_DISCORD = id(NS.link, "searchDiscord");
+export const LNK_SEARCH_ROBLOX = id(NS.link, "searchRoblox");
+export const LNK_DISCORD_MODAL = id(NS.link, "discordModal");
+export const LNK_ROBLOX_MODAL = id(NS.link, "robloxModal");
+export const LNK_PICK_ROBLOX = id(NS.link, "pickRoblox");
+export const LNK_CONFIRM = id(NS.link, "confirm");
+export const LNK_SKIP = id(NS.link, "skip");
+export const LNK_CLEAR = id(NS.link, "clear");
+export const LNK_ROLE = id(NS.link, "role");
+export const LNK_ROLE_PICK = id(NS.link, "rolePick");
+export const LNK_REFRESH = id(NS.link, "refresh");
+export const LNK_HOME = id(NS.link, "home");

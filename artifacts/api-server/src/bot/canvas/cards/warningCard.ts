@@ -22,6 +22,11 @@ export interface EnforcementCardView {
   /** Display name shown under the avatar; an "@" is added if missing. */
   memberName: string;
   avatarUrl: string | null;
+  /** Optional Discord avatar when a Roblox avatar is the primary face. */
+  discordAvatarUrl?: string | null;
+  /** Optional linked Roblox avatar (preferred primary when present). */
+  robloxAvatarUrl?: string | null;
+  robloxUsername?: string | null;
   /** Optional custom body copy; falls back to the standard message. */
   message?: string | null;
   /** Configured tracking period adjective ("daily" / "weekly") for default copy. */
@@ -421,10 +426,11 @@ async function renderEnforcementCard(opts: {
     centeredPill(ctx, opts.ticketLabel, 556, accent);
   }
 
-  // Avatar + name.
+  // Avatar + name. Prefer linked Roblox face; show Discord as a small badge.
   const avatarSize = 150;
   const avatarY = 604;
-  const img = await fetchAvatar(v.avatarUrl);
+  const primaryUrl = v.robloxAvatarUrl || v.avatarUrl;
+  const img = await fetchAvatar(primaryUrl);
   drawAvatar(
     ctx,
     img,
@@ -434,8 +440,34 @@ async function renderEnforcementCard(opts: {
     sanitizeText(v.memberName).replace(/^@/, "").slice(0, 1) || "?",
     accentSoft
   );
+  if (v.robloxAvatarUrl && (v.discordAvatarUrl || v.avatarUrl)) {
+    const badge = 52;
+    const badgeUrl = v.discordAvatarUrl || v.avatarUrl;
+    const dimg = await fetchAvatar(badgeUrl);
+    drawAvatar(
+      ctx,
+      dimg,
+      W / 2 + avatarSize / 2 - badge + 8,
+      avatarY + avatarSize - badge + 4,
+      badge,
+      "D",
+      LIGHT.blueSoft
+    );
+  }
   const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
   drawCenter(ctx, handle, W / 2, avatarY + avatarSize + 44, 34, accent, true, "display");
+  if (v.robloxUsername) {
+    drawCenter(
+      ctx,
+      `Roblox · ${v.robloxUsername}`,
+      W / 2,
+      avatarY + avatarSize + 78,
+      18,
+      LIGHT.muted,
+      false,
+      "body"
+    );
+  }
 
   // Footer mark + line.
   const footRuleY = H - 92;

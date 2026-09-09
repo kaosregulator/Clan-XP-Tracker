@@ -28,18 +28,14 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
   const sections = [
       {
         title: "For members",
-        accent: "#57f287",
+        accent: "#2e9e57",
         lines: [
-          `You never submit ${activity} — officers verify it in-game`,
-          `/xp progress  —  where you stand this week`,
-          `/calendar  —  your ${activity} calendar & daily history`,
-          `/xp history  —  your past weeks`,
-          `/warnings  —  your active ${activity} warnings`,
-          `/dispute (or the button on /warnings)  —  contest a warning; have your proof ready`,
-          `/roblox  —  Players, avatars, games & Military Tycoon (one hub)`,
-          `/scout  —  Top games, trends, snapshots, DevEx`,
-          `/market  —  Avatar Marketplace (clothing, accessories, limiteds)`,
-          `/military  —  Shortcut into the Military Tycoon section of /roblox`,
+          `Officers verify ${activity} in-game — you never submit it`,
+          `/warnings  —  your standing card (history, clean points, avatars)`,
+          `/leaderboard  —  who can go without warnings (top 3 + board)`,
+          `/calendar  —  your ${activity} month calendar`,
+          `/dispute  —  contest a warning (or use the button on /warnings)`,
+          `/roblox · /scout · /market  —  Roblox hubs (buttons, not slash sprawl)`,
         ],
       },
     ];
@@ -47,50 +43,31 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
     sections.push(
       {
         title: "Command center",
-        accent: "#a855f7",
+        accent: "#3f51e0",
         lines: [
-          `/panel  —  post the live dashboard (survives restarts, auto-refreshes)`,
-          `Category counts are buttons — jump into Attention, Missed, Warnings`,
-          `Notifications · Reports · Calendar · Search built in`,
+          `/panel  —  live staff board (survives restarts)`,
+          `/warnings  —  clan manager dashboard (no target)`,
+          `/warnings member:…  —  standing card with lifetime history`,
+          `/link  —  assign Roblox avatars to member cards (role walkthrough)`,
         ],
       },
       {
-        title: "Logging XP",
-        accent: "#5865f2",
+        title: "Logging & enforcement",
+        accent: "#c9820a",
         lines: [
-          `/entry @user <amount> [date]  —  log ${activity} (rolls up + backfills past days)`,
-          `/xp set | add | remove | complete | reset @user`,
-          `/xp goal | exempt | leave | note @user  —  per-member settings`,
-          `/xp audit @user  —  full history (before → after, who, when)`,
-          `/xp role add | reset | remind | warn | entry  —  bulk by role`,
-        ],
-      },
-      {
-        title: "Reminders & enforcement",
-        accent: "#faa61a",
-        lines: [
-          `/xpwarn  —  pick Warning or Reminder, select many members, preview & send (admins warn)`,
+          `/entry @user <amount>  —  log ${activity}`,
+          `/xp set | add | remove | complete | review`,
+          `/xpwarn  —  warn or remind many members with a live preview`,
           `/missing  —  who hasn't hit today's target`,
-          `/xp review  —  weekly card: bulk remind / warn / reset`,
-          `/xp dashboard  —  filterable roster of who needs attention`,
         ],
       },
       {
-        title: "Notifications, disputes & tickets",
-        accent: "#a855f7",
+        title: "Tickets & setup",
+        accent: "#0e9cbb",
         lines: [
-          `/notifications  —  the staff attention feed (read / clear / resolve)`,
-          `/disputes  —  review member warning disputes`,
-          `/tickets  —  track staff issues to resolution`,
-          `/xp note @user [notify]  —  add a staff note (optionally DM it)`,
-        ],
-      },
-      {
-        title: "Setup",
-        accent: "#22d3ee",
-        lines: [
-          `/setup  —  goal, tracking mode, schedule, channels, roles, enforcement`,
-          `/calendar @user  —  any member's month time-card`,
+          `/disputes · /notifications · /tickets  —  also on /panel`,
+          `/setup  —  goals, channels, roles, enforcement`,
+          `/leaderboard  —  clean standing & never-warned bracket`,
         ],
       }
     );

@@ -21,12 +21,12 @@ import { parseId } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
 
 /**
- * The Warning Dashboard — the enforcement overview that replaces the old
- * leaderboard. Who needs a reminder, who is warning-eligible, who is exempt
- * or on leave, and the most recent warning activity.
+ * Warning Dashboard — touched-up enforcement overview (same bones, cleaner
+ * layout). Shows lifetime warning history in the roster and a tidy activity
+ * feed. Officers open this via /warnings (no target).
  */
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 10;
 
 function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): ClanMember[] {
   const wk = weekKey(clan);
@@ -36,7 +36,6 @@ function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): C
     case "complete":
       return members.filter((m) => statusOf(clan, m) === "complete");
     case "attention": {
-      // Warning-eligible first, then fewest-progress first.
       const targets = reminderTargets(clan, members);
       const eligible = new Set(warningTargets(clan, members).map((m) => m.id));
       return targets.sort((a, b) => {
@@ -54,23 +53,41 @@ function filterMembers(clan: Clan, members: ClanMember[], filter: DashFilter): C
       return members.filter((m) => m.exempt);
     case "leave":
       return members.filter((m) => m.onLeave);
+    case "clean":
+      return members
+        .filter((m) => !m.exempt && !m.onLeave && (m.lifetimeWarnings ?? 0) === 0)
+        .sort((a, b) => b.cleanPoints - a.cleanPoints);
   }
 }
 
 function memberLine(clan: Clan, m: ClanMember, warnEligible: boolean): string {
   const wk = weekKey(clan);
   const reminders = m.weekKey === wk ? m.weekReminders : 0;
-  const warnings = m.weekKey === wk ? m.weekWarnings : 0;
+  const weekWarns = m.weekKey === wk ? m.weekWarnings : 0;
   const status = statusOf(clan, m);
   const badge =
-    status === "exempt" ? "🛡️" : status === "leave" ? "🌙" : warnEligible ? "🚨" : reminders > 0 ? "🔔" : "▫️";
-  // Compact line: badge · @member · 20/5000 XP   🔔2 ⚠️1 📝
-  const meta: string[] = [];
-  if (reminders) meta.push(`🔔${reminders}`);
-  if (warnings) meta.push(`⚠️${warnings}`);
-  if (m.notes) meta.push("📝");
-  const head = `${badge} <@${m.userId}> · ${formatProgress(clan, m)}`;
-  return meta.length ? `${head}   ${meta.join(" ")}` : head;
+    status === "exempt"
+      ? "🛡"
+      : status === "leave"
+        ? "🌙"
+        : warnEligible
+          ? "🚨"
+          : reminders > 0
+            ? "🔔"
+            : status === "complete"
+              ? "✅"
+              : "·";
+
+  const bits: string[] = [`${badge} <@${m.userId}>`, formatProgress(clan, m)];
+  if (reminders) bits.push(`🔔${reminders}`);
+  if (weekWarns) bits.push(`⚠️${weekWarns} this week`);
+  const life = m.lifetimeWarnings ?? 0;
+  if (life > 0) bits.push(`hist ${life}`);
+  else bits.push("clean");
+  if (m.cleanPoints > 0) bits.push(`${m.cleanPoints} pts`);
+  if (m.gameUsername) bits.push(`RBX ${m.gameUsername}`);
+  if (m.notes) bits.push("📝");
+  return bits.join(" · ");
 }
 
 export async function buildDashboardPayload(
@@ -90,33 +107,56 @@ export async function buildDashboardPayload(
     .from(warningsTable)
     .where(eq(warningsTable.guildId, clan.guildId))
     .orderBy(desc(warningsTable.issuedAt))
-    .limit(5);
+    .limit(6);
+
+  const wk = weekKey(clan);
+  const attentionN = reminderTargets(clan, members).length;
+  const warnEligN = warningTargets(clan, members).length;
+  const warnedWeek = members.filter((m) => m.weekKey === wk && m.weekWarnings > 0).length;
+  const cleanN = members.filter(
+    (m) => !m.exempt && !m.onLeave && (m.lifetimeWarnings ?? 0) === 0
+  ).length;
 
   const filterMeta = DASH_FILTERS.find((f) => f.value === filter)!;
   const embed = new EmbedBuilder()
-    .setColor(filter === "attention" && rows.length ? 0xed4245 : 0x5865f2)
-    .setTitle(`⚠️ Warning Dashboard — ${clan.clanName}`)
+    .setColor(filter === "attention" && rows.length ? 0xed4245 : 0x2b2d31)
+    .setTitle(`${clan.clanName} · Clan manager`)
     .setDescription(
-      `**${filterMeta.emoji} ${filterMeta.label}** · ${rows.length} member(s)` +
-        (pageCount > 1 ? ` · page ${clamped + 1}/${pageCount}` : "") +
-        "\n\n" +
-        (slice.length
+      [
+        `**${filterMeta.label}** · ${rows.length} shown` +
+          (pageCount > 1 ? ` · page ${clamped + 1}/${pageCount}` : ""),
+        "",
+        slice.length
           ? slice.map((m) => memberLine(clan, m, eligible.has(m.id))).join("\n")
-          : "_Nobody matches this filter — nice and quiet._")
+          : "_Nobody matches this filter._",
+      ].join("\n")
     )
-    .addFields({
-      name: "Recent warning activity",
-      value: recent.length
-        ? recent
-            .map(
-              (w) =>
-                `${w.removedAt ? "~~" : ""}⚠️ **${w.username}** — ${w.reason.slice(0, 60)} · ${relative(w.issuedAt)}${w.removedAt ? "~~ (removed)" : ""}`
-            )
-            .join("\n")
-        : "_No warnings issued yet._",
-    })
+    .addFields(
+      {
+        name: "At a glance",
+        value: [
+          `Needs attention **${attentionN}**`,
+          `Warning-eligible **${warnEligN}**`,
+          `Warned this week **${warnedWeek}**`,
+          `Never warned **${cleanN}**`,
+        ].join(" · "),
+        inline: false,
+      },
+      {
+        name: "Recent warning history",
+        value: recent.length
+          ? recent
+              .map((w) => {
+                const mark = w.removedAt ? "removed" : "active";
+                const name = w.username;
+                return `\`${mark}\` **${name}** — ${w.reason.slice(0, 50)} · ${relative(w.issuedAt)}`;
+              })
+              .join("\n")
+          : "_No warnings issued yet._",
+      }
+    )
     .setFooter({
-      text: `🚨 = warning-eligible (${clan.warningThreshold}+ reminders, goal not met) · reminders & warnings count per week`,
+      text: `hist = lifetime warnings (kept after remove) · clean pts via /leaderboard · link faces with /link · threshold ${clan.warningThreshold}+ reminders`,
     });
 
   return {
@@ -141,7 +181,7 @@ async function officerGuard(
   return clan;
 }
 
-/** /xp dashboard entry point. */
+/** Legacy /xp dashboard entry — still works; prefer /warnings. */
 export async function openDashboard(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply();
@@ -160,7 +200,6 @@ export async function handleDashButton(interaction: ButtonInteraction) {
     return;
   }
   if (action === "page" && arg) {
-    // arg is "<filter>-<page>"
     const sep = arg.lastIndexOf("-");
     const filter = (arg.slice(0, sep) || "attention") as DashFilter;
     const page = parseInt(arg.slice(sep + 1), 10) || 0;

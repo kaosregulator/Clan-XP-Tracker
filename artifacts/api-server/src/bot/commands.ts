@@ -176,9 +176,6 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addSubcommand((s) =>
       s.setName("review").setDescription("Open the weekly review panel (officers)")
     )
-    .addSubcommand((s) =>
-      s.setName("dashboard").setDescription("Open the warning dashboard (officers)")
-    )
     // Bulk role actions -------------------------------------------------------
     .addSubcommandGroup((g) =>
       g
@@ -346,8 +343,21 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("View and manage XP warnings")
-    .addUserOption((o) => o.setName("user").setDescription("Whose warnings to view").setRequired(false))
+    .setDescription("Standing card / warning dashboard — history, clean points, avatars")
+    .addUserOption((o) => o.setName("user").setDescription("Whose standing to view").setRequired(false))
+    .addStringOption((o) =>
+      o
+        .setName("member")
+        .setDescription("Search a tracked member (top 10 suggestions)")
+        .setRequired(false)
+        .setAutocomplete(true)
+    )
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("leaderboard")
+    .setDescription("Clean standing — who can go without warnings (top 3 + board)")
     .setDMPermission(false)
     .toJSON(),
 
@@ -380,6 +390,30 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .setDMPermission(false)
     .toJSON(),
 
+  // Avatar link hub — assign Roblox faces to Discord members
+  new SlashCommandBuilder()
+    .setName("link")
+    .setDescription("Link a Roblox avatar to a Discord member (officers)")
+    .setDMPermission(false)
+    .addStringOption((o) =>
+      o
+        .setName("member")
+        .setDescription("Search a tracked Discord member")
+        .setRequired(false)
+        .setAutocomplete(true)
+    )
+    .addUserOption((o) =>
+      o.setName("user").setDescription("Or pick a Discord user directly").setRequired(false)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("roblox")
+        .setDescription("Optional Roblox username / ID (autocomplete)")
+        .setRequired(false)
+        .setAutocomplete(true)
+    )
+    .toJSON(),
+
   // ── Roblox Hub (true hub — buttons, not subcommand sprawl) ──────────────
   new SlashCommandBuilder()
     .setName("roblox")
@@ -389,20 +423,6 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
       o
         .setName("username")
         .setDescription("Optional: jump straight to this Roblox user")
-        .setRequired(false)
-        .setAutocomplete(true)
-    )
-    .toJSON(),
-
-  // Shortcut into the Military Tycoon section of /roblox
-  new SlashCommandBuilder()
-    .setName("military")
-    .setDescription("Military Tycoon hub — same as /roblox → Military")
-    .setDMPermission(false)
-    .addStringOption((o) =>
-      o
-        .setName("username")
-        .setDescription("Optional: open this player's Military Tycoon card")
         .setRequired(false)
         .setAutocomplete(true)
     )
