@@ -33,7 +33,7 @@ import {
   buildCommandCenterPayload,
   refreshDashboardNow,
 } from "../services/commandCenter";
-import { buildDashboardPayload } from "./dashboard";
+import { buildDashboardPayload, buildOverviewPayload } from "./dashboard";
 import { buildReviewPayload } from "./review";
 import { buildNotificationCenter } from "./notifications";
 import { buildDisputeReview } from "./disputes";
@@ -126,7 +126,8 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
 
   switch (action) {
     case "manage":
-      await interaction.editReply(await buildDashboardPayload(clan, "all", 0));
+      // Member editor overview — counts first, then one profile at a time.
+      await interaction.editReply(await buildOverviewPayload(clan));
       return;
     case "warnings":
       await interaction.editReply(await buildDashboardPayload(clan, "warned", 0));

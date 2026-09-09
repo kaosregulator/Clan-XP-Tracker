@@ -344,7 +344,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("Standing card / warning dashboard — history, clean points, avatars")
+    .setDescription("Command Center / standing — member editor, history, clean points, avatars")
     .addUserOption((o) => o.setName("user").setDescription("Whose standing to view").setRequired(false))
     .addStringOption((o) =>
       o

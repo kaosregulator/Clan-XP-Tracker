@@ -49,6 +49,15 @@ export const REVIEW_RESET_CONFIRM = id(NS.review, "resetConfirm");
 // Warning dashboard
 export const DASH_REFRESH = id(NS.dash, "refresh");
 export const DASH_FILTER = id(NS.dash, "filter");
+export const DASH_HOME = id(NS.dash, "home");
+/** Open member browser at queue index (arg = `${filter}-${index}`). */
+export const dashBrowse = (filter: string, index: number) =>
+  id(NS.dash, "browse", `${filter}-${index}`);
+export const dashPrev = (filter: string, index: number) =>
+  id(NS.dash, "prev", `${filter}-${index}`);
+export const dashNext = (filter: string, index: number) =>
+  id(NS.dash, "next", `${filter}-${index}`);
+/** Legacy page pager — kept so old messages still route. */
 export const dashPage = (filter: string, page: number) => id(NS.dash, "page", `${filter}-${page}`);
 
 // Configuration hub sections
