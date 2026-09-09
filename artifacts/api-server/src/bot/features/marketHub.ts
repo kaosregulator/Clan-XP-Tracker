@@ -539,7 +539,21 @@ async function updateHub(
     if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logRobloxError("marketUpdateHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
+    await interaction
+      .editReply(
+        replaceHubCard({
+          content: toUserError(err),
+          files: [],
+          components: [
+            row(btn("Search", MKT_SEARCH, ButtonStyle.Success), btn("Home", MKT_NAV("home"))),
+          ],
+        })
+      )
+      .catch(() => {});
+    if (interaction.message) {
+      bindHub(interaction.message.id, state);
+      armHubAutoDelete(interaction.message);
+    }
   }
 }
 

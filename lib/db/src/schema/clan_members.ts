@@ -3,6 +3,7 @@ import {
   text,
   serial,
   integer,
+  bigint,
   boolean,
   timestamp,
   unique,
@@ -29,7 +30,8 @@ export const clanMembersTable = pgTable(
     // Main game account handle (e.g. Roblox username), optional.
     gameUsername: text("game_username"),
     // Linked Roblox identity for clan cards (assigned by officers via /link).
-    robloxUserId: integer("roblox_user_id"),
+    // bigint: modern Roblox user IDs exceed Postgres integer (int4) max.
+    robloxUserId: bigint("roblox_user_id", { mode: "number" }),
     robloxAvatarUrl: text("roblox_avatar_url"),
     // Lifetime warning tally (active + removed). Never decremented on remove —
     // officers need the full history when reviewing a member. warningsCount

@@ -8,7 +8,7 @@ import type {
   Message,
 } from "discord.js";
 
-export const HUB_AUTO_DELETE_MS = 40_000;
+export const HUB_AUTO_DELETE_MS = 180_000; // 3 min — hubs have multi-step buttons
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 

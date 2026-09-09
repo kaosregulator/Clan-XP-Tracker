@@ -218,13 +218,34 @@ function gameSelect(slice: ScoutGameRow[]) {
   );
 }
 
-/** Live trending with a hard timeout, then preset Top-10 so /scout always opens. */
+/** Live trending with a hard timeout, then live-CCU preset Top-10 so /scout always opens. */
 async function loadOpeningGames(): Promise<{
   rows: ScoutGameRow[];
   eyebrow: string;
   title: string;
   subtitle: string;
 }> {
+  // Prefer the fast live-CCU seed ranking first so the hub paints with real players.
+  try {
+    const rows = await Promise.race([
+      ScoutService.presetTop(10),
+      new Promise<ScoutGameRow[]>((_, reject) =>
+        setTimeout(() => reject(new Error("preset timeout")), 8_000)
+      ),
+    ]);
+    if (rows.length) {
+      // Kick a broader trending refresh in the background for next open.
+      void ScoutService.trending(10).catch(() => {});
+      return {
+        rows,
+        eyebrow: "TOP 10 · LIVE CCU",
+        title: "Hot right now",
+        subtitle: "Ranked by live players — pick a game or search",
+      };
+    }
+  } catch (err) {
+    logScoutError("loadOpeningGames.preset", err);
+  }
   try {
     const rows = await Promise.race([
       ScoutService.trending(10),
@@ -237,30 +258,34 @@ async function loadOpeningGames(): Promise<{
         rows,
         eyebrow: "TOP 10 · TRENDING",
         title: "Hot right now",
-        subtitle: "Live CCU ranking — pick a game below or search",
+        subtitle: "Live ranking — pick a game below or search",
       };
     }
   } catch (err) {
     logScoutError("loadOpeningGames.trending", err);
-  }
-  try {
-    const rows = await ScoutService.presetTop(10);
-    if (rows.length) {
-      return {
-        rows,
-        eyebrow: "TOP 10 · POPULAR",
-        title: "Popular games",
-        subtitle: "Preset chart (live trending briefly unavailable)",
-      };
-    }
-  } catch (err) {
-    logScoutError("loadOpeningGames.preset", err);
   }
   return {
     rows: [],
     eyebrow: "SCOUT",
     title: "Game Intelligence",
     subtitle: "Try Search or Trending again in a moment",
+  };
+}
+
+/** Keep nav chrome on errors so a failed button doesn't "close" the hub. */
+function softErrorView(st: ScoutState, message: string): BaseMessageOptions {
+  return {
+    content: message,
+    files: [],
+    components: [
+      row(
+        btn("Home", SCT_NAV("home"), ButtonStyle.Primary),
+        btn("Trending", SCT_NAV("trending"), ButtonStyle.Primary),
+        btn("Search", SCT_SEARCH, ButtonStyle.Success),
+        btn("Refresh", SCT_REFRESH)
+      ),
+      toolsMenu("Try another tool…"),
+    ],
   };
 }
 
@@ -647,7 +672,12 @@ async function buildGroup(st: ScoutState): Promise<BaseMessageOptions> {
 
 async function buildTracked(st: ScoutState): Promise<BaseMessageOptions> {
   const tracked = ScoutService.tracked();
-  const status = ScoutService.autoStatus();
+  let status = { tracked: [] as number[], running: false, dbPath: "" };
+  try {
+    status = ScoutService.autoStatus();
+  } catch {
+    /* optional */
+  }
   const file = await fileFrom(
     "scoutList",
     {
@@ -655,7 +685,7 @@ async function buildTracked(st: ScoutState): Promise<BaseMessageOptions> {
       title: `${tracked.length} universes`,
       subtitle: status.running
         ? `Auto-snapshots running · ${status.dbPath}`
-        : `Auto-snapshots idle · ${status.dbPath}`,
+        : `Auto-snapshots idle · ${status.dbPath || "live APIs only"}`,
       rows: tracked.slice(0, 12).map((t, i) => ({
         rank: String(i + 1).padStart(2, "0"),
         title: t.name ?? `Universe ${t.universeId}`,
@@ -683,6 +713,13 @@ async function buildTracked(st: ScoutState): Promise<BaseMessageOptions> {
       }))
     );
     if (sel) components.push(sel);
+  } else {
+    return {
+      content:
+        "📌 No tracked games yet. Snap MT or open a game and hit Snapshot — live Top charts still work without tracking.",
+      files: [file],
+      components,
+    };
   }
   return { files: [file], components };
 }
@@ -692,6 +729,12 @@ async function buildSnapshot(st: ScoutState): Promise<BaseMessageOptions> {
   const snap = await ScoutService.snapshot([id]);
   const g = snap.games[0] ?? (await ScoutService.getGame(id));
   const hist = await ScoutService.history(id, 3);
+  const saved =
+    snap.recorded > 0
+      ? hist.latest && hist.previous
+        ? `Saved ${whenLabel(snap.takenAt)} · ${ScoutService.formatDeltaPct(hist.latest.playingDeltaPct)} vs prior`
+        : `Saved ${whenLabel(snap.takenAt)} · first snapshot`
+      : `Live card · local snapshots unavailable on this host`;
   const file = await fileFrom(
     "scoutGame",
     {
@@ -704,11 +747,8 @@ async function buildSnapshot(st: ScoutState): Promise<BaseMessageOptions> {
       universeId: g.universeId,
       placeId: g.placeId,
       iconUrl: g.iconUrl,
-      deltaLabel:
-        hist.latest && hist.previous
-          ? `Saved ${whenLabel(snap.takenAt)} · ${ScoutService.formatDeltaPct(hist.latest.playingDeltaPct)} vs prior`
-          : `Saved ${whenLabel(snap.takenAt)} · first snapshot`,
-      accentLabel: "SNAPSHOT SAVED",
+      deltaLabel: saved,
+      accentLabel: snap.recorded > 0 ? "SNAPSHOT SAVED" : "LIVE LOOKUP",
     },
     "scout-snapshot.png"
   );
@@ -724,70 +764,105 @@ async function buildSnapshot(st: ScoutState): Promise<BaseMessageOptions> {
 }
 
 async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
-  switch (st.view) {
-    case "home":
-      return buildHome(st);
-    case "search": {
-      const rows = st.keyword ? await ScoutService.search(st.keyword, 25) : [];
-      return buildListView(st, "SEARCH", st.keyword ?? "Search", null, rows);
-    }
-    case "trending": {
-      const opening = await loadOpeningGames();
-      if (opening.rows.length) {
-        return buildListView(st, opening.eyebrow, opening.title, opening.subtitle, opening.rows);
+  try {
+    switch (st.view) {
+      case "home":
+        return await buildHome(st);
+      case "search": {
+        const rows = st.keyword ? await ScoutService.search(st.keyword, 25) : [];
+        return await buildListView(st, "SEARCH", st.keyword ?? "Search", null, rows);
       }
-      return buildHome(st);
-    }
-    case "top": {
-      const genre = st.genre ?? "tycoon";
-      const rows = await ScoutService.topByGenre(genre, 25);
-      return buildListView(st, "TOP BY GENRE", genre, "Ranked by live players", rows);
-    }
-    case "upcoming": {
-      const { rows, needHistory } = await ScoutService.upAndComing(25);
-      if (needHistory) {
-        return {
-          content:
-            "📈 Up-and-coming needs snapshot history. Snap a few games (or wait for MT auto-snapshots), then refresh.",
-          files: [],
-          components: [
-            ...navRows(st),
-            row(btn("Snap MT", SCT_SNAPSHOT, ButtonStyle.Success), btn("Tracked", SCT_NAV("tracked"))),
-          ],
-        };
+      case "trending": {
+        const opening = await loadOpeningGames();
+        if (opening.rows.length) {
+          return await buildListView(
+            st,
+            opening.eyebrow,
+            opening.title,
+            opening.subtitle,
+            opening.rows
+          );
+        }
+        return await buildHome(st);
       }
-      return buildListView(
-        st,
-        "UP-AND-COMING",
-        "Breakouts",
-        "Small-baseline games with high growth in local snapshots",
-        rows
-      );
+      case "top": {
+        const genre = st.genre ?? "tycoon";
+        try {
+          const rows = await ScoutService.topByGenre(genre, 25);
+          if (rows.length) {
+            return await buildListView(st, "TOP BY GENRE", genre, "Ranked by live players", rows);
+          }
+        } catch (err) {
+          logScoutError("buildView.top", err);
+        }
+        const fallback = await ScoutService.presetTop(10).catch(() => []);
+        if (fallback.length) {
+          return await buildListView(
+            st,
+            "TOP · LIVE CCU",
+            genre,
+            "Genre search briefly unavailable — showing live popular games",
+            fallback
+          );
+        }
+        return softErrorView(
+          st,
+          "⚠️ Couldn't load that genre right now. Try Trending or Search."
+        );
+      }
+      case "upcoming": {
+        const { rows, needHistory } = await ScoutService.upAndComing(25);
+        if (needHistory) {
+          return {
+            content:
+              "📈 Up-and-coming needs snapshot history. Snap a few games (or wait for MT auto-snapshots), then refresh. Trending still works.",
+            files: [],
+            components: [
+              ...navRows(st),
+              row(
+                btn("Snap MT", SCT_SNAPSHOT, ButtonStyle.Success),
+                btn("Trending", SCT_NAV("trending"), ButtonStyle.Primary),
+                btn("Tracked", SCT_NAV("tracked"))
+              ),
+            ],
+          };
+        }
+        return await buildListView(
+          st,
+          "UP-AND-COMING",
+          "Breakouts",
+          "Small-baseline games with high growth in local snapshots",
+          rows
+        );
+      }
+      case "game":
+        return await buildGame(st);
+      case "history":
+        return await buildHistory(st);
+      case "compare":
+        return await buildCompare(st);
+      case "vsGenre":
+        return await buildVsGenre(st);
+      case "creators":
+        return await buildCreators(st);
+      case "report":
+        return await buildReport(st);
+      case "revenue":
+        return await buildRevenue(st);
+      case "devex":
+        return await buildDevex(st);
+      case "group":
+        return await buildGroup(st);
+      case "tracked":
+        return await buildTracked(st);
+      case "snapshot":
+        return await buildSnapshot(st);
+      default:
+        return await buildHome(st);
     }
-    case "game":
-      return buildGame(st);
-    case "history":
-      return buildHistory(st);
-    case "compare":
-      return buildCompare(st);
-    case "vsGenre":
-      return buildVsGenre(st);
-    case "creators":
-      return buildCreators(st);
-    case "report":
-      return buildReport(st);
-    case "revenue":
-      return buildRevenue(st);
-    case "devex":
-      return buildDevex(st);
-    case "group":
-      return buildGroup(st);
-    case "tracked":
-      return buildTracked(st);
-    case "snapshot":
-      return buildSnapshot(st);
-    default:
-      return buildHome(st);
+  } catch (err) {
+    logScoutError(`buildView.${st.view}`, err);
+    return softErrorView(st, toScoutUserError(err));
   }
 }
 
@@ -845,7 +920,13 @@ async function updateHub(
     if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logScoutError("updateHub", err);
-    await interaction.editReply(clearHubCard(toScoutUserError(err))).catch(() => {});
+    // Keep chrome so the hub doesn't look like it "closed".
+    const soft = softErrorView(state, toScoutUserError(err));
+    await interaction.editReply(replaceHubCard(soft)).catch(() => {});
+    if (interaction.message) {
+      bindHub(interaction.message.id, state);
+      armHubAutoDelete(interaction.message);
+    }
   }
 }
 
@@ -1220,8 +1301,17 @@ export async function handleScoutModal(interaction: ModalSubmitInteraction): Pro
     const payload = await buildView(st);
     const msg = await interaction.editReply(replaceHubCard(payload));
     bindHub(msg.id, st);
+    armHubAutoDelete(msg);
   } catch (err) {
     logScoutError("handleScoutModal", err);
-    await interaction.editReply(clearHubCard(toScoutUserError(err)));
+    const state = st ?? freshState(interaction.user.id);
+    const soft = softErrorView(state, toScoutUserError(err));
+    try {
+      const msg = await interaction.editReply(replaceHubCard(soft));
+      bindHub(msg.id, state);
+      armHubAutoDelete(msg);
+    } catch {
+      /* ignored */
+    }
   }
 }
