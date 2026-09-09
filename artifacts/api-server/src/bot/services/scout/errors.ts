@@ -38,8 +38,15 @@ export function toScoutUserError(err: unknown): string {
   // Bloxscout validation / not-found style messages
   if (err && typeof err === "object" && "message" in err) {
     const msg = String((err as { message: unknown }).message);
-    if (/not found|no game|unknown/i.test(msg)) return userMessage("not_found");
-    if (/validation|invalid|required/i.test(msg)) return userMessage("invalid");
+    // Discord "Invalid Form Body" is a component/payload issue — not a bad lookup.
+    if (/Invalid Form Body|Unknown interaction|Unknown Message/i.test(msg)) {
+      return "⚠️ Couldn't update that Scout card. Tap Home or Trending again.";
+    }
+    if (/not found|no game|unknown universe/i.test(msg)) return userMessage("not_found");
+    // Avoid treating Discord/API "invalid" noise as a user lookup mistake.
+    if (/\b(VALIDATION_ERROR|empty game query|bad robux)\b/i.test(msg)) {
+      return userMessage("invalid");
+    }
   }
   logScoutError("toScoutUserError", err);
   return userMessage("unavailable");

@@ -132,16 +132,22 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
         await interaction.editReply({ content: "Couldn't reach that member to warn them." });
         return;
       }
-      const { activeCount } = await issueWarning({
-        client: interaction.client,
-        clan,
-        guild: interaction.guild!,
-        target: user,
-        moderatorId: interaction.user.id,
-        moderatorUsername: interaction.user.username,
-        reason: `Missed the weekly ${clan.activityName} goal.`,
-      });
-      await interaction.editReply({ content: `⚠️ Warned **${identity.username}** — now **${activeCount}** active warning(s).` });
+      try {
+        const { activeCount } = await issueWarning({
+          client: interaction.client,
+          clan,
+          guild: interaction.guild!,
+          target: user,
+          moderatorId: interaction.user.id,
+          moderatorUsername: interaction.user.username,
+          reason: `Missed the weekly ${clan.activityName} goal.`,
+        });
+        await interaction.editReply({ content: `⚠️ Warned **${identity.username}** — now **${activeCount}** active warning(s).` });
+      } catch (err) {
+        await interaction.editReply({
+          content: `🛡️ ${err instanceof Error ? err.message : "Couldn't issue that warning."}`,
+        });
+      }
       return;
     }
   }

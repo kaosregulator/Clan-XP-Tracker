@@ -22,6 +22,8 @@ import { LIGHT, shieldMark } from "./warningCard";
 export interface PickerMemberView {
   name: string;
   avatarUrl: string | null;
+  discordAvatarUrl?: string | null;
+  robloxAvatarUrl?: string | null;
   /** Active warnings the member currently has. */
   warnings: number;
   /** They already carry a configured warning role. */
@@ -201,16 +203,34 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
     const cx = rowStartX + colIdx * cellW + cellW / 2;
     const cyTop = gridTop + rowIdx * cellH;
 
-    const img = await fetchAvatar(m.avatarUrl);
-    drawAvatar(
-      ctx,
-      img,
-      cx - avatarSize / 2,
-      cyTop,
-      avatarSize,
-      sanitizeText(m.name).replace(/^@/, "").slice(0, 1) || "?",
-      soft
-    );
+    const discordUrl = m.discordAvatarUrl || m.avatarUrl;
+    const robloxUrl = m.robloxAvatarUrl || null;
+    if (robloxUrl && discordUrl) {
+      const size = Math.floor(avatarSize * 0.72);
+      const dImg = await fetchAvatar(discordUrl);
+      const rImg = await fetchAvatar(robloxUrl);
+      drawAvatar(
+        ctx,
+        dImg,
+        cx - size - 6,
+        cyTop + 8,
+        size,
+        sanitizeText(m.name).replace(/^@/, "").slice(0, 1) || "?",
+        soft
+      );
+      drawAvatar(ctx, rImg, cx + 6, cyTop + 8, size, "R", "#00a2ff");
+    } else {
+      const img = await fetchAvatar(m.avatarUrl);
+      drawAvatar(
+        ctx,
+        img,
+        cx - avatarSize / 2,
+        cyTop,
+        avatarSize,
+        sanitizeText(m.name).replace(/^@/, "").slice(0, 1) || "?",
+        soft
+      );
+    }
 
     const handle = m.name.startsWith("@") ? m.name : `@${m.name}`;
     const nameY = cyTop + avatarSize + 34;

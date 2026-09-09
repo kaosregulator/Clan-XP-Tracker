@@ -199,13 +199,23 @@ function gameSelect(slice: ScoutGameRow[]) {
   const seen = new Set<string>();
   const options = [];
   for (const g of slice.slice(0, 25)) {
-    const value = String(g.universeId);
+    const value = String(Math.trunc(g.universeId));
     if (!Number.isFinite(g.universeId) || g.universeId <= 0 || seen.has(value)) continue;
+    // Discord rejects empty / control-char-only labels → "Invalid Form Body".
+    const label =
+      g.name
+        .replace(/[\u0000-\u001F\u007F]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 100) || `Universe ${value}`;
+    if (!label.trim()) continue;
     seen.add(value);
-    const label = g.name.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, 100) || `Universe ${g.universeId}`;
+    const desc = `${ScoutService.formatCount(g.playing)} playing`
+      .replace(/[\u0000-\u001F\u007F]/g, "")
+      .slice(0, 100);
     options.push({
-      label,
-      description: `${ScoutService.formatCount(g.playing)} playing`.slice(0, 100),
+      label: label.slice(0, 100),
+      description: desc || "Open game",
       value,
     });
   }
@@ -938,12 +948,49 @@ async function updateHub(
       ),
     ]);
     // Must clear prior attachments — otherwise every hub click stacks another PNG.
-    await interaction.editReply(replaceHubCard(payload));
+    try {
+      await interaction.editReply(replaceHubCard(payload));
+    } catch (editErr) {
+      // Discord often rejects select menus with odd labels — retry without the select.
+      logScoutError("updateHub.edit", editErr);
+      const stripped: typeof payload = {
+        ...payload,
+        components: (payload.components ?? []).filter((row) => {
+          const data = "toJSON" in row ? (row as { toJSON: () => { components?: Array<{ type?: number }> } }).toJSON() : null;
+          const comps = data?.components ?? [];
+          // Drop string-select rows (type 3) on retry.
+          return !comps.some((c) => c.type === 3);
+        }),
+      };
+      await interaction.editReply(replaceHubCard(stripped));
+    }
     bindHub(interaction.message!.id, state);
     if (interaction.message) armHubAutoDelete(interaction.message);
   } catch (err) {
     logScoutError("updateHub", err);
-    // Keep chrome so the hub doesn't look like it "closed".
+    // Prefer a live list over the soft-error chrome when Trending/Top fails.
+    try {
+      const rows = await ScoutService.presetTop(10);
+      if (rows.length) {
+        const list = await buildListView(
+          state,
+          "TOP · LIVE CCU",
+          "Popular now",
+          "Trending briefly hiccuped — showing live popular games",
+          rows
+        );
+        // Avoid select menu on this recovery path.
+        list.components = list.components?.slice(0, 2);
+        await interaction.editReply(replaceHubCard(list));
+        if (interaction.message) {
+          bindHub(interaction.message.id, { ...state, view: "trending" });
+          armHubAutoDelete(interaction.message);
+        }
+        return;
+      }
+    } catch (fallbackErr) {
+      logScoutError("updateHub.fallback", fallbackErr);
+    }
     const soft = softErrorView(state, toScoutUserError(err));
     await interaction.editReply(replaceHubCard(soft)).catch(() => {});
     if (interaction.message) {

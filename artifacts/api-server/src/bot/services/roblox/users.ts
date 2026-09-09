@@ -93,19 +93,80 @@ export async function resolveUsername(username: string): Promise<RobloxUser> {
   return getUserById(hit);
 }
 
+/** Roblox usernames: 3–20 chars, letters/numbers/underscore (legacy may have shorter). */
+function looksLikeCompleteUsername(q: string): boolean {
+  return /^[A-Za-z0-9_]{3,20}$/.test(q);
+}
+
+function rankSearchHits(hits: RobloxUserSearchHit[], q: string): RobloxUserSearchHit[] {
+  const needle = q.toLowerCase();
+  const scoreOf = (hit: RobloxUserSearchHit) => {
+    const name = hit.name.toLowerCase();
+    const display = hit.displayName.toLowerCase();
+    if (name === needle) return 0;
+    if (display === needle) return 1;
+    if (hit.previousUsernames?.some((p) => p.toLowerCase() === needle)) return 1;
+    if (name.startsWith(needle)) return 2;
+    if (display.startsWith(needle)) return 3;
+    if (name.includes(needle)) return 4;
+    if (display.includes(needle)) return 5;
+    return 6;
+  };
+  return [...hits].sort((a, b) => {
+    const sa = scoreOf(a);
+    const sb = scoreOf(b);
+    if (sa !== sb) return sa - sb;
+    // Prefer the longer progressive match (arteum_kezuman over ArtLover) when both prefix-match.
+    if (sa === 2) return b.name.length - a.name.length;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Progressive user search for autocomplete / hubs.
+ * - Always refreshes from the current keyword (Art → arte → arteum…).
+ * - When the query looks like a full username, also hit POST /v1/usernames/users
+ *   so exact handles like arteum_kezuman win over fuzzy "Art…" prefixes.
+ * - Falls back to the secondary provider when Roblox search fails.
+ */
 export async function searchUsers(
   keyword: string,
   limit: 10 | 25 = 10
 ): Promise<RobloxUserSearchHit[]> {
-  const q = keyword.trim();
+  const q = keyword.trim().replace(/^@/, "");
   if (q.length < 2) return [];
 
+  // Don't cache aggressively on short prefixes — results should track typing.
+  const cacheable = q.length >= 4;
   const key = `search:${q.toLowerCase()}:${limit}`;
-  const cached = robloxCache.get<RobloxUserSearchHit[]>(key);
-  if (cached) return cached;
+  if (cacheable) {
+    const cached = robloxCache.get<RobloxUserSearchHit[]>(key);
+    if (cached) return cached;
+  }
+
+  const byId = new Map<number, RobloxUserSearchHit>();
+
+  // Exact username resolution first when it looks complete.
+  if (looksLikeCompleteUsername(q)) {
+    try {
+      const exact = await resolveUsername(q);
+      byId.set(exact.id, {
+        id: exact.id,
+        name: exact.name,
+        displayName: exact.displayName,
+        hasVerifiedBadge: exact.hasVerifiedBadge,
+        previousUsernames: [],
+      });
+    } catch {
+      /* not an exact hit — keep searching */
+    }
+  }
 
   try {
-    const result = await rbxFetch(getUsersSearch, { keyword: q, limit });
+    const result = await rbxFetch(getUsersSearch, {
+      keyword: q,
+      limit: Math.min(25, Math.max(limit, 10)) as 10 | 25,
+    });
     const data =
       (result as {
         data?: Array<{
@@ -117,17 +178,39 @@ export async function searchUsers(
         }>;
       }).data ?? [];
 
-    const hits: RobloxUserSearchHit[] = data.map((u) => ({
-      id: u.id,
-      name: u.name,
-      displayName: u.displayName || u.name,
-      hasVerifiedBadge: Boolean(u.hasVerifiedBadge),
-      previousUsernames: u.previousUsernames ?? [],
-    }));
-    return robloxCache.set(key, hits, TTL.search);
+    for (const u of data) {
+      if (byId.has(u.id)) continue;
+      byId.set(u.id, {
+        id: u.id,
+        name: u.name,
+        displayName: u.displayName || u.name,
+        hasVerifiedBadge: Boolean(u.hasVerifiedBadge),
+        previousUsernames: u.previousUsernames ?? [],
+      });
+    }
   } catch {
-    return robloxCache.get<RobloxUserSearchHit[]>(key) ?? [];
+    // Secondary provider: try exact-ish name lookup when search is down.
+    if (!byId.size) {
+      try {
+        const u = await rbxianUserByName(q);
+        if (u?.id) {
+          byId.set(Number(u.id), {
+            id: Number(u.id),
+            name: String(u.name ?? u.username ?? q),
+            displayName: String(u.displayName ?? u.name ?? u.username ?? q),
+            hasVerifiedBadge: Boolean(u.hasVerifiedBadge),
+            previousUsernames: [],
+          });
+        }
+      } catch {
+        /* empty */
+      }
+    }
   }
+
+  const ranked = rankSearchHits([...byId.values()], q).slice(0, limit);
+  if (cacheable && ranked.length) robloxCache.set(key, ranked, TTL.search);
+  return ranked;
 }
 
 export async function getUsernameHistory(

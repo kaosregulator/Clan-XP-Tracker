@@ -82,12 +82,19 @@ function reminderAttachment(card: Buffer): AttachmentBuilder {
  * Member-facing reminder embed fallback. Period-aware, no progress fractions,
  * no remaining XP amounts, no reminder counts.
  */
-function reminderEmbed(clan: Clan, target: User, body: string): EmbedBuilder {
+function reminderEmbed(
+  clan: Clan,
+  target: User,
+  body: string,
+  faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null }
+): EmbedBuilder {
   const deadline = discordRelative(nextPeriodReset(clan));
+  const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
+  const robloxUrl = faces?.robloxAvatarUrl || null;
   return new EmbedBuilder()
     .setColor(0xfaa61a)
-    .setAuthor({ name: `🔔 XP REMINDER • ${clan.clanName}`, iconURL: target.displayAvatarURL() })
-    .setThumbnail(target.displayAvatarURL())
+    .setAuthor({ name: `🔔 XP REMINDER • ${clan.clanName}`, iconURL: discordUrl || undefined })
+    .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(
       `${body}\n\nThe ${periodAdjective(clan)} period resets ${deadline}. Just a friendly nudge — not a warning.`
     )
@@ -113,7 +120,11 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
   // Compute the reminder body ONCE (a custom note, or a random friendly nudge)
   // and share it across the embed and the canvas so the two can never drift.
   const body = memberReminderBody(clan, safeNote);
-  const embed = reminderEmbed(clan, target, body);
+  const faces = cardAvatarPair(
+    member,
+    target.displayAvatarURL({ size: 256, extension: "png" })
+  );
+  const embed = reminderEmbed(clan, target, body, faces);
   // The canvas card is the primary visual (matches the warning card); the embed
   // stays as a fallback when a render fails so a reminder always gets through.
   // When the server picked the classic embed style, skip the card entirely.

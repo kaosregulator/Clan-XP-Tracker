@@ -202,18 +202,22 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
         queue.add(async () => {
           const user = await interaction.client.users.fetch(m.userId).catch(() => null);
           if (!user) return;
-          const { activeCount } = await issueWarning({
-            client: interaction.client,
-            clan,
-            guild: interaction.guild,
-            target: user,
-            moderatorId: interaction.user.id,
-            moderatorUsername: interaction.user.username,
-            reason: staffWarningReason(clan, m),
-            memberReason: memberSafeWarningReason(clan),
-          });
-          issued++;
-          if (activeCount >= clan.escalationThreshold) escalate.push(`<@${m.userId}> (${activeCount})`);
+          try {
+            const { activeCount } = await issueWarning({
+              client: interaction.client,
+              clan,
+              guild: interaction.guild,
+              target: user,
+              moderatorId: interaction.user.id,
+              moderatorUsername: interaction.user.username,
+              reason: staffWarningReason(clan, m),
+              memberReason: memberSafeWarningReason(clan),
+            });
+            issued++;
+            if (activeCount >= clan.escalationThreshold) escalate.push(`<@${m.userId}> (${activeCount})`);
+          } catch {
+            /* immune / failed — skip */
+          }
         });
       }
       await queue.onIdle();
