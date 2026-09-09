@@ -426,47 +426,53 @@ async function renderEnforcementCard(opts: {
     centeredPill(ctx, opts.ticketLabel, 556, accent);
   }
 
-  // Avatar + name. Prefer linked Roblox face; show Discord as a small badge.
-  const avatarSize = 150;
+  // Avatar + name. When linked, show Discord + Roblox side-by-side (same idea as standing).
   const avatarY = 604;
-  const primaryUrl = v.robloxAvatarUrl || v.avatarUrl;
-  const img = await fetchAvatar(primaryUrl);
-  drawAvatar(
-    ctx,
-    img,
-    W / 2 - avatarSize / 2,
-    avatarY,
-    avatarSize,
-    sanitizeText(v.memberName).replace(/^@/, "").slice(0, 1) || "?",
-    accentSoft
-  );
-  if (v.robloxAvatarUrl && (v.discordAvatarUrl || v.avatarUrl)) {
-    const badge = 52;
-    const badgeUrl = v.discordAvatarUrl || v.avatarUrl;
-    const dimg = await fetchAvatar(badgeUrl);
-    drawAvatar(
-      ctx,
-      dimg,
-      W / 2 + avatarSize / 2 - badge + 8,
-      avatarY + avatarSize - badge + 4,
-      badge,
-      "D",
-      LIGHT.blueSoft
-    );
-  }
-  const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
-  drawCenter(ctx, handle, W / 2, avatarY + avatarSize + 44, 34, accent, true, "display");
-  if (v.robloxUsername) {
+  const discordUrl = v.discordAvatarUrl || (!v.robloxAvatarUrl ? v.avatarUrl : null);
+  const robloxUrl = v.robloxAvatarUrl || null;
+  const initial = sanitizeText(v.memberName).replace(/^@/, "").slice(0, 1) || "?";
+
+  if (robloxUrl && discordUrl) {
+    const size = 118;
+    const gap = 28;
+    const pairW = size * 2 + gap;
+    const leftX = W / 2 - pairW / 2;
+    const dImg = await fetchAvatar(discordUrl);
+    const rImg = await fetchAvatar(robloxUrl);
+    drawAvatar(ctx, dImg, leftX, avatarY, size, initial, LIGHT.blueSoft);
+    drawAvatar(ctx, rImg, leftX + size + gap, avatarY, size, "R", accentSoft);
+    drawCenter(ctx, "Discord", leftX + size / 2, avatarY + size + 26, 16, LIGHT.muted, false, "body");
     drawCenter(
       ctx,
-      `Roblox · ${v.robloxUsername}`,
-      W / 2,
-      avatarY + avatarSize + 78,
-      18,
+      v.robloxUsername ? `Roblox · ${v.robloxUsername}` : "Roblox",
+      leftX + size + gap + size / 2,
+      avatarY + size + 26,
+      16,
       LIGHT.muted,
       false,
       "body"
     );
+    const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
+    drawCenter(ctx, handle, W / 2, avatarY + size + 58, 32, accent, true, "display");
+  } else {
+    const avatarSize = 150;
+    const primaryUrl = robloxUrl || discordUrl || v.avatarUrl;
+    const img = await fetchAvatar(primaryUrl);
+    drawAvatar(ctx, img, W / 2 - avatarSize / 2, avatarY, avatarSize, initial, accentSoft);
+    const handle = v.memberName.startsWith("@") ? v.memberName : `@${v.memberName}`;
+    drawCenter(ctx, handle, W / 2, avatarY + avatarSize + 44, 34, accent, true, "display");
+    if (v.robloxUsername) {
+      drawCenter(
+        ctx,
+        `Roblox · ${v.robloxUsername}`,
+        W / 2,
+        avatarY + avatarSize + 78,
+        18,
+        LIGHT.muted,
+        false,
+        "body"
+      );
+    }
   }
 
   // Footer mark + line.

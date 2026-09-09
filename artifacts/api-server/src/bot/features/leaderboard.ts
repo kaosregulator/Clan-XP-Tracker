@@ -9,7 +9,7 @@ import {
 import type { Clan, ClanMember } from "@workspace/db";
 import { getClan, isOfficer } from "../services/config";
 import { listTracked, formatProgress, statusOf } from "../services/progress";
-import { countLifetime, cardAvatarUrl } from "../services/warnings";
+import { countLifetime, cardAvatarPair } from "../services/warnings";
 import { renderOffThread } from "../canvas/render-pool";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
 import { armHubAutoDelete } from "../ui/hubVisibility";
@@ -40,11 +40,14 @@ async function withLifetime(clan: Clan, members: ClanMember[]): Promise<ClanMemb
 }
 
 function toRow(clan: Clan, m: ClanMember, rank: number) {
+  const faces = cardAvatarPair(m, m.avatarUrl);
   return {
     rank,
     username: m.username,
     displayName: m.displayName || m.username,
-    avatarUrl: cardAvatarUrl(m, m.avatarUrl),
+    avatarUrl: faces.primaryAvatarUrl,
+    discordAvatarUrl: faces.discordAvatarUrl,
+    robloxAvatarUrl: faces.robloxAvatarUrl,
     cleanPoints: m.cleanPoints ?? 0,
     lifetimeWarnings: m.lifetimeWarnings ?? 0,
     progressLabel: `${formatProgress(clan, m)} · ${statusOf(clan, m)}`,
