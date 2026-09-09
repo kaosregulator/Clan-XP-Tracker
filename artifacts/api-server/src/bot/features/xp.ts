@@ -312,17 +312,25 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       const reason =
         message ||
         (member ? staffWarningReason(clan, member) : `Missed the ${periodAdjective(clan)} ${clan.activityName} goal.`);
-      const { activeCount } = await issueWarning({
-        client: interaction.client,
-        clan,
-        guild: interaction.guild,
-        target,
-        moderatorId: interaction.user.id,
-        moderatorUsername: interaction.user.username,
-        reason,
-        memberReason: message ? null : memberSafeWarningReason(clan),
-        deliver,
-      });
+      let activeCount: number;
+      try {
+        ({ activeCount } = await issueWarning({
+          client: interaction.client,
+          clan,
+          guild: interaction.guild,
+          target,
+          moderatorId: interaction.user.id,
+          moderatorUsername: interaction.user.username,
+          reason,
+          memberReason: message ? null : memberSafeWarningReason(clan),
+          deliver,
+        }));
+      } catch (err) {
+        await interaction.editReply({
+          content: `🛡️ ${err instanceof Error ? err.message : "Couldn't issue that warning."}`,
+        });
+        return;
+      }
       const wantsChannel = deliver?.channel ?? true;
       await interaction.editReply({
         content:

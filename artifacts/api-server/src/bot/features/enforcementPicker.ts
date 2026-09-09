@@ -18,7 +18,7 @@ import {
 } from "discord.js";
 import type { Clan } from "@workspace/db";
 import { getClan, isOfficer, isAdmin, getMember, identityFromUser } from "../services/config";
-import { issueWarning, recentWarning, listActive } from "../services/warnings";
+import { issueWarning, recentWarning, listActive, isImmuneFromEnforcement, cardAvatarPair } from "../services/warnings";
 import { sendReminder, recentReminder } from "../services/reminders";
 import {
   staffWarningReason,
@@ -101,7 +101,9 @@ async function memberViews(
   for (const userId of userIds) {
     const user = await client.users.fetch(userId).catch(() => null);
     const name = user?.username ?? "member";
-    const avatarUrl = user?.displayAvatarURL({ size: 256, extension: "png" }) ?? null;
+    const discordUrl = user?.displayAvatarURL({ size: 256, extension: "png" }) ?? null;
+    const member = await getMember(clan.guildId, userId);
+    const faces = cardAvatarPair(member, discordUrl);
     const warnings = (await listActive(clan.guildId, userId)).length;
     let hasRole = false;
     if (warnRoleConfigured) {
@@ -110,7 +112,9 @@ async function memberViews(
     }
     views.push({
       name,
-      avatarUrl,
+      avatarUrl: faces.primaryAvatarUrl,
+      discordAvatarUrl: faces.discordAvatarUrl,
+      robloxAvatarUrl: faces.robloxAvatarUrl,
       warnings,
       hasRole,
       willAddRole: mode === "warning" && warnRoleConfigured && !hasRole,
@@ -370,6 +374,12 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
         skipped++;
         continue;
       }
+      const immune = await isImmuneFromEnforcement(interaction.guild, clan, userId, member);
+      if (immune.immune) {
+        results.push(`🛡️ ${user.username} — immune (${immune.reason})`);
+        skipped++;
+        continue;
+      }
       if (await recentReminder(clan, userId)) {
         results.push(`🔕 ${user.username} — reminded recently`);
         skipped++;
@@ -388,6 +398,12 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
       results.push(`${delivered ? "🔔" : "📭"} ${user.username}`);
       done++;
     } else {
+      const immune = await isImmuneFromEnforcement(interaction.guild, clan, userId, member);
+      if (immune.immune) {
+        results.push(`🛡️ ${user.username} — immune (${immune.reason})`);
+        skipped++;
+        continue;
+      }
       const prior = await recentWarning(clan.guildId, userId);
       if (prior) {
         results.push(`🛑 ${user.username} — already warned ${discordRelative(prior.issuedAt)}`);
@@ -399,18 +415,24 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
         (member
           ? staffWarningReason(clan, member)
           : `Missed the ${periodAdjective(clan)} ${clan.activityName} goal.`);
-      const { activeCount } = await issueWarning({
-        client: interaction.client,
-        clan,
-        guild: interaction.guild,
-        target: user,
-        moderatorId,
-        moderatorUsername,
-        reason,
-        memberReason: customNote ? sanitizeMemberReason(customNote) : memberSafeWarningReason(clan),
-      });
-      results.push(`⚠️ ${user.username} — ${activeCount} active`);
-      done++;
+      try {
+        const { activeCount } = await issueWarning({
+          client: interaction.client,
+          clan,
+          guild: interaction.guild,
+          target: user,
+          moderatorId,
+          moderatorUsername,
+          reason,
+          memberReason: customNote ? sanitizeMemberReason(customNote) : memberSafeWarningReason(clan),
+        });
+        results.push(`⚠️ ${user.username} — ${activeCount} active`);
+        done++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "failed";
+        results.push(`⏭️ ${user.username} — ${msg}`);
+        skipped++;
+      }
     }
   }
 

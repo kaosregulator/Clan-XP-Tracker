@@ -20,6 +20,54 @@ import { scheduleDashboardRefresh } from "./commandCenter";
 import { createNotification, resolveRelated } from "./notifications";
 import { renderOffThread } from "../canvas/render-pool";
 
+/** Live check: exempt flag OR configured exempt/leave roles on the Discord member. */
+export async function isImmuneFromEnforcement(
+  guild: Guild,
+  clan: Clan,
+  userId: string,
+  member?: ClanMember | null
+): Promise<{ immune: boolean; reason: string }> {
+  if (member?.exempt) return { immune: true, reason: "marked exempt" };
+  if (member?.onLeave) return { immune: true, reason: "on leave" };
+
+  const needRoles = clan.exemptRoleIds.length > 0 || clan.leaveRoleIds.length > 0;
+  if (!needRoles) return { immune: false, reason: "" };
+
+  const gm = await guild.members.fetch(userId).catch(() => null);
+  if (!gm) return { immune: false, reason: "" };
+
+  if (clan.exemptRoleIds.some((id) => gm.roles.cache.has(id))) {
+    // Keep the DB flag in sync so dashboards / filters stay honest.
+    await db
+      .update(clanMembersTable)
+      .set({ exempt: true })
+      .where(
+        and(
+          eq(clanMembersTable.guildId, clan.guildId),
+          eq(clanMembersTable.userId, userId),
+          eq(clanMembersTable.exempt, false)
+        )
+      )
+      .catch(() => {});
+    return { immune: true, reason: "exempt role" };
+  }
+  if (clan.leaveRoleIds.some((id) => gm.roles.cache.has(id))) {
+    await db
+      .update(clanMembersTable)
+      .set({ onLeave: true })
+      .where(
+        and(
+          eq(clanMembersTable.guildId, clan.guildId),
+          eq(clanMembersTable.userId, userId),
+          eq(clanMembersTable.onLeave, false)
+        )
+      )
+      .catch(() => {});
+    return { immune: true, reason: "leave role" };
+  }
+  return { immune: false, reason: "" };
+}
+
 /**
  * Where a warning is delivered. Both default to the clan settings when
  * omitted (channel post when a warn channel is set, DM when dmOnWarn is on),
@@ -97,17 +145,22 @@ function warningAttachment(card: Buffer): AttachmentBuilder {
 /**
  * Member-facing fallback embed — warning + reason + how to dispute. The warning
  * number is surfaced in the footer as the dispute ticket.
+ * Discord embeds only support one thumbnail: Roblox face when linked, Discord
+ * in the author icon so both identities still show.
  */
 function memberWarningEmbed(
   guildName: string,
   target: User,
   memberReason: string,
-  warningNumber: number | null
+  warningNumber: number | null,
+  faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null }
 ): EmbedBuilder {
+  const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
+  const robloxUrl = faces?.robloxAvatarUrl || null;
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setAuthor({ name: `⚠️ XP WARNING • ${guildName}`, iconURL: target.displayAvatarURL() })
-    .setThumbnail(target.displayAvatarURL())
+    .setAuthor({ name: `⚠️ XP WARNING • ${guildName}`, iconURL: discordUrl || undefined })
+    .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(memberWarningBody(memberReason, warningNumber))
     .setTimestamp();
   if (warningNumber) embed.setFooter({ text: `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}` });
@@ -119,6 +172,13 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   const { client, clan, guild, target } = input;
 
   await ensureMember(guild.id, identityFromUser(target));
+  const earlyMember = await getMember(guild.id, target.id);
+  const immune = await isImmuneFromEnforcement(guild, clan, target.id, earlyMember);
+  if (immune.immune) {
+    throw new Error(
+      `${target.username} is immune (${immune.reason}) — warning not issued.`
+    );
+  }
 
   const memberFacingReason = sanitizeMemberReason(input.memberReason ?? input.reason);
   // Persist the staff reason (full accounting) on the row for audits / officer views.
@@ -154,6 +214,10 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   const activeCount = await countActive(guild.id, target.id);
   const memberRow = await getMember(guild.id, target.id);
   const staffDetail = memberRow ? staffProgressDetail(clan, memberRow) : null;
+  const faces = cardAvatarPair(
+    memberRow,
+    target.displayAvatarURL({ size: 256, extension: "png" })
+  );
 
   // Assign configured warning roles (best-effort).
   if (clan.warningRoleIds.length) {
@@ -184,7 +248,13 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
     try {
       const channel = await client.channels.fetch(clan.warningChannelId);
       if (channel?.isTextBased() && "send" in channel) {
-        const fallbackEmbed = memberWarningEmbed(guild.name, target, memberFacingReason, warningNumber);
+        const fallbackEmbed = memberWarningEmbed(
+          guild.name,
+          target,
+          memberFacingReason,
+          warningNumber,
+          faces
+        );
         await channel.send({
           content:
             `⚠️ <@${target.id}> — you received an XP Warning` +
@@ -201,7 +271,7 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
-    const dmEmbed = memberWarningEmbed(guild.name, target, memberFacingReason, warningNumber);
+    const dmEmbed = memberWarningEmbed(guild.name, target, memberFacingReason, warningNumber, faces);
     dmSent = await target
       .send(
         card
