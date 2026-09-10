@@ -31,9 +31,8 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
         accent: "#2e9e57",
         lines: [
           `Officers verify ${activity} in-game — you never submit it`,
-          `/warnings  —  your standing card (history, clean points, avatars)`,
+          `/warnings  —  your private standing card (history, clean points, avatars)`,
           `/leaderboard  —  activity standing (top 3 podium + roster)`,
-          `/viewlink  —  open any player's public link dashboard`,
           `/calendar  —  your ${activity} month calendar`,
           `/dispute  —  contest a warning (or use the button on /warnings)`,
           `/roblox · /scout · /market  —  Roblox hubs (menus & buttons inside)`,
@@ -49,6 +48,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/panel  —  live staff board (survives restarts)`,
           `/warnings  —  Command Center member editor (no target)`,
           `/warnings member:…  —  standing card with lifetime history`,
+          `/viewlink @user  —  private player dashboard (warnings + activity)`,
           `/link  —  assign Roblox avatars to member cards (role walkthrough)`,
         ],
       },
@@ -69,7 +69,6 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/disputes · /notifications · /tickets  —  also on /panel`,
           `/setup  —  goals, channels, roles, enforcement`,
           `/leaderboard  —  activity standing & clean record`,
-          `/viewlink @user  —  public player dashboard`,
         ],
       }
     );

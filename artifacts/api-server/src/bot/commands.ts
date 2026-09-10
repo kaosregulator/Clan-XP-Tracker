@@ -350,7 +350,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("warnings")
-    .setDescription("Command Center / standing — member editor, history, clean points, avatars")
+    .setDescription("Private standing / Command Center — history, clean points, avatars")
     .addUserOption((o) => o.setName("user").setDescription("Whose standing to view").setRequired(false))
     .addStringOption((o) =>
       o
@@ -370,7 +370,7 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("viewlink")
-    .setDescription("View a clan player's public link dashboard (anyone)")
+    .setDescription("Staff-only player dashboard (warnings, activity, standing) — ephemeral")
     .addUserOption((o) =>
       o.setName("user").setDescription("Discord member to view").setRequired(false)
     )

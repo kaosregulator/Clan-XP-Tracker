@@ -42,9 +42,9 @@ import {
 import { notConfiguredMessage } from "./xp";
 
 /**
- * The /warnings hub. Officers with no target get the warning dashboard.
- * Everyone else gets a clean standing canvas (active + lifetime history,
- * clean points, dual Discord/Roblox avatars when linked).
+ * The /warnings hub (always ephemeral). Officers with no target get the warning
+ * dashboard. Everyone else gets a standing canvas — members only their own;
+ * officers can open another member with a fuller officer view.
  */
 
 interface HubTarget {
@@ -228,13 +228,14 @@ export async function buildMemberHub(
 export async function handleWarnings(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   const clan = await getClan(interaction.guildId);
-  // Officer dashboard stays private; standing cards are public showcase.
+  // Always ephemeral — standing + Command Center stay private to the requester.
+  // Content gating below still limits what members vs officers can open.
   const requested = interaction.options.getUser("user");
   const memberId = interaction.options.getString("member");
   const officer = clan ? isOfficer(interaction.member, clan) : false;
   const subjectId = memberId || requested?.id || null;
   const showDashboard = Boolean(officer && !subjectId);
-  await interaction.deferReply(showDashboard ? { flags: 64 } : undefined);
+  await interaction.deferReply({ flags: 64 });
 
   if (!clan) {
     await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
