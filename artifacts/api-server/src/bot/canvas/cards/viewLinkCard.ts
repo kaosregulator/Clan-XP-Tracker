@@ -1,6 +1,6 @@
 import { stripEmoji } from "../fonts";
 /**
- * Public /viewlink dashboard — top-3 podium strip + player profile.
+ * Staff /viewlink dashboard — top-3 podium strip + player profile (ephemeral).
  */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 import {

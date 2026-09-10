@@ -1,5 +1,6 @@
 /**
- * Public /viewlink — anyone can open a clan player dashboard for a member.
+ * Staff /viewlink — officers & admins open a private clan player dashboard.
+ * Ephemeral so warning/activity breakdowns stay out of the channel.
  */
 import {
   AttachmentBuilder,
@@ -31,10 +32,17 @@ function fmtDate(d: Date | null | undefined): string {
 
 export async function handleViewLink(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
-  await interaction.deferReply();
+  await interaction.deferReply({ flags: 64 });
   const clan = await getClan(interaction.guildId);
   if (!clan) {
     await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+
+  if (!isOfficer(interaction.member, clan)) {
+    await interaction.editReply({
+      content: "Only officers and admins can use **/viewlink** — it shows detailed standing and warning breakdowns.",
+    });
     return;
   }
 
