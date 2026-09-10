@@ -25,7 +25,7 @@ export class RobloxServiceError extends Error {
 export function userMessage(kind: RobloxErrorKind): string {
   switch (kind) {
     case "unavailable":
-      return "❌ Roblox couldn't be reached right now. Try again in a moment.";
+      return "❌ Roblox data is temporarily unavailable. Please try again.";
     case "not_found":
       return "⚠️ That Roblox user, group, or experience couldn't be found.";
     case "private":

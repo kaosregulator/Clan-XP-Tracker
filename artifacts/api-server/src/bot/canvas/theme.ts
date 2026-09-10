@@ -405,6 +405,43 @@ export async function fetchAvatar(url: string | null, timeoutMs = 2500): Promise
   }
 }
 
+/** Draw a rounded-square avatar with a subtle ring. Falls back to an initial. */
+export function drawSquareAvatar(
+  ctx: SKRSContext2D,
+  img: Image | null,
+  x: number,
+  y: number,
+  size: number,
+  fallbackInitial = "?",
+  ring: string = PALETTE.blurple,
+  radius = 10
+) {
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  ctx.save();
+  roundRectPath(ctx, x, y, size, size, radius);
+  ctx.clip();
+  if (img) {
+    ctx.drawImage(img, x, y, size, size);
+  } else {
+    ctx.fillStyle = PALETTE.cardAlt;
+    ctx.fillRect(x, y, size, size);
+    const initial = (sanitizeText(fallbackInitial).slice(0, 1) || "?").toUpperCase();
+    text(ctx, initial, cx, cy, {
+      size: size * 0.42,
+      weight: "bold",
+      color: PALETTE.soft,
+      align: "center",
+      baseline: "middle",
+    });
+  }
+  ctx.restore();
+  roundRectPath(ctx, x + 1, y + 1, size - 2, size - 2, Math.max(0, radius - 1));
+  ctx.strokeStyle = ring;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+}
+
 /** Draw a circular avatar with a subtle ring. Falls back to an initial. */
 export function drawAvatar(
   ctx: SKRSContext2D,

@@ -146,16 +146,16 @@ export const DISPUTE_COMMAND = "/dispute";
  * reminders don't read like a form letter.
  */
 const REMINDER_NUDGES: string[] = [
-  "Hey — don't forget to get your XP in before the period closes!",
-  "Quick nudge: your XP still needs doing. You've got this!",
-  "A little progress each day adds up — time to log some XP.",
-  "Friendly reminder to knock out your XP while there's still time.",
-  "Champions are made one grind at a time — go get that XP!",
-  "Still time to hit your goal today. Let's get that XP in!",
+  "Hey — don't forget to finish your activity before the period closes!",
+  "Quick nudge: your activity still needs doing. You've got this!",
+  "A little progress each day adds up — time to log some activity.",
+  "Friendly reminder to knock out your activity while there's still time.",
+  "Champions are made one grind at a time — go get that activity done!",
+  "Still time to hit your goal today. Let's get your activity in!",
   "Consistency beats intensity — a quick session keeps you on track.",
-  "Your clan's counting on you — a bit of XP goes a long way.",
-  "Don't let the streak slip — squeeze in your XP today.",
-  "Small steps, big results. Log your XP and stay ahead!",
+  "Your clan's counting on you — a bit of activity goes a long way.",
+  "Don't let the streak slip — squeeze in your activity today.",
+  "Small steps, big results. Log your activity and stay ahead!",
 ];
 
 /** Pick a random friendly nudge line (deterministic input allowed for tests). */
@@ -184,7 +184,7 @@ export function memberReminderBody(
 
 /** Short channel ping line for reminders. */
 export function memberReminderPingLine(): string {
-  return "🔔 this is your XP reminder.";
+  return "🔔 this is your activity reminder.";
 }
 
 /**
@@ -226,7 +226,7 @@ export function memberWarningDmContent(reason?: string | null, warningId?: numbe
 
 /** Canvas / embed title fragments. */
 export const MEMBER_WARNING_TITLE = "ACTIVITY WARNING";
-export const MEMBER_REMINDER_TITLE = "XP REMINDER";
+export const MEMBER_REMINDER_TITLE = "ACTIVITY REMINDER";
 
 /**
  * Default member-facing reason for a missed activity category.

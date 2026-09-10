@@ -22,7 +22,19 @@ import {
 import type { Clan } from "@workspace/db";
 import { getClan, updateClan, isAdmin } from "../services/config";
 import { parseHm } from "../services/time";
-import { parseId, wizGo, wizEdit, wizModal, wizToggle, wizSel, WIZ_FINISH, WIZ_CANCEL, WIZ_HUB } from "../ui/ids";
+import { syncTrackedRoleMembers } from "../services/progress";
+import {
+  parseId,
+  wizGo,
+  wizEdit,
+  wizModal,
+  wizToggle,
+  wizSel,
+  wizCreateTrackRole,
+  WIZ_FINISH,
+  WIZ_CANCEL,
+  WIZ_HUB,
+} from "../ui/ids";
 import { TRACKING_MODES, DAY_NAMES, setupMainPayload } from "./setup";
 
 /**
@@ -33,7 +45,7 @@ import { TRACKING_MODES, DAY_NAMES, setupMainPayload } from "./setup";
  * new table and both entry points stay in sync.
  */
 
-const TOTAL = 10;
+const TOTAL = 11;
 type Row = ActionRowBuilder<MessageActionRowComponentBuilder>;
 const row = (...c: MessageActionRowComponentBuilder[]): Row =>
   new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...c);
@@ -41,14 +53,15 @@ const row = (...c: MessageActionRowComponentBuilder[]): Row =>
 const STEP_TITLES: Record<number, string> = {
   1: "Community & activity",
   2: "How progress is tracked",
-  3: "Weekly goal & daily target",
+  3: "Activity goal",
   4: "Schedule",
-  5: "Officer & admin roles",
-  6: "Exempt & leave roles",
-  7: "Channels",
-  8: "Reminders",
-  9: "Enforcement",
-  10: "Review & activate",
+  5: "Activity track role",
+  6: "Officer & admin roles",
+  7: "Exempt & leave roles",
+  8: "Channels",
+  9: "Reminders",
+  10: "Enforcement",
+  11: "Review & activate",
 };
 
 function clampStep(n: number): number {
@@ -82,22 +95,25 @@ function validate(clan: Clan): Validation {
   if (!clan.clanName.trim()) errors.push("**Community name** is empty (Step 1).");
   if (!clan.activityName.trim()) errors.push("**Activity name** is empty (Step 1).");
   if (clan.trackingMode !== "complete" && clan.weeklyGoal <= 0) {
-    errors.push("**Weekly goal** must be greater than 0 for this tracking mode (Step 3).");
+    errors.push("**Activity goal** must be greater than 0 for this tracking mode (Step 3).");
   }
   if (!isValidTimezone(clan.timezone)) errors.push(`**Timezone** \`${clan.timezone}\` isn't valid (Step 4).`);
   if (clan.remindersEnabled) {
-    if (!clan.reminderTimes[0]) errors.push("**Reminders are on** but no reminder time is set (Step 8).");
-    if (!clan.reminderDays.length) errors.push("**Reminders are on** but no reminder days are chosen (Step 8).");
+    if (!clan.reminderTimes[0]) errors.push("**Reminders are on** but no reminder time is set (Step 9).");
+    if (!clan.reminderDays.length) errors.push("**Reminders are on** but no reminder days are chosen (Step 9).");
   }
 
+  if (!clan.requiredRoleId) {
+    warnings.push("No activity track role — leaderboard includes every linked member until you pick one (Step 5).");
+  }
   if (!clan.staffRoleIds.length && !clan.adminRoleIds.length) {
-    warnings.push("No officer/admin roles chosen — only members with Manage Server can operate the bot (Step 5).");
+    warnings.push("No officer/admin roles chosen — only members with Manage Server can operate the bot (Step 6).");
   }
   if (!clan.warningChannelId) {
-    warnings.push("No warning channel — warnings won't post publicly (Step 7).");
+    warnings.push("No warning channel — warnings won't post publicly (Step 8).");
   }
   if (clan.remindersEnabled && !clan.dmReminders && !clan.reminderChannelId) {
-    warnings.push("Reminders are on with DMs off and no reminder channel — they can't be delivered (Step 7/8).");
+    warnings.push("Reminders are on with DMs off and no reminder channel — they can't be delivered (Step 8/9).");
   }
   return { errors, warnings };
 }
@@ -151,9 +167,9 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
     }
     case 2: {
       h.setDescription(
-        `\`${"●".repeat(2)}${"○".repeat(8)}\`\n\n` +
+        `\`${"●".repeat(2)}${"○".repeat(9)}\`\n\n` +
           "**Exact progress** — officers enter numbers, e.g. `4200 / 5000`.\n" +
-          "**Complete / Not complete** — a weekly checkmark.\n" +
+          "**Complete / Not complete** — a period checkmark for activity.\n" +
           "**Custom goal** — small countable targets, e.g. `8 / 10`."
       );
       rows.push(
@@ -177,22 +193,22 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
     case 3: {
       if (clan.trackingMode === "complete") {
         h.addFields({
-          name: "Weekly goal",
-          value: "Not needed in Complete/Not-complete mode — members just need the weekly checkmark.",
+          name: "Activity goal",
+          value: "Not needed in Complete/Not-complete mode — members just need the activity checkmark each period.",
         });
       } else {
         h.addFields({
-          name: "Weekly goal",
-          value: `**${clan.weeklyGoal.toLocaleString()} ${clan.activityName}** / week`,
+          name: "Period goal",
+          value: `**${clan.weeklyGoal.toLocaleString()} ${clan.activityName}** per period`,
           inline: true,
         });
       }
       h.addFields({
-        name: "Daily target",
+        name: "Optional day target",
         value: clan.dailyTarget > 0 ? `**${clan.dailyTarget.toLocaleString()} ${clan.activityName}** / day` : "off",
         inline: true,
-      }).setFooter({ text: "The daily target drives the calendar's done/missed days (optional)." });
-      rows.push(row(new ButtonBuilder().setCustomId(wizEdit(3)).setLabel("✏️ Set goal & daily target").setStyle(ButtonStyle.Primary)));
+      }).setFooter({ text: "Day target is optional — used for calendar done/missed days only." });
+      rows.push(row(new ButtonBuilder().setCustomId(wizEdit(3)).setLabel("✏️ Set activity goal").setStyle(ButtonStyle.Primary)));
       break;
     }
     case 4: {
@@ -205,43 +221,65 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
     }
     case 5: {
       h.setDescription(
-        `\`${"●".repeat(5)}${"○".repeat(5)}\`\n\n` +
-          "**Officers** update progress, remind, warn and run reviews.\n" +
-          "**Admins** can additionally change configuration.\n" +
-          "_Members with Manage Server always have access._"
+        `\`${"●".repeat(5)}${"○".repeat(6)}\`\n\n` +
+          "**Activity track role** — members with this role appear on the leaderboard and count toward activity requirements.\n" +
+          "Choose an existing role, or create **Clan Activity** in one tap."
       );
+      h.addFields({
+        name: "Current track role",
+        value: clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "_not set — all linked members_",
+      });
       rows.push(
-        roleSelectRow("officerRoles", 5, "Officer roles", clan.staffRoleIds),
-        roleSelectRow("adminRoles", 5, "Admin roles", clan.adminRoleIds)
+        singleRoleSelectRow("requiredRole", 5, "Activity track role", clan.requiredRoleId),
+        row(
+          new ButtonBuilder()
+            .setCustomId(wizCreateTrackRole(5))
+            .setLabel("Create Clan Activity role")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("✨")
+        )
       );
       break;
     }
     case 6: {
       h.setDescription(
-        `\`${"●".repeat(6)}${"○".repeat(4)}\`\n\n` +
-          "Members holding these roles are skipped by reminders, warnings and completion-rate math. Both optional."
+        `\`${"●".repeat(6)}${"○".repeat(5)}\`\n\n` +
+          "**Officers** update progress, remind, warn and run reviews.\n" +
+          "**Admins** can additionally change configuration.\n" +
+          "_Members with Manage Server always have access._"
       );
       rows.push(
-        roleSelectRow("exemptRoles", 6, "Exempt roles", clan.exemptRoleIds),
-        roleSelectRow("leaveRoles", 6, "On-leave roles", clan.leaveRoleIds)
+        roleSelectRow("officerRoles", 6, "Officer roles", clan.staffRoleIds),
+        roleSelectRow("adminRoles", 6, "Admin roles", clan.adminRoleIds)
       );
       break;
     }
     case 7: {
       h.setDescription(
-        `\`${"●".repeat(7)}${"○".repeat(3)}\`\n\n` +
-          "**Reminders** — where nudges post (and the DM fallback).\n" +
-          "**Warnings** — where enforcement warnings are announced.\n" +
-          "**Logs** — the audit trail. All optional but recommended."
+        `\`${"●".repeat(7)}${"○".repeat(4)}\`\n\n` +
+          "Members holding these roles are skipped by reminders, warnings and completion-rate math. Both optional."
       );
       rows.push(
-        channelSelectRow("reminderChannel", 7, "Reminder channel", clan.reminderChannelId),
-        channelSelectRow("warningChannel", 7, "Warning channel", clan.warningChannelId),
-        channelSelectRow("logChannel", 7, "Log channel", clan.logChannelId)
+        roleSelectRow("exemptRoles", 7, "Exempt roles", clan.exemptRoleIds),
+        roleSelectRow("leaveRoles", 7, "On-leave roles", clan.leaveRoleIds)
       );
       break;
     }
     case 8: {
+      h.setDescription(
+        `\`${"●".repeat(8)}${"○".repeat(3)}\`\n\n` +
+          "**Reminders** — where nudges post (and the DM fallback).\n" +
+          "**Warnings** — where activity warnings are announced.\n" +
+          "**Logs** — the audit trail. All optional but recommended."
+      );
+      rows.push(
+        channelSelectRow("reminderChannel", 8, "Reminder channel", clan.reminderChannelId),
+        channelSelectRow("warningChannel", 8, "Warning channel", clan.warningChannelId),
+        channelSelectRow("logChannel", 8, "Log channel", clan.logChannelId)
+      );
+      break;
+    }
+    case 9: {
       h.addFields(
         { name: "Auto reminders", value: clan.remindersEnabled ? "on" : "off", inline: true },
         { name: "Days", value: daysLabel(clan.reminderDays), inline: true },
@@ -249,15 +287,15 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
       );
       rows.push(
         row(
-          toggleButton("remindersEnabled", 8, "Auto reminders", clan.remindersEnabled),
-          toggleButton("dmReminders", 8, "DM reminders", clan.dmReminders),
-          toggleButton("pingReminders", 8, "Ping in channel", clan.pingReminders),
-          new ButtonBuilder().setCustomId(wizEdit(8)).setLabel("✏️ Days & time").setStyle(ButtonStyle.Primary)
+          toggleButton("remindersEnabled", 9, "Auto reminders", clan.remindersEnabled),
+          toggleButton("dmReminders", 9, "DM reminders", clan.dmReminders),
+          toggleButton("pingReminders", 9, "Ping in channel", clan.pingReminders),
+          new ButtonBuilder().setCustomId(wizEdit(9)).setLabel("✏️ Days & time").setStyle(ButtonStyle.Primary)
         )
       );
       break;
     }
-    case 9: {
+    case 10: {
       h.addFields(
         { name: "Warn after", value: `${clan.warningThreshold} reminder(s)`, inline: true },
         { name: "Escalate at", value: `${clan.escalationThreshold} warning(s)`, inline: true },
@@ -270,33 +308,33 @@ export function wizardStepPayload(clan: Clan, stepRaw: number): BaseMessageOptio
       );
       rows.push(
         row(
-          new ButtonBuilder().setCustomId(wizEdit(9)).setLabel("✏️ Thresholds").setStyle(ButtonStyle.Primary),
-          toggleButton("dmOnWarn", 9, "DM on warning", clan.dmOnWarn)
+          new ButtonBuilder().setCustomId(wizEdit(10)).setLabel("✏️ Thresholds").setStyle(ButtonStyle.Primary),
+          toggleButton("dmOnWarn", 10, "DM on warning", clan.dmOnWarn)
         ),
-        roleSelectRow("warnRoles", 9, "Warning role (assigned on warn)", clan.warningRoleIds)
+        roleSelectRow("warnRoles", 10, "Warning role (assigned on warn)", clan.warningRoleIds)
       );
       break;
     }
-    case 10: {
+    case 11: {
       const v = validate(clan);
       h.setColor(v.errors.length ? 0xed4245 : 0x3ba55d).addFields(
         {
           name: "Requirement",
           value:
             (clan.trackingMode === "complete"
-              ? `Complete the weekly ${clan.activityName}`
-              : `${clan.weeklyGoal.toLocaleString()} ${clan.activityName}/week`) +
+              ? `Complete ${clan.activityName} each period`
+              : `${clan.weeklyGoal.toLocaleString()} ${clan.activityName} / period`) +
             ` · mode **${clan.trackingMode}**` +
-            (clan.dailyTarget > 0 ? ` · daily **${clan.dailyTarget.toLocaleString()}**` : ""),
+            (clan.dailyTarget > 0 ? ` · day target **${clan.dailyTarget.toLocaleString()}**` : ""),
         },
         {
           name: "Schedule",
-          value: `Week starts ${DAY_NAMES[clan.weekStartDay] ?? "Monday"} ${clan.resetTime} (${clan.timezone}) · reminders ${clan.remindersEnabled ? `${daysLabel(clan.reminderDays)} at ${clan.reminderTimes[0] ?? "?"}` : "off"}`,
+          value: `Period starts ${DAY_NAMES[clan.weekStartDay] ?? "Monday"} ${clan.resetTime} (${clan.timezone}) · reminders ${clan.remindersEnabled ? `${daysLabel(clan.reminderDays)} at ${clan.reminderTimes[0] ?? "?"}` : "off"}`,
         },
         {
           name: "Roles & channels",
           value:
-            `Officers ${clan.staffRoleIds.length || "—"} · Admins ${clan.adminRoleIds.length || "—"} · ` +
+            `Track ${clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "—"} · Officers ${clan.staffRoleIds.length || "—"} · Admins ${clan.adminRoleIds.length || "—"} · ` +
             `Reminder ${clan.reminderChannelId ? "✅" : "—"} · Warn ${clan.warningChannelId ? "✅" : "—"} · Log ${clan.logChannelId ? "✅" : "—"}`,
         },
         {
@@ -333,6 +371,16 @@ function roleSelectRow(field: string, step: number, placeholder: string, current
       .setMaxValues(5)
       .setDefaultRoles(current)
   );
+}
+
+function singleRoleSelectRow(field: string, step: number, placeholder: string, current: string | null): Row {
+  const menu = new RoleSelectMenuBuilder()
+    .setCustomId(wizSel(field, step))
+    .setPlaceholder(placeholder)
+    .setMinValues(0)
+    .setMaxValues(1);
+  if (current) menu.setDefaultRoles([current]);
+  return row(menu);
 }
 
 function channelSelectRow(field: string, step: number, placeholder: string, current: string | null): Row {
@@ -373,10 +421,10 @@ function stepModal(step: number, clan: Clan): ModalBuilder | null {
         );
     case 3:
       return m
-        .setTitle("Weekly goal & daily target")
+        .setTitle("Activity goal")
         .addComponents(
-          modalField(new TextInputBuilder().setCustomId("weeklyGoal").setLabel("Weekly goal (number)").setStyle(TextInputStyle.Short).setValue(String(clan.weeklyGoal)).setPlaceholder("5000").setRequired(clan.trackingMode !== "complete")),
-          modalField(new TextInputBuilder().setCustomId("dailyTarget").setLabel("Daily target (0 = off)").setStyle(TextInputStyle.Short).setValue(String(clan.dailyTarget)).setPlaceholder("0").setRequired(false))
+          modalField(new TextInputBuilder().setCustomId("weeklyGoal").setLabel("Period goal (number)").setStyle(TextInputStyle.Short).setValue(String(clan.weeklyGoal)).setPlaceholder("5000").setRequired(clan.trackingMode !== "complete")),
+          modalField(new TextInputBuilder().setCustomId("dailyTarget").setLabel("Optional day target (0 = off)").setStyle(TextInputStyle.Short).setValue(String(clan.dailyTarget)).setPlaceholder("0").setRequired(false))
         );
     case 4:
       return m
@@ -385,14 +433,14 @@ function stepModal(step: number, clan: Clan): ModalBuilder | null {
           modalField(new TextInputBuilder().setCustomId("timezone").setLabel("Timezone (IANA, e.g. America/New_York)").setStyle(TextInputStyle.Short).setValue(clan.timezone).setRequired(true)),
           modalField(new TextInputBuilder().setCustomId("weekStart").setLabel("Week start day + reset time").setStyle(TextInputStyle.Short).setValue(`${DAY_NAMES[clan.weekStartDay] ?? "Monday"} ${clan.resetTime}`).setPlaceholder("Monday 00:00").setRequired(true))
         );
-    case 8:
+    case 9:
       return m
         .setTitle("Reminder days & time")
         .addComponents(
           modalField(new TextInputBuilder().setCustomId("reminderDays").setLabel("Reminder days").setStyle(TextInputStyle.Short).setValue(daysLabel(clan.reminderDays)).setPlaceholder("Wed, Fri").setRequired(false)),
           modalField(new TextInputBuilder().setCustomId("reminderTime").setLabel("Reminder time (HH:mm, 24h)").setStyle(TextInputStyle.Short).setValue(clan.reminderTimes[0] ?? "18:00").setRequired(false))
         );
-    case 9:
+    case 10:
       return m
         .setTitle("Enforcement thresholds")
         .addComponents(
@@ -472,7 +520,7 @@ export async function handleWizardButton(interaction: ButtonInteraction): Promis
   if (action === "wizFinish") {
     const v = validate(clan);
     if (v.errors.length) {
-      await interaction.editReply(wizardStepPayload(clan, 10));
+      await interaction.editReply(wizardStepPayload(clan, 11));
       return;
     }
     const updated = (await updateClan(clan.guildId, { setupComplete: true })) ?? clan;
@@ -484,9 +532,43 @@ export async function handleWizardButton(interaction: ButtonInteraction): Promis
     return;
   }
 
+  if (action === "wizCreateTrack") {
+    const step = Number(arg) || 5;
+    if (!interaction.guild) return;
+    try {
+      const existing = interaction.guild.roles.cache.find(
+        (r) => r.name.toLowerCase() === "clan activity" && r.editable
+      );
+      const role =
+        existing ??
+        (await interaction.guild.roles.create({
+          name: "Clan Activity",
+          reason: "Tracked activity role for clan leaderboard / requirements",
+          mentionable: false,
+        }));
+      await updateClan(clan.guildId, { requiredRoleId: role.id });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      await syncTrackedRoleMembers(refreshed, interaction.guild).catch(() => 0);
+      await interaction.editReply({
+        ...wizardStepPayload(refreshed, step),
+        content: existing
+          ? `✅ Using existing **${role.name}** as the activity track role.`
+          : `✅ Created **${role.name}** — assign it to members you want tracked.`,
+      });
+    } catch {
+      await interaction.editReply({
+        content:
+          "⚠️ Couldn't create the role. Make sure the bot has **Manage Roles** and sits above the new role.",
+        embeds: [],
+        components: [],
+      });
+    }
+    return;
+  }
+
   if (action === "wizToggle") {
     const [key, stepStr] = (arg ?? "").split("-");
-    const step = Number(stepStr) || 8;
+    const step = Number(stepStr) || 9;
     const boolKeys = ["remindersEnabled", "dmReminders", "pingReminders", "dmOnWarn"] as const;
     if (key && (boolKeys as readonly string[]).includes(key)) {
       const k = key as (typeof boolKeys)[number];
@@ -538,14 +620,14 @@ export async function handleWizardModal(interaction: ModalSubmitInteraction): Pr
       weekStartDay: dayIdx >= 0 ? dayIdx : clan.weekStartDay,
       resetTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
     };
-  } else if (step === 8) {
+  } else if (step === 9) {
     const days = f("reminderDays").split(",").map(dayIndexOf).filter((i) => i >= 0);
     const rt = parseHm(f("reminderTime") || clan.reminderTimes[0] || "18:00");
     patch = {
       reminderDays: days.length ? days : clan.reminderDays,
       reminderTimes: [`${String(rt.hour).padStart(2, "0")}:${String(rt.minute).padStart(2, "0")}`],
     };
-  } else if (step === 9) {
+  } else if (step === 10) {
     const warnN = num(f("warningThreshold"));
     const escN = num(f("escalationThreshold"));
     patch = {
@@ -590,6 +672,16 @@ export async function handleWizardSelect(
 
   if (interaction.isRoleSelectMenu()) {
     const roleIds = [...interaction.values];
+    if (field === "requiredRole") {
+      const requiredRoleId = roleIds[0] ?? null;
+      await updateClan(clan.guildId, { requiredRoleId });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      if (requiredRoleId && interaction.guild) {
+        await syncTrackedRoleMembers(refreshed, interaction.guild).catch(() => 0);
+      }
+      await interaction.editReply(wizardStepPayload((await getClan(clan.guildId)) ?? refreshed, step));
+      return;
+    }
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
       officerRoles: "staffRoleIds",
       adminRoles: "adminRoleIds",

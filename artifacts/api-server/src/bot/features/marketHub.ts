@@ -243,6 +243,24 @@ function homeNav() {
   ];
 }
 
+/** Keep Back/Refresh/Search when catalog endpoints fail. */
+function softErrorView(st: MarketState, message: string): BaseMessageOptions {
+  return {
+    content: message,
+    files: [],
+    components: [
+      row(
+        btn("Back", MKT_BACK),
+        btn("Refresh", MKT_REFRESH, ButtonStyle.Primary),
+        btn("Search", MKT_SEARCH, ButtonStyle.Success),
+        btn("Home", MKT_NAV("home")),
+        btn("Browse", MKT_CAT("all"))
+      ),
+      categoryMenu(st),
+    ],
+  };
+}
+
 /* --------------------------------------------------------------- builders */
 
 async function buildHome(st: MarketState): Promise<BaseMessageOptions> {
@@ -259,61 +277,73 @@ async function buildHome(st: MarketState): Promise<BaseMessageOptions> {
 }
 
 async function buildBrowse(st: MarketState): Promise<BaseMessageOptions> {
-  const page = await searchMarketplace({
-    keyword: st.keyword,
-    category: st.category,
-    price: st.price,
-    sort: st.sort,
-    creatorName: st.creatorName,
-    creatorType: st.creatorType,
-    creatorTargetId: st.creatorTargetId,
-    cursor: st.cursor,
-    limit: 28,
-  });
-  st.lastItems = page.items;
-  st.nextCursor = page.nextCursor;
+  try {
+    const page = await searchMarketplace({
+      keyword: st.keyword,
+      category: st.category,
+      price: st.price,
+      sort: st.sort,
+      creatorName: st.creatorName,
+      creatorType: st.creatorType,
+      creatorTargetId: st.creatorTargetId,
+      cursor: st.cursor,
+      limit: 28,
+    });
+    st.lastItems = page.items;
+    st.nextCursor = page.nextCursor;
 
-  const titleParts = [CATEGORY_LABELS[st.category]];
-  if (st.keyword) titleParts.push(`“${st.keyword}”`);
-  if (st.creatorName) titleParts.push(`by ${st.creatorName}`);
+    const titleParts = [CATEGORY_LABELS[st.category]];
+    if (st.keyword) titleParts.push(`“${st.keyword}”`);
+    if (st.creatorName) titleParts.push(`by ${st.creatorName}`);
 
-  const file = await fileFrom(
-    "marketGrid",
-    {
-      title: titleParts.join(" · "),
-      subtitle: `${PRICE_LABELS[st.price]} · ${SORT_LABELS[st.sort]} · ${page.items.length} items`,
-      rows: page.items.slice(0, 12).map((it) => ({
-        name: it.name,
-        meta: `${itemTypeLabel(it)} · ${it.creatorName}`,
-        price: priceLabel(it),
-        iconUrl: it.iconUrl,
-        badge: restrictionBadge(it),
-      })),
-    },
-    "market-browse.png"
-  );
-
-  // Max 4 rows: category · price · pick · nav — stays readable & under Discord's 5-row limit.
-  const components = [categoryMenu(st), priceMenu(st)];
-  if (page.items.length) {
-    components.push(
-      row(
-        new StringSelectMenuBuilder()
-          .setCustomId(MKT_PICK)
-          .setPlaceholder("Open an item…")
-          .addOptions(
-            page.items.slice(0, 25).map((it) => ({
-              label: it.name.slice(0, 100),
-              description: `${priceLabel(it)} · ${itemTypeLabel(it)}`.slice(0, 100),
-              value: `${it.itemType}:${it.id}`,
-            }))
-          )
-      )
+    const file = await fileFrom(
+      "marketGrid",
+      {
+        title: titleParts.join(" · "),
+        subtitle:
+          page.items.length === 0
+            ? `${PRICE_LABELS[st.price]} · ${SORT_LABELS[st.sort]} · no results`
+            : `${PRICE_LABELS[st.price]} · ${SORT_LABELS[st.sort]} · ${page.items.length} items`,
+        rows: page.items.slice(0, 12).map((it) => ({
+          name: it.name,
+          meta: `${itemTypeLabel(it)} · ${it.creatorName}`,
+          price: priceLabel(it),
+          iconUrl: it.iconUrl,
+          badge: restrictionBadge(it),
+        })),
+      },
+      "market-browse.png"
     );
-  }
-  components.push(pageRow(st, st.cursorStack.length > 0, Boolean(page.nextCursor)));
 
-  return { files: [file], components };
+    // Max 4 rows: category · price · pick · nav — stays readable & under Discord's 5-row limit.
+    const components = [categoryMenu(st), priceMenu(st)];
+    if (page.items.length) {
+      components.push(
+        row(
+          new StringSelectMenuBuilder()
+            .setCustomId(MKT_PICK)
+            .setPlaceholder("Open an item…")
+            .addOptions(
+              page.items.slice(0, 25).map((it) => ({
+                label: it.name.slice(0, 100),
+                description: `${priceLabel(it)} · ${itemTypeLabel(it)}`.slice(0, 100),
+                value: `${it.itemType}:${it.id}`,
+              }))
+            )
+        )
+      );
+    }
+    components.push(pageRow(st, st.cursorStack.length > 0, Boolean(page.nextCursor)));
+
+    return {
+      content: page.items.length === 0 ? "No marketplace results for that filter." : "",
+      files: [file],
+      components,
+    };
+  } catch (err) {
+    logRobloxError("marketBrowse", err);
+    return softErrorView(st, toUserError(err));
+  }
 }
 
 async function buildItem(st: MarketState): Promise<BaseMessageOptions> {
@@ -523,7 +553,12 @@ async function replyHub(interaction: ChatInputCommandInteraction, state: MarketS
     armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("marketReplyHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
+    const soft = softErrorView(state, toUserError(err));
+    const msg = await interaction.editReply(replaceHubCard(soft)).catch(() => null);
+    if (msg) {
+      bindHub(msg.id, state);
+      armHubAutoDelete(msg);
+    }
   }
 }
 
@@ -532,24 +567,21 @@ async function updateHub(
   state: MarketState
 ) {
   try {
-    const payload = await buildView(state);
+    const payload = await Promise.race([
+      buildView(state),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Market hub timed out building the card")), 25_000)
+      ),
+    ]);
     // Must clear prior attachments — otherwise every hub click stacks another PNG.
     await interaction.editReply(replaceHubCard(payload));
-    bindHub(interaction.message!.id, state);
-    if (interaction.message) armHubAutoDelete(interaction.message);
+    if (interaction.message) {
+      bindHub(interaction.message.id, state);
+      armHubAutoDelete(interaction.message);
+    }
   } catch (err) {
     logRobloxError("marketUpdateHub", err);
-    await interaction
-      .editReply(
-        replaceHubCard({
-          content: toUserError(err),
-          files: [],
-          components: [
-            row(btn("Search", MKT_SEARCH, ButtonStyle.Success), btn("Home", MKT_NAV("home"))),
-          ],
-        })
-      )
-      .catch(() => {});
+    await interaction.editReply(replaceHubCard(softErrorView(state, toUserError(err)))).catch(() => {});
     if (interaction.message) {
       bindHub(interaction.message.id, state);
       armHubAutoDelete(interaction.message);
@@ -668,7 +700,8 @@ export async function handleMarketButton(interaction: ButtonInteraction): Promis
     return;
   }
 
-  await interaction.deferUpdate();
+  await interaction.deferUpdate().catch(() => null);
+  if (!interaction.deferred && !interaction.replied) return;
 
   if (action === "nav" && arg === "home") {
     Object.assign(st, freshState(st.ownerId));

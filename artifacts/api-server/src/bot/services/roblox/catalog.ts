@@ -10,7 +10,7 @@ import {
   getFavoritesBundlesBundleidCount,
 } from "rozod/endpoints/catalogv1";
 import { getAssets, getBundlesThumbnails } from "rozod/endpoints/thumbnailsv1";
-import { rbxFetch, formatCount } from "./client";
+import { rbxFetch, rbxHttp, formatCount } from "./client";
 import { robloxCache, TTL } from "./cache";
 import { RobloxServiceError } from "./errors";
 
@@ -312,16 +312,32 @@ export async function getAssetIcons(
   if (!assetIds.length) return out;
   for (let i = 0; i < assetIds.length; i += 100) {
     const chunk = assetIds.slice(i, i + 100);
-    const result = await rbxFetch(getAssets, {
-      assetIds: chunk,
-      size,
-      format: "Png",
-      isCircular: false,
-    }).catch(() => null);
-    const data = (result as { data?: Array<{ targetId: number; state?: string; imageUrl?: string }> } | null)
-      ?.data;
+    // Prefer raw HTTP — RoZod rejects batches that include Pending rows with
+    // null imageUrl, which wipes marketplace icons for the whole page.
+    let data: Array<{ targetId: number; state?: string; imageUrl?: string | null }> = [];
+    try {
+      const qs = new URLSearchParams({
+        assetIds: chunk.join(","),
+        size,
+        format: "Png",
+        isCircular: "false",
+      });
+      const result = await rbxHttp<{ data?: typeof data }>(
+        `https://thumbnails.roblox.com/v1/assets?${qs.toString()}`
+      );
+      data = result.data ?? [];
+    } catch {
+      const result = await rbxFetch(getAssets, {
+        assetIds: chunk,
+        size,
+        format: "Png",
+        isCircular: false,
+      }).catch(() => null);
+      data =
+        (result as { data?: typeof data } | null)?.data ?? [];
+    }
     for (const id of chunk) {
-      const row = data?.find((r) => r.targetId === id);
+      const row = data.find((r) => r.targetId === id);
       out.set(id, row?.state !== "Error" && row?.imageUrl ? row.imageUrl : null);
     }
   }
@@ -352,13 +368,17 @@ export async function getBundleIcons(
 }
 
 async function enrichIcons(items: MarketItem[], size: "150x150" | "420x420" = "150x150"): Promise<MarketItem[]> {
-  const assets = items.filter((i) => i.itemType === "Asset").map((i) => i.id);
-  const bundles = items.filter((i) => i.itemType === "Bundle").map((i) => i.id);
-  const [aMap, bMap] = await Promise.all([getAssetIcons(assets, size), getBundleIcons(bundles, size)]);
-  return items.map((i) => ({
-    ...i,
-    iconUrl: (i.itemType === "Bundle" ? bMap.get(i.id) : aMap.get(i.id)) ?? null,
-  }));
+  try {
+    const assets = items.filter((i) => i.itemType === "Asset").map((i) => i.id);
+    const bundles = items.filter((i) => i.itemType === "Bundle").map((i) => i.id);
+    const [aMap, bMap] = await Promise.all([getAssetIcons(assets, size), getBundleIcons(bundles, size)]);
+    return items.map((i) => ({
+      ...i,
+      iconUrl: (i.itemType === "Bundle" ? bMap.get(i.id) : aMap.get(i.id)) ?? null,
+    }));
+  } catch {
+    return items.map((i) => ({ ...i, iconUrl: i.iconUrl ?? null }));
+  }
 }
 
 /* ---------------------------------------------------------------- search */

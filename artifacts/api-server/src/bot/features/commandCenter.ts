@@ -70,7 +70,7 @@ async function officerGuard(
     return null;
   }
   if (!isOfficer(interaction.member, clan)) {
-    const content = "The XP command center is officer-only.";
+    const content = "The command center is officer-only.";
     if (deferred) await interaction.editReply({ content });
     else await interaction.reply({ content, flags: 64 });
     return null;
@@ -127,18 +127,18 @@ export async function handleCommandCenterButton(interaction: ButtonInteraction) 
   switch (action) {
     case "manage":
       // Member editor overview — counts first, then one profile at a time.
-      await interaction.editReply(await buildOverviewPayload(clan));
+      await interaction.editReply(await buildOverviewPayload(clan, interaction.guild));
       return;
     case "warnings":
-      await interaction.editReply(await buildDashboardPayload(clan, "warned", 0));
+      await interaction.editReply(await buildDashboardPayload(clan, "warned", 0, interaction.guild));
       return;
     case "cat": {
       if (arg === "missed") {
-        await interaction.editReply(await missedReply(clan));
+        await interaction.editReply(await missedReply(clan, interaction.guild));
         return;
       }
       const filter = (arg ?? "attention") as DashFilter;
-      await interaction.editReply(await buildDashboardPayload(clan, filter, 0));
+      await interaction.editReply(await buildDashboardPayload(clan, filter, 0, interaction.guild));
       return;
     }
     case "notifs":
@@ -194,8 +194,8 @@ export async function handleCommandCenterSelect(interaction: UserSelectMenuInter
 /* ------------------------------------------------------------ sub-views */
 
 /** Who still owes XP today — the live "missed" list. */
-async function missedReply(clan: Clan) {
-  const members = await listTracked(clan);
+async function missedReply(clan: Clan, guild?: import("discord.js").Guild | null) {
+  const members = await listTracked(clan, guild);
   const missing = await membersMissingToday(clan, members);
   if (!missing.length) {
     return {
@@ -217,8 +217,8 @@ async function missedReply(clan: Clan) {
 }
 
 /** A live "what needs action" feed — the closest thing to a notification center. */
-async function notificationsReply(clan: Clan) {
-  const members = await listTracked(clan);
+async function notificationsReply(clan: Clan, guild?: import("discord.js").Guild | null) {
+  const members = await listTracked(clan, guild);
   const attention = reminderTargets(clan, members);
   const warnable = warningTargets(clan, members);
   const missing = await membersMissingToday(clan, members);

@@ -65,6 +65,7 @@ import {
   handleMarketModal,
 } from "./features/marketHub";
 import { handleLeaderboard } from "./features/leaderboard";
+import { handleViewLink, handleViewLinkAutocomplete } from "./features/viewLink";
 import {
   handleLinkCommand,
   handleLinkAutocomplete,
@@ -99,6 +100,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleWarnings(interaction));
         case "leaderboard":
           return void (await handleLeaderboard(interaction));
+        case "viewlink":
+          return void (await handleViewLink(interaction));
         case "link":
           return void (await handleLinkCommand(interaction));
         case "help":
@@ -127,9 +130,16 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
     }
 
     if (interaction.isAutocomplete()) {
-      if (interaction.commandName === "warnings" || interaction.commandName === "link") {
+      if (
+        interaction.commandName === "warnings" ||
+        interaction.commandName === "link" ||
+        interaction.commandName === "viewlink"
+      ) {
         if (interaction.commandName === "link") {
           return void (await handleLinkAutocomplete(interaction));
+        }
+        if (interaction.commandName === "viewlink") {
+          return void (await handleViewLinkAutocomplete(interaction));
         }
         return void (await handleWarningsAutocomplete(interaction));
       }

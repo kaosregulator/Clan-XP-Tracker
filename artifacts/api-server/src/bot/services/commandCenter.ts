@@ -111,9 +111,12 @@ export interface CommandCenterStats {
 }
 
 /** Everything the command center renders, composed from the existing services. */
-export async function commandCenterStats(clan: Clan): Promise<CommandCenterStats> {
+export async function commandCenterStats(
+  clan: Clan,
+  guild?: import("discord.js").Guild | null
+): Promise<CommandCenterStats> {
   const wk = weekKey(clan);
-  const members = await listTracked(clan);
+  const members = await listTracked(clan, guild);
   const snap = snapshotFrom(clan, members);
   const attention = reminderTargets(clan, members).length;
   const warnable = warningTargets(clan, members).length;
@@ -211,7 +214,10 @@ function bar(pct: number, width = 14): string {
  * previous image is replaced rather than accumulated (see refreshAttachmentFix).
  */
 export async function buildCommandCenterPayload(clan: Clan): Promise<BaseMessageOptions> {
-  const s = await commandCenterStats(clan);
+  const guild = dashboardClient
+    ? await dashboardClient.guilds.fetch(clan.guildId).catch(() => null)
+    : null;
+  const s = await commandCenterStats(clan, guild);
   const pct = Math.round(s.snap.completionRate * 100);
   const needsActionParts = [
     s.unreadNotifs ? `${s.unreadNotifs} unread` : null,

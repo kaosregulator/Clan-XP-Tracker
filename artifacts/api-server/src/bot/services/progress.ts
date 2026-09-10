@@ -7,9 +7,11 @@ import {
   type XpWeekHistory,
 } from "@workspace/db";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import type { Guild } from "discord.js";
 import { logAction } from "./logging";
 import { ensureMember, type MemberIdentity } from "./config";
 import { scheduleDashboardRefresh } from "./commandCenter";
+import { memberIdsWithRoles, roleMemberIdentities } from "./roles";
 import {
   getRequirement,
   getMemberProgress,
@@ -37,12 +39,34 @@ export type MemberStatus =
   | "leave";
 
 export const STATUS_LABEL: Record<MemberStatus, string> = {
-  complete: "✅ Complete",
-  inProgress: "🟡 Needs progress",
-  notStarted: "🔴 Not started",
-  exempt: "🛡️ Exempt",
-  leave: "🌙 On leave",
+  complete: "Complete",
+  inProgress: "Needs progress",
+  notStarted: "Needs activity",
+  exempt: "Exempt",
+  leave: "On leave",
 };
+
+/**
+ * Canvas-safe standing line — no emoji (fonts often render them as ▯ tofu).
+ * Prefer this on leaderboard / player cards over formatProgress + statusOf.
+ */
+export function canvasStandingLabel(clan: Clan, member: ClanMember): string {
+  const s = statusOf(clan, member);
+  switch (s) {
+    case "complete":
+      return "Activity complete";
+    case "inProgress":
+      return clan.trackingMode === "exact" || clan.trackingMode === "custom"
+        ? `${currentProgress(clan, member).toLocaleString()} / ${effectiveGoal(clan, member).toLocaleString()}`
+        : "In progress";
+    case "notStarted":
+      return "Needs activity";
+    case "exempt":
+      return "Exempt";
+    case "leave":
+      return "On leave";
+  }
+}
 
 /**
  * The goal this member is measured against for the configured tracking period.
@@ -76,9 +100,9 @@ export function formatProgress(clan: Clan, member: ClanMember): string {
   const progress = currentProgress(clan, member);
   const goal = effectiveGoal(clan, member);
   if (clan.trackingMode === "complete") {
-    return progress >= goal ? "✅ Complete" : `🟡 Needs ${clan.activityName}`;
+    return progress >= goal ? "Complete" : `Needs activity`;
   }
-  const unit = clan.trackingMode === "exact" ? ` ${clan.activityName}` : "";
+  const unit = clan.trackingMode === "exact" || clan.trackingMode === "custom" ? ` ${clan.activityName}` : "";
   return `${progress.toLocaleString()}/${goal.toLocaleString()}${unit}`;
 }
 
@@ -296,12 +320,31 @@ export async function setGoalOverride(
 
 /* ---------------------------------------------------------------- queries */
 
-export async function listTracked(clan: Clan): Promise<ClanMember[]> {
-  return db
+/**
+ * Members tracked for clan activity.
+ * When `requiredRoleId` is set and a Guild is provided, only members who
+ * currently hold that role are returned (activity roster).
+ */
+export async function listTracked(clan: Clan, guild?: Guild | null): Promise<ClanMember[]> {
+  const rows = await db
     .select()
     .from(clanMembersTable)
     .where(eq(clanMembersTable.guildId, clan.guildId))
     .orderBy(clanMembersTable.displayName);
+
+  if (!clan.requiredRoleId || !guild) return rows;
+  const ids = new Set(await memberIdsWithRoles(guild, [clan.requiredRoleId]));
+  return rows.filter((m) => ids.has(m.userId));
+}
+
+/** Ensure everyone in the tracked activity role has a clan_members row. */
+export async function syncTrackedRoleMembers(clan: Clan, guild: Guild): Promise<number> {
+  if (!clan.requiredRoleId) return 0;
+  const identities = await roleMemberIdentities(guild, clan.requiredRoleId);
+  for (const identity of identities) {
+    await ensureMember(clan.guildId, identity);
+  }
+  return identities.length;
 }
 
 export interface WeeklySnapshot {

@@ -73,6 +73,7 @@ function mapGameLike(raw: Record<string, unknown>, iconUrl: string | null = null
           ? Number(raw.deltaPct)
           : null,
     snapshotCount: raw.snapshotCount == null ? null : asNum(raw.snapshotCount),
+    updatedAt: asStr(raw.updated || raw.updatedAt || "", "") || null,
   };
 }
 
@@ -660,6 +661,41 @@ export async function ensureMilitarySnapshot(): Promise<void> {
   }
 }
 
+/**
+ * Recently updated experiences among tracked + popular seed universes.
+ * Uses Roblox games API `updated` timestamps (not news/leak scrapers).
+ */
+export async function getRecentlyUpdated(limit = 12): Promise<ScoutGameRow[]> {
+  const store = getScoutStore();
+  const tracked = store?.getTrackedUniverseIds() ?? [];
+  const seed = [
+    MILITARY_TYCOON_UNIVERSE_ID,
+    ...tracked,
+    ...SCOUT_PRESET_UNIVERSE_IDS,
+  ].filter((id) => Number.isFinite(id) && id > 0);
+  const unique = [...new Set(seed)].slice(0, 40);
+  if (!unique.length) return [];
+
+  try {
+    const games = await getScoutClient().getGames(unique);
+    const ranked = games
+      .map((g) => mapGameLike(g as unknown as Record<string, unknown>))
+      .filter((g) => g.universeId > 0 && g.updatedAt)
+      .sort((a, b) => {
+        const ta = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+        const tb = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+        return tb - ta;
+      })
+      .slice(0, Math.max(1, limit));
+    return enrichRows(ranked);
+  } catch (err) {
+    throw new ScoutServiceError(
+      "unavailable",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 export const ScoutService = {
   search: searchScoutGames,
   resolveGame: resolveScoutGame,
@@ -668,6 +704,7 @@ export const ScoutService = {
   presetTop: getPresetTopGames,
   topByGenre: getTopGamesByGenre,
   upAndComing: getUpAndComing,
+  recentlyUpdated: getRecentlyUpdated,
   compare: compareScoutGames,
   vsGenre: analyzeVsGenre,
   snapshot: takeSnapshots,

@@ -592,7 +592,10 @@ export async function handleLinkModal(interaction: ModalSubmitInteraction) {
       const q = interaction.fields.getTextInputValue("query").trim();
       let userId = /^\d{16,20}$/.test(q) ? q : null;
       if (!userId && interaction.guildId) {
-        const tracked = await listTracked(await getClan(interaction.guildId).then((c) => c!));
+        const tracked = await listTracked(
+          await getClan(interaction.guildId).then((c) => c!),
+          interaction.guild
+        );
         const hit = tracked.find(
           (m) =>
             m.username.toLowerCase() === q.toLowerCase() ||

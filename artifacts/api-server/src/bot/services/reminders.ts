@@ -93,7 +93,7 @@ function reminderEmbed(
   const robloxUrl = faces?.robloxAvatarUrl || null;
   return new EmbedBuilder()
     .setColor(0xfaa61a)
-    .setAuthor({ name: `🔔 XP REMINDER • ${clan.clanName}`, iconURL: discordUrl || undefined })
+    .setAuthor({ name: `🔔 ACTIVITY REMINDER • ${clan.clanName}`, iconURL: discordUrl || undefined })
     .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(
       `${body}\n\nThe ${periodAdjective(clan)} period resets ${deadline}. Just a friendly nudge — not a warning.`
@@ -155,7 +155,7 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
       if (channel?.isTextBased() && "send" in channel) {
         const mention = clan.pingReminders ? `<@${target.id}>` : `**${target.username}**`;
         await channel.send({
-          content: `🔔 ${mention} — this is your XP reminder.`,
+          content: `🔔 ${mention} — this is your activity reminder.`,
           ...(card ? { files: [reminderAttachment(card)] } : { embeds: [embed] }),
           allowedMentions: clan.pingReminders ? { users: [target.id] } : { parse: [] },
         });

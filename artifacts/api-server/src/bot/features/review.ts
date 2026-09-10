@@ -75,7 +75,7 @@ export async function buildReviewPayload(
     await syncRoleFlags(clan, exemptIds, leaveIds);
   }
 
-  const members = await listTracked(clan);
+  const members = await listTracked(clan, interaction.guild);
   const snap = snapshotFrom(clan, members);
   const remindable = reminderTargets(clan, members).length;
   const warnable = warningTargets(clan, members).length;
@@ -143,7 +143,7 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
 
   switch (action) {
     case "remind": {
-      const members = await listTracked(clan);
+      const members = await listTracked(clan, interaction.guild);
       const targets = reminderTargets(clan, members);
       if (!targets.length) {
         await interaction.editReply({ content: "Everyone is complete, exempt or on leave — nobody to remind. 🎉" });
@@ -165,7 +165,7 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
     }
 
     case "warn": {
-      const members = await listTracked(clan);
+      const members = await listTracked(clan, interaction.guild);
       const targets = warningTargets(clan, members);
       if (!targets.length) {
         await interaction.editReply({
@@ -193,7 +193,7 @@ export async function handleReviewButton(interaction: ButtonInteraction) {
     }
 
     case "warnConfirm": {
-      const members = await listTracked(clan);
+      const members = await listTracked(clan, interaction.guild);
       const targets = warningTargets(clan, members);
       const queue = new PQueue({ concurrency: 2, intervalCap: 2, interval: 1000 });
       let issued = 0;

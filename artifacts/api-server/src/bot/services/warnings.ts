@@ -758,7 +758,7 @@ export async function clearWarningRolesForSatisfiedMembers(
   const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
   if (!guild) return 0;
 
-  const members = await listTracked(clan);
+  const members = await listTracked(clan, guild);
   let cleared = 0;
 
   for (const member of members) {

@@ -46,6 +46,9 @@ export async function getUserBadgesPage(
   page = 0,
   cursor?: string | null
 ): Promise<PageResult<RobloxBadge>> {
+  // Note: Roblox now returns 401 for user badge inventory lists without a
+  // cookie. rbxFetch maps that to auth_required (not "temporarily unavailable").
+  // Universe badge catalogs remain public via getUniverseBadgesPage.
   const result = await rbxFetch(getUsersUseridBadges, {
     userId,
     limit: 10,

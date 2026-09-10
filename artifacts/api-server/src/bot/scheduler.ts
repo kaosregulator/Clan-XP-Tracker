@@ -53,7 +53,8 @@ function officerMention(clan: Clan): string {
 
 /** Scheduled reminders to everyone still short of the configured requirement. */
 async function runReminderWindow(client: Client, clan: Clan) {
-  const members = await listTracked(clan);
+  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
+  const members = await listTracked(clan, guild);
   const targets = reminderTargets(clan, members);
   if (!targets.length) return;
 
@@ -78,7 +79,8 @@ async function runReminderWindow(client: Client, clan: Clan) {
  * (daily → every day at resetTime; weekly → week-start day at resetTime).
  */
 async function runPeriodReset(client: Client, clan: Clan) {
-  const members = await listTracked(clan);
+  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
+  const members = await listTracked(clan, guild);
   const snap = snapshotFrom(clan, members);
   const channel = clan.warningChannelId ?? clan.logChannelId ?? clan.reminderChannelId;
   const label = periodLabel(clan);
@@ -109,7 +111,8 @@ async function runOfficerMonitoring(client: Client, clan: Clan, dateKey: string)
   const channel = clan.warningChannelId ?? clan.logChannelId;
   if (!channel) return;
 
-  const members = await listTracked(clan);
+  const guild = await client.guilds.fetch(clan.guildId).catch(() => null);
+  const members = await listTracked(clan, guild);
   const snap = snapshotFrom(clan, members);
   const warnable = warningTargets(clan, members).length;
   if (!warnable) return;

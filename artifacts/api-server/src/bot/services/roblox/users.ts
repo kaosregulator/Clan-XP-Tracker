@@ -4,9 +4,9 @@ import {
   getUsersUseridUsernameHistory,
   postUsernamesUsers,
 } from "rozod/endpoints/usersv1";
-import { rbxFetch } from "./client";
+import { rbxFetch, rbxHttp } from "./client";
 import { robloxCache, TTL } from "./cache";
-import { RobloxServiceError } from "./errors";
+import { RobloxServiceError, logRobloxError } from "./errors";
 import { withFallback } from "./providers/fallback";
 import { rbxianUserByName, rbxianUserDetails } from "./providers/robloxian";
 import type { RobloxUser, RobloxUserSearchHit } from "./types";
@@ -229,4 +229,72 @@ export async function getUsernameHistory(
   const names =
     (result as { data?: Array<{ name: string }> }).data?.map((x) => x.name) ?? [];
   return robloxCache.set(key, names, TTL.history);
+}
+
+/**
+ * Batch-resolve usernames for friend / follower IDs.
+ *
+ * Roblox's public friends list now returns `{ id, name: "", displayName: "" }`
+ * (privacy change). Names must be filled via POST https://users.roblox.com/v1/users
+ * (max ~100 ids per call).
+ */
+export async function getUsersByIds(
+  userIds: number[]
+): Promise<Map<number, { name: string; displayName: string; hasVerifiedBadge: boolean }>> {
+  const out = new Map<number, { name: string; displayName: string; hasVerifiedBadge: boolean }>();
+  const unique = [...new Set(userIds.filter((id) => Number.isFinite(id) && id > 0))];
+  const missing: number[] = [];
+
+  for (const id of unique) {
+    const cached = robloxCache.get<RobloxUser>(`user:${id}`);
+    if (cached) {
+      out.set(id, {
+        name: cached.name,
+        displayName: cached.displayName,
+        hasVerifiedBadge: cached.hasVerifiedBadge,
+      });
+    } else {
+      missing.push(id);
+    }
+  }
+
+  for (let i = 0; i < missing.length; i += 100) {
+    const chunk = missing.slice(i, i + 100);
+    try {
+      // Prefer raw HTTP — same public endpoint RoZod wraps — so empty-name
+      // friend rows don't depend on RoZod body typing quirks.
+      const result = await rbxHttp<{
+        data?: Array<{
+          id: number;
+          name: string;
+          displayName?: string;
+          hasVerifiedBadge?: boolean;
+          isBanned?: boolean;
+        }>;
+      }>("https://users.roblox.com/v1/users", {
+        method: "POST",
+        body: { userIds: chunk, excludeBannedUsers: false },
+      });
+      for (const row of result.data ?? []) {
+        const mapped = mapUser({
+          id: row.id,
+          name: row.name,
+          displayName: row.displayName || row.name,
+          isBanned: row.isBanned,
+          hasVerifiedBadge: row.hasVerifiedBadge,
+        });
+        robloxCache.set(`user:${row.id}`, mapped, TTL.user);
+        out.set(row.id, {
+          name: mapped.name,
+          displayName: mapped.displayName,
+          hasVerifiedBadge: mapped.hasVerifiedBadge,
+        });
+      }
+    } catch (err) {
+      logRobloxError("getUsersByIds", err);
+      // Fall through — callers still have ids; names stay placeholders.
+    }
+  }
+
+  return out;
 }

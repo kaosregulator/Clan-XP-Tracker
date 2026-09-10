@@ -1,14 +1,15 @@
 /**
- * Clean-standing leaderboard — who can go without warnings.
+ * Activity standing leaderboard — who can go without warnings.
  */
 import {
   AttachmentBuilder,
   type ChatInputCommandInteraction,
   type AutocompleteInteraction,
+  type Guild,
 } from "discord.js";
 import type { Clan, ClanMember } from "@workspace/db";
 import { getClan, isOfficer } from "../services/config";
-import { listTracked, formatProgress, statusOf } from "../services/progress";
+import { listTracked, canvasStandingLabel } from "../services/progress";
 import { countLifetime, cardAvatarPair } from "../services/warnings";
 import { renderOffThread } from "../canvas/render-pool";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
@@ -39,7 +40,12 @@ async function withLifetime(clan: Clan, members: ClanMember[]): Promise<ClanMemb
   return out;
 }
 
-function toRow(clan: Clan, m: ClanMember, rank: number) {
+function trackRoleName(clan: Clan, guild: Guild | null): string | null {
+  if (!clan.requiredRoleId || !guild) return null;
+  return guild.roles.cache.get(clan.requiredRoleId)?.name ?? null;
+}
+
+function toRow(clan: Clan, m: ClanMember, rank: number, roleName: string | null) {
   const faces = cardAvatarPair(m, m.avatarUrl);
   return {
     rank,
@@ -50,8 +56,22 @@ function toRow(clan: Clan, m: ClanMember, rank: number) {
     robloxAvatarUrl: faces.robloxAvatarUrl,
     cleanPoints: m.cleanPoints ?? 0,
     lifetimeWarnings: m.lifetimeWarnings ?? 0,
-    progressLabel: `${formatProgress(clan, m)} · ${statusOf(clan, m)}`,
+    progressLabel: canvasStandingLabel(clan, m),
+    roleLabel: roleName ?? undefined,
   };
+}
+
+/** Ranked clean-standing list for leaderboard + /viewlink podium. */
+export async function rankedCleanStanding(
+  clan: Clan,
+  guild: Guild | null
+): Promise<{ members: ClanMember[]; neverWarned: ClanMember[]; roleName: string | null }> {
+  const raw = await listTracked(clan, guild);
+  const members = (await withLifetime(clan, raw))
+    .filter((m) => !m.exempt && !m.onLeave)
+    .sort(sortClean);
+  const neverWarned = members.filter((m) => (m.lifetimeWarnings ?? 0) === 0);
+  return { members, neverWarned, roleName: trackRoleName(clan, guild) };
 }
 
 export async function handleLeaderboard(interaction: ChatInputCommandInteraction) {
@@ -63,15 +83,12 @@ export async function handleLeaderboard(interaction: ChatInputCommandInteraction
     return;
   }
   try {
-    const raw = await listTracked(clan);
-    const members = (await withLifetime(clan, raw))
-      .filter((m) => !m.exempt && !m.onLeave)
-      .sort(sortClean);
-    const neverWarned = members.filter((m) => (m.lifetimeWarnings ?? 0) === 0);
-    const podium = neverWarned.slice(0, 3).map((m, i) => toRow(clan, m, i + 1));
-    const rows = members.slice(0, 10).map((m, i) => toRow(clan, m, i + 1));
+    const { members, neverWarned, roleName } = await rankedCleanStanding(clan, interaction.guild);
+    const podium = neverWarned.slice(0, 3).map((m, i) => toRow(clan, m, i + 1, roleName));
+    const rows = members.slice(0, 10).map((m, i) => toRow(clan, m, i + 1, roleName));
     const png = await renderOffThread("leaderboardCard", {
       communityName: clan.clanName,
+      trackRoleName: roleName,
       podium,
       rows,
       neverWarnedCount: neverWarned.length,
@@ -79,7 +96,7 @@ export async function handleLeaderboard(interaction: ChatInputCommandInteraction
     });
     const msg = await interaction.editReply(
       replaceHubCard({
-        files: [new AttachmentBuilder(png, { name: "clean-leaderboard.png" })],
+        files: [new AttachmentBuilder(png, { name: "activity-leaderboard.png" })],
       })
     );
     armHubAutoDelete(msg);
@@ -104,14 +121,16 @@ export async function handleMemberSearchAutocomplete(
     await interaction.respond([]);
     return;
   }
-  const members = await listTracked(clan);
-  const hits = (q ? members.filter((m) => {
-    return (
-      m.username.toLowerCase().includes(q) ||
-      m.displayName.toLowerCase().includes(q) ||
-      (m.gameUsername?.toLowerCase().includes(q) ?? false)
-    );
-  }) : members)
+  const members = await listTracked(clan, interaction.guild);
+  const hits = (q
+    ? members.filter((m) => {
+        return (
+          m.username.toLowerCase().includes(q) ||
+          m.displayName.toLowerCase().includes(q) ||
+          (m.gameUsername?.toLowerCase().includes(q) ?? false)
+        );
+      })
+    : members)
     .slice(0, 10)
     .map((m) => ({
       name: `${m.displayName || m.username}${m.gameUsername ? ` · ${m.gameUsername}` : ""}`.slice(
@@ -124,11 +143,8 @@ export async function handleMemberSearchAutocomplete(
 }
 
 /** Rank of a member on the clean leaderboard (1-based), or null if not ranked. */
-export async function cleanRankOf(clan: Clan, userId: string): Promise<number | null> {
-  const raw = await listTracked(clan);
-  const members = (await withLifetime(clan, raw))
-    .filter((m) => !m.exempt && !m.onLeave)
-    .sort(sortClean);
+export async function cleanRankOf(clan: Clan, userId: string, guild?: Guild | null): Promise<number | null> {
+  const { members } = await rankedCleanStanding(clan, guild ?? null);
   const idx = members.findIndex((m) => m.userId === userId);
   return idx >= 0 ? idx + 1 : null;
 }
