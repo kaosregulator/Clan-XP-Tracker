@@ -41,10 +41,19 @@ export function requireOpenCloud(): void {
 
 type AnyErrorLike = {
   status?: number;
+  code?: number;
   error?: string;
   message?: string;
   errors?: Array<{ message?: string; code?: number }>;
 };
+
+/** RoZod often omits HTTP status and returns { code: 9002, message: "Authentication token is missing" }. */
+function looksLikeAuth(msg: string, code?: number): boolean {
+  if (code === 9002) return true;
+  return /authentication token is missing|authorization has been denied|not authenticated|login required|cookie.*(required|missing)|auth(entication|orization)? (is )?required/i.test(
+    msg
+  );
+}
 
 function classifyError(err: AnyErrorLike): RobloxServiceError {
   const status = err.status ?? 0;
@@ -56,7 +65,7 @@ function classifyError(err: AnyErrorLike): RobloxServiceError {
 
   if (status === 429) return new RobloxServiceError("rate_limited", msg);
   if (status === 404) return new RobloxServiceError("not_found", msg);
-  if (status === 401 || status === 403) {
+  if (status === 401 || status === 403 || looksLikeAuth(msg, err.code)) {
     return new RobloxServiceError("auth_required", msg);
   }
   // RoZod sometimes surfaces schema/transport failures as { code: 0, message: "" }.
