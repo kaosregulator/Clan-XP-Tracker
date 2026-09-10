@@ -178,6 +178,11 @@ export async function rbxHttp<T>(
     return (await res.json()) as T;
   } catch (err) {
     if (err instanceof RobloxServiceError) throw err;
+    // AbortSignal.timeout / network failures land here — never hang Discord.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/abort|timeout|TimeoutError/i.test(msg) || (err instanceof Error && err.name === "AbortError")) {
+      throw new RobloxServiceError("unavailable", `timeout ${url}: ${msg}`);
+    }
     throw new RobloxServiceError(
       "unavailable",
       err instanceof Error ? err.message : String(err)

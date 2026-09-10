@@ -246,6 +246,35 @@ function navRows(st: HubState, opts: { hasPrev?: boolean; hasNext?: boolean; ext
   return rows;
 }
 
+/** Keep the hub alive when a Roblox endpoint fails — Back/Refresh/Home always work. */
+function softErrorView(st: HubState, message: string): BaseMessageOptions {
+  const hasUser = st.robloxUserId != null;
+  return {
+    content: message,
+    files: [],
+    components: [
+      row(
+        btn(RBX_BACK, "Back"),
+        btn(RBX_REFRESH, "Refresh", ButtonStyle.Primary),
+        btn(RBX_NAV("player"), "Player Card", ButtonStyle.Secondary, !hasUser),
+        btn(RBX_NAV("home"), "Hub Home"),
+        btn(RBX_SEARCH, "Search", ButtonStyle.Success)
+      ),
+      ...(hasUser
+        ? [
+            row(
+              btn(RBX_NAV("friends"), "Friends"),
+              btn(RBX_NAV("groups"), "Groups"),
+              btn(RBX_NAV("badges"), "Badges"),
+              btn(RBX_NAV("avatar"), "Avatar"),
+              btn(RBX_NAV("status"), "Status")
+            ),
+          ]
+        : []),
+    ],
+  };
+}
+
 /* --------------------------------------------------------------- renderers */
 
 async function fileFrom(fn: string, params: unknown, name: string): Promise<AttachmentBuilder> {
@@ -468,65 +497,101 @@ async function buildBadges(st: HubState): Promise<BaseMessageOptions> {
 
 async function buildFriends(st: HubState): Promise<BaseMessageOptions> {
   if (!st.robloxUserId) return buildHome();
-  const user = await RobloxService.getUserById(st.robloxUserId);
+  let userName = `User ${st.robloxUserId}`;
+  try {
+    const user = await RobloxService.getUserById(st.robloxUserId);
+    userName = user.name;
+  } catch (err) {
+    logRobloxError("buildFriends.user", err);
+    // Still try the friends list — identity failure shouldn't wipe the view.
+  }
+
   const kind = st.view === "followers" ? "followers" : st.view === "following" ? "following" : "friends";
 
-  let page;
-  let totalLabel: string;
-  if (kind === "friends") {
-    page = await RobloxService.getFriendsPage(st.robloxUserId, st.page, 8);
-    totalLabel = `${page.total} friends`;
-  } else if (kind === "followers") {
-    page = await RobloxService.getFollowersPage(st.robloxUserId, st.page, st.cursor);
-    const count = await RobloxService.getFollowerCount(st.robloxUserId).catch(() => null);
-    totalLabel = count != null ? `${RobloxService.formatCount(count)} followers` : "Followers";
-  } else {
-    page = await RobloxService.getFollowingPage(st.robloxUserId, st.page, st.cursor);
-    const count = await RobloxService.getFollowingCount(st.robloxUserId).catch(() => null);
-    totalLabel = count != null ? `${RobloxService.formatCount(count)} following` : "Following";
-  }
+  try {
+    let page;
+    let totalLabel: string;
+    if (kind === "friends") {
+      page = await RobloxService.getFriendsPage(st.robloxUserId, st.page, 8);
+      totalLabel = `${page.total} friends`;
+    } else if (kind === "followers") {
+      page = await RobloxService.getFollowersPage(st.robloxUserId, st.page, st.cursor);
+      const count = await RobloxService.getFollowerCount(st.robloxUserId).catch(() => null);
+      totalLabel = count != null ? `${RobloxService.formatCount(count)} followers` : "Followers";
+    } else {
+      page = await RobloxService.getFollowingPage(st.robloxUserId, st.page, st.cursor);
+      const count = await RobloxService.getFollowingCount(st.robloxUserId).catch(() => null);
+      totalLabel = count != null ? `${RobloxService.formatCount(count)} following` : "Following";
+    }
 
-  (st as HubState & { _next?: string | null })._next = page.nextCursor ?? null;
+    (st as HubState & { _next?: string | null })._next = page.nextCursor ?? null;
 
-  const file = await fileFrom(
-    "robloxFriends",
-    {
-      title: kind,
-      subtitle: user.name,
-      page: st.page,
-      totalLabel,
-      friends: page.items.map((f) => ({
-        username: f.name,
-        displayName: f.displayName,
-        headshotUrl: f.headshotUrl,
-      })),
-    },
-    "roblox-friends.png"
-  );
-
-  const components = navRows(st, { hasPrev: st.page > 0, hasNext: page.hasMore });
-  if (kind === "friends" && page.items.length > 0) {
-    const select = new StringSelectMenuBuilder()
-      .setCustomId(RBX_PICK_FRIEND)
-      .setPlaceholder("Open a friend's profile")
-      .addOptions(
-        page.items.slice(0, 25).map((f) => ({
-          label: f.name.slice(0, 100),
-          description: f.displayName !== f.name ? f.displayName.slice(0, 100) : `ID ${f.id}`,
-          value: String(f.id),
-        }))
-      );
-    components.unshift(row(select));
-  } else if (kind === "friends") {
-    components.unshift(
-      row(
-        btn(RBX_NAV("followers"), "Followers"),
-        btn(RBX_NAV("following"), "Following")
-      )
+    const file = await fileFrom(
+      "robloxFriends",
+      {
+        title: kind,
+        subtitle: userName,
+        page: st.page,
+        totalLabel,
+        friends: page.items.map((f) => ({
+          username: f.name,
+          displayName: f.displayName,
+          headshotUrl: f.headshotUrl,
+        })),
+        note:
+          page.items.length === 0
+            ? kind === "friends"
+              ? "No friends to show (empty or private)."
+              : `No ${kind} to show.`
+            : null,
+      },
+      "roblox-friends.png"
     );
-  }
 
-  return { files: [file], components };
+    const components = navRows(st, { hasPrev: st.page > 0, hasNext: page.hasMore });
+    if (kind === "friends" && page.items.length > 0) {
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(RBX_PICK_FRIEND)
+        .setPlaceholder("Open a friend's profile")
+        .addOptions(
+          page.items.slice(0, 25).map((f) => ({
+            label: f.name.slice(0, 100),
+            description: f.displayName !== f.name ? f.displayName.slice(0, 100) : `ID ${f.id}`,
+            value: String(f.id),
+          }))
+        );
+      components.unshift(row(select));
+    } else if (kind === "friends") {
+      components.unshift(
+        row(btn(RBX_NAV("followers"), "Followers"), btn(RBX_NAV("following"), "Following"))
+      );
+    }
+
+    return { files: [file], components };
+  } catch (err) {
+    logRobloxError(`buildFriends.${kind}`, err);
+    const file = await fileFrom(
+      "robloxFriends",
+      {
+        title: kind,
+        subtitle: userName,
+        page: st.page,
+        totalLabel: kind,
+        friends: [],
+        note: toUserError(err),
+      },
+      "roblox-friends.png"
+    ).catch(() => null);
+
+    if (file) {
+      return {
+        content: toUserError(err),
+        files: [file],
+        components: navRows(st),
+      };
+    }
+    return softErrorView(st, toUserError(err));
+  }
 }
 
 async function buildHistory(st: HubState): Promise<BaseMessageOptions> {
@@ -1061,7 +1126,12 @@ async function replyHub(
     armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("replyHub", err);
-    await interaction.editReply(clearHubCard(toUserError(err))).catch(() => {});
+    const soft = softErrorView(state, toUserError(err));
+    const msg = await interaction.editReply(replaceHubCard(soft)).catch(() => null);
+    if (msg) {
+      bindHub(msg.id, state);
+      armHubAutoDelete(msg);
+    }
   }
 }
 
@@ -1070,25 +1140,21 @@ async function updateHub(
   state: HubState
 ): Promise<void> {
   try {
-    const payload = await buildView(state);
+    const payload = await Promise.race([
+      buildView(state),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Roblox hub timed out building the card")), 25_000)
+      ),
+    ]);
     // Must clear prior attachments — otherwise every hub click stacks another PNG.
     await interaction.editReply(replaceHubCard(payload));
-    bindHub(interaction.message!.id, state);
-    if (interaction.message) armHubAutoDelete(interaction.message);
+    if (interaction.message) {
+      bindHub(interaction.message.id, state);
+      armHubAutoDelete(interaction.message);
+    }
   } catch (err) {
     logRobloxError("updateHub", err);
-    // Keep chrome so a failed lookup doesn't strip the whole hub.
-    await interaction
-      .editReply(
-        replaceHubCard({
-          content: toUserError(err),
-          files: [],
-          components: [
-            row(btn(RBX_SEARCH, "New Search", ButtonStyle.Primary), btn(RBX_NAV("home"), "Hub Home")),
-          ],
-        })
-      )
-      .catch(() => {});
+    await interaction.editReply(replaceHubCard(softErrorView(state, toUserError(err)))).catch(() => {});
     if (interaction.message) {
       bindHub(interaction.message.id, state);
       armHubAutoDelete(interaction.message);
@@ -1306,7 +1372,11 @@ export async function handleRobloxButton(interaction: ButtonInteraction): Promis
     return;
   }
 
-  await interaction.deferUpdate();
+  await interaction.deferUpdate().catch(() => null);
+  if (interaction.deferred === false && interaction.replied === false) {
+    // Couldn't acknowledge — avoid throwing further into Discord's failed state.
+    return;
+  }
 
   if (action === "refresh") {
     // Bust presence/game caches lightly by advancing timestamp; service TTLs still apply.
@@ -1370,7 +1440,8 @@ export async function handleRobloxSelect(interaction: StringSelectMenuInteractio
     });
     return;
   }
-  await interaction.deferUpdate();
+  await interaction.deferUpdate().catch(() => null);
+  if (!interaction.deferred && !interaction.replied) return;
   const { action } = parseId(interaction.customId);
   const value = interaction.values[0];
   if (!value) return;

@@ -15,7 +15,8 @@ export type ScoutView =
   | "report"
   | "revenue"
   | "devex"
-  | "tracked";
+  | "tracked"
+  | "updates";
 
 export interface ScoutGameRow {
   universeId: number;
@@ -30,6 +31,8 @@ export interface ScoutGameRow {
   iconUrl: string | null;
   deltaPct?: number | null;
   snapshotCount?: number | null;
+  /** ISO timestamp from Roblox games API when available. */
+  updatedAt?: string | null;
 }
 
 export interface ScoutSnapshotPoint {

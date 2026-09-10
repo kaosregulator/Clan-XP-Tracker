@@ -38,16 +38,20 @@ export async function getPresence(userIds: number[]): Promise<Map<number, Roblox
   // Batch in chunks of 100 (Roblox limit is generous; stay conservative).
   for (let i = 0; i < missing.length; i += 100) {
     const chunk = missing.slice(i, i + 100);
-    const result = await rbxFetch(postPresenceUsers, {
-      body: { userIds: chunk },
-    });
-    const list =
-      (result as { userPresences?: Array<Parameters<typeof mapPresence>[0]> })
-        .userPresences ?? [];
-    for (const p of list) {
-      const mapped = mapPresence(p);
-      robloxCache.set(`presence:${mapped.userId}`, mapped, TTL.presence);
-      out.set(mapped.userId, mapped);
+    try {
+      const result = await rbxFetch(postPresenceUsers, {
+        body: { userIds: chunk },
+      });
+      const list =
+        (result as { userPresences?: Array<Parameters<typeof mapPresence>[0]> })
+          .userPresences ?? [];
+      for (const p of list) {
+        const mapped = mapPresence(p);
+        robloxCache.set(`presence:${mapped.userId}`, mapped, TTL.presence);
+        out.set(mapped.userId, mapped);
+      }
+    } catch {
+      // Presence is decorative — never sink player/status views.
     }
   }
   return out;

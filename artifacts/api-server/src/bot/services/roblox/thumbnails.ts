@@ -64,6 +64,10 @@ export async function getHeadshots(userIds: number[]): Promise<Map<number, strin
   const out = new Map<number, string | null>();
   const missing: number[] = [];
   for (const id of userIds) {
+    if (!Number.isFinite(id) || id <= 0) {
+      out.set(id, null);
+      continue;
+    }
     const cached = robloxCache.get<string | null>(`head:${id}`);
     if (cached !== undefined) out.set(id, cached);
     else missing.push(id);
@@ -72,17 +76,24 @@ export async function getHeadshots(userIds: number[]): Promise<Map<number, strin
 
   for (let i = 0; i < missing.length; i += 100) {
     const chunk = missing.slice(i, i + 100);
-    const result = await rbxFetch(getUsersAvatarHeadshot, {
-      userIds: chunk,
-      size: "150x150",
-      format: "Png",
-      isCircular: false,
-    });
-    const data = (result as { data?: ThumbRow[] }).data ?? [];
-    for (const id of chunk) {
-      const url = pickUrl(data, id);
-      robloxCache.set(`head:${id}`, url, TTL.thumbnails);
-      out.set(id, url);
+    try {
+      const result = await rbxFetch(getUsersAvatarHeadshot, {
+        userIds: chunk,
+        size: "150x150",
+        format: "Png",
+        isCircular: false,
+      });
+      const data = (result as { data?: ThumbRow[] }).data ?? [];
+      for (const id of chunk) {
+        const url = pickUrl(data, id);
+        robloxCache.set(`head:${id}`, url, TTL.thumbnails);
+        out.set(id, url);
+      }
+    } catch {
+      // One thumbnail batch must never sink friends / lists.
+      for (const id of chunk) {
+        out.set(id, null);
+      }
     }
   }
   return out;
@@ -91,16 +102,20 @@ export async function getHeadshots(userIds: number[]): Promise<Map<number, strin
 export async function getGroupIcons(groupIds: number[]): Promise<Map<number, string | null>> {
   const out = new Map<number, string | null>();
   if (groupIds.length === 0) return out;
-  const result = await rbxFetch(getGroupsIcons, {
-    groupIds,
-    size: "150x150",
-    format: "Png",
-    isCircular: false,
-  });
-  const data = (result as { data?: ThumbRow[] }).data ?? [];
-  for (const id of groupIds) {
-    const url = pickUrl(data, id);
-    out.set(id, url);
+  try {
+    const result = await rbxFetch(getGroupsIcons, {
+      groupIds,
+      size: "150x150",
+      format: "Png",
+      isCircular: false,
+    });
+    const data = (result as { data?: ThumbRow[] }).data ?? [];
+    for (const id of groupIds) {
+      const url = pickUrl(data, id);
+      out.set(id, url);
+    }
+  } catch {
+    for (const id of groupIds) out.set(id, null);
   }
   return out;
 }
@@ -108,13 +123,17 @@ export async function getGroupIcons(groupIds: number[]): Promise<Map<number, str
 export async function getBadgeIcons(badgeIds: number[]): Promise<Map<number, string | null>> {
   const out = new Map<number, string | null>();
   if (badgeIds.length === 0) return out;
-  const result = await rbxFetch(getBadgesIcons, {
-    badgeIds,
-    size: "150x150",
-    format: "Png",
-  });
-  const data = (result as { data?: ThumbRow[] }).data ?? [];
-  for (const id of badgeIds) out.set(id, pickUrl(data, id));
+  try {
+    const result = await rbxFetch(getBadgesIcons, {
+      badgeIds,
+      size: "150x150",
+      format: "Png",
+    });
+    const data = (result as { data?: ThumbRow[] }).data ?? [];
+    for (const id of badgeIds) out.set(id, pickUrl(data, id));
+  } catch {
+    for (const id of badgeIds) out.set(id, null);
+  }
   return out;
 }
 
@@ -139,16 +158,20 @@ export async function getGameIcons(universeIds: number[]): Promise<Map<number, s
   }
   for (let i = 0; i < missing.length; i += 100) {
     const chunk = missing.slice(i, i + 100);
-    const result = await rbxFetch(getGamesIcons, {
-      universeIds: chunk,
-      size: "512x512",
-      format: "Png",
-    });
-    const data = (result as { data?: ThumbRow[] }).data;
-    for (const id of chunk) {
-      const url = pickUrl(data, id);
-      robloxCache.set(`gicon:${id}`, url, TTL.gameThumb);
-      out.set(id, url);
+    try {
+      const result = await rbxFetch(getGamesIcons, {
+        universeIds: chunk,
+        size: "512x512",
+        format: "Png",
+      });
+      const data = (result as { data?: ThumbRow[] }).data;
+      for (const id of chunk) {
+        const url = pickUrl(data, id);
+        robloxCache.set(`gicon:${id}`, url, TTL.gameThumb);
+        out.set(id, url);
+      }
+    } catch {
+      for (const id of chunk) out.set(id, null);
     }
   }
   return out;
@@ -158,33 +181,45 @@ export async function getGameThumbnail(universeId: number): Promise<string | nul
   const key = `gthumb:${universeId}`;
   const cached = robloxCache.get<string | null>(key);
   if (cached !== undefined) return cached;
-  const result = await rbxFetch(getGamesMultigetThumbnails, {
-    universeIds: [universeId],
-    size: "768x432",
-    format: "Png",
-    countPerUniverse: 1,
-  });
-  const data = (result as { data?: Array<{ universeId: number; thumbnails?: ThumbRow[] }> })
-    .data ?? [];
-  const entry = data.find((d) => d.universeId === universeId);
-  const url = entry?.thumbnails?.[0]?.imageUrl ?? null;
-  return robloxCache.set(key, url, TTL.gameThumb);
+  try {
+    const result = await rbxFetch(getGamesMultigetThumbnails, {
+      universeIds: [universeId],
+      size: "768x432",
+      format: "Png",
+      countPerUniverse: 1,
+    });
+    const data = (result as { data?: Array<{ universeId: number; thumbnails?: ThumbRow[] }> })
+      .data ?? [];
+    const entry = data.find((d) => d.universeId === universeId);
+    const url = entry?.thumbnails?.[0]?.imageUrl ?? null;
+    return robloxCache.set(key, url, TTL.gameThumb);
+  } catch {
+    return robloxCache.set(key, null, TTL.gameThumb);
+  }
 }
 
 export async function getGamePassIcons(passIds: number[]): Promise<Map<number, string | null>> {
   const out = new Map<number, string | null>();
   if (passIds.length === 0) return out;
-  const result = await rbxFetch(getGamePasses, {
-    gamePassIds: passIds,
-    size: "150x150",
-    format: "Png",
-  });
-  const data = (result as { data?: ThumbRow[] }).data ?? [];
-  for (const id of passIds) out.set(id, pickUrl(data, id));
+  try {
+    const result = await rbxFetch(getGamePasses, {
+      gamePassIds: passIds,
+      size: "150x150",
+      format: "Png",
+    });
+    const data = (result as { data?: ThumbRow[] }).data ?? [];
+    for (const id of passIds) out.set(id, pickUrl(data, id));
+  } catch {
+    for (const id of passIds) out.set(id, null);
+  }
   return out;
 }
 
 export async function getCurrentlyWearing(userId: number): Promise<number[]> {
-  const result = await rbxFetch(getUsersUseridCurrentlyWearing, { userId });
-  return (result as { assetIds?: number[] }).assetIds ?? [];
+  try {
+    const result = await rbxFetch(getUsersUseridCurrentlyWearing, { userId });
+    return (result as { assetIds?: number[] }).assetIds ?? [];
+  } catch {
+    return [];
+  }
 }

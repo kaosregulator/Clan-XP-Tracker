@@ -142,6 +142,7 @@ function toolsMenu(placeholder = "More tools…") {
         { label: "DevEx calculator", value: "devex", description: "Robux → USD estimate" },
         { label: "Revenue estimate", value: "revenue", description: "Rough income for a game" },
         { label: "MT snapshot", value: "snapshot", description: "Capture Military Tycoon now" },
+        { label: "Recently updated", value: "updates", description: "Seed/tracked games by last update" },
         { label: "History", value: "history", description: "Local snapshot deltas" },
         { label: "Creators", value: "creators", description: "Top creators by genre" },
         { label: "Genre report", value: "report", description: "Genre overview card" },
@@ -160,9 +161,10 @@ function navRows(st: ScoutState): ActionRowBuilder<MessageActionRowComponentBuil
         btn("Trending", SCT_NAV("trending"), ButtonStyle.Primary),
         btn("Top genre", SCT_NAV("top"), ButtonStyle.Primary),
         btn("Upcoming", SCT_NAV("upcoming")),
-        btn("Search", SCT_SEARCH, ButtonStyle.Success),
-        btn("Refresh", SCT_REFRESH)
+        btn("Updated", SCT_NAV("updates")),
+        btn("Search", SCT_SEARCH, ButtonStyle.Success)
       ),
+      row(btn("Refresh", SCT_REFRESH)),
       toolsMenu("Jump to a tool…"),
     ];
   }
@@ -368,7 +370,9 @@ async function buildListView(
       rows: slice.map((g, i) => ({
         rank: String(st.page * PAGE_SIZE + i + 1).padStart(2, "0"),
         title: g.name,
-        subtitle: `${g.creator}${g.genre ? ` · ${g.genre}` : ""}`,
+        subtitle: `${g.creator}${g.genre ? ` · ${g.genre}` : ""}${
+          g.updatedAt ? ` · upd ${whenLabel(g.updatedAt)}` : ""
+        }`,
         value: ScoutService.formatCount(g.playing),
         delta: g.deltaPct != null ? ScoutService.formatDeltaPct(g.deltaPct) : null,
       })),
@@ -853,6 +857,22 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
           rows
         );
       }
+      case "updates": {
+        const rows = await ScoutService.recentlyUpdated(25);
+        if (!rows.length) {
+          return softErrorView(
+            st,
+            "⚠️ No recently updated games yet. Try Trending, or snap MT so we have seed data."
+          );
+        }
+        return await buildListView(
+          st,
+          "RECENTLY UPDATED",
+          "Last Roblox update",
+          "Seed + tracked experiences sorted by Roblox `updated` timestamp",
+          rows
+        );
+      }
       case "game":
         return await buildGame(st);
       case "history":
@@ -1255,7 +1275,8 @@ export async function handleScoutButton(interaction: ButtonInteraction): Promise
     return;
   }
 
-  await interaction.deferUpdate();
+  await interaction.deferUpdate().catch(() => null);
+  if (!interaction.deferred && !interaction.replied) return;
 
   if (action === "refresh") {
     return updateHub(interaction, st);
@@ -1299,7 +1320,8 @@ export async function handleScoutSelect(interaction: StringSelectMenuInteraction
     });
     return;
   }
-  await interaction.deferUpdate();
+  await interaction.deferUpdate().catch(() => null);
+  if (!interaction.deferred && !interaction.replied) return;
   if (action === "tools") {
     const view = interaction.values[0] as ScoutView | undefined;
     if (view) {

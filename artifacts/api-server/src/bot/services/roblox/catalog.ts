@@ -352,13 +352,17 @@ export async function getBundleIcons(
 }
 
 async function enrichIcons(items: MarketItem[], size: "150x150" | "420x420" = "150x150"): Promise<MarketItem[]> {
-  const assets = items.filter((i) => i.itemType === "Asset").map((i) => i.id);
-  const bundles = items.filter((i) => i.itemType === "Bundle").map((i) => i.id);
-  const [aMap, bMap] = await Promise.all([getAssetIcons(assets, size), getBundleIcons(bundles, size)]);
-  return items.map((i) => ({
-    ...i,
-    iconUrl: (i.itemType === "Bundle" ? bMap.get(i.id) : aMap.get(i.id)) ?? null,
-  }));
+  try {
+    const assets = items.filter((i) => i.itemType === "Asset").map((i) => i.id);
+    const bundles = items.filter((i) => i.itemType === "Bundle").map((i) => i.id);
+    const [aMap, bMap] = await Promise.all([getAssetIcons(assets, size), getBundleIcons(bundles, size)]);
+    return items.map((i) => ({
+      ...i,
+      iconUrl: (i.itemType === "Bundle" ? bMap.get(i.id) : aMap.get(i.id)) ?? null,
+    }));
+  } catch {
+    return items.map((i) => ({ ...i, iconUrl: i.iconUrl ?? null }));
+  }
 }
 
 /* ---------------------------------------------------------------- search */

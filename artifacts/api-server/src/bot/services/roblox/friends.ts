@@ -9,6 +9,7 @@ import {
 import { rbxFetch } from "./client";
 import { robloxCache, TTL } from "./cache";
 import { getHeadshots } from "./thumbnails";
+import { RobloxServiceError } from "./errors";
 import type { PageResult, RobloxFriend } from "./types";
 
 interface FriendRaw {
@@ -16,6 +17,12 @@ interface FriendRaw {
   name: string;
   displayName: string;
   hasVerifiedBadge?: boolean;
+}
+
+function assertUserId(userId: number): void {
+  if (!Number.isFinite(userId) || userId <= 0) {
+    throw new RobloxServiceError("invalid", `bad friends userId ${userId}`);
+  }
 }
 
 async function friendCountCached(
@@ -29,6 +36,7 @@ async function friendCountCached(
 }
 
 export async function getFriendCount(userId: number): Promise<number> {
+  assertUserId(userId);
   return friendCountCached(`fc:${userId}`, async () => {
     const r = await rbxFetch(getUsersUseridFriendsCount, { userId });
     return (r as { count: number }).count;
@@ -36,6 +44,7 @@ export async function getFriendCount(userId: number): Promise<number> {
 }
 
 export async function getFollowerCount(userId: number): Promise<number> {
+  assertUserId(userId);
   return friendCountCached(`foc:${userId}`, async () => {
     const r = await rbxFetch(getUsersTargetuseridFollowersCount, { targetUserId: userId });
     return (r as { count: number }).count;
@@ -43,10 +52,21 @@ export async function getFollowerCount(userId: number): Promise<number> {
 }
 
 export async function getFollowingCount(userId: number): Promise<number> {
+  assertUserId(userId);
   return friendCountCached(`fic:${userId}`, async () => {
     const r = await rbxFetch(getUsersTargetuseridFollowingsCount, { targetUserId: userId });
     return (r as { count: number }).count;
   });
+}
+
+function toFriendItems(slice: FriendRaw[], heads: Map<number, string | null>): RobloxFriend[] {
+  return slice.map((f) => ({
+    id: f.id,
+    name: f.name || `User ${f.id}`,
+    displayName: f.displayName || f.name || `User ${f.id}`,
+    hasVerifiedBadge: Boolean(f.hasVerifiedBadge),
+    headshotUrl: heads.get(f.id) ?? null,
+  }));
 }
 
 /** Friends API returns the full list (not cursor-paged). We cache + slice. */
@@ -55,24 +75,25 @@ export async function getFriendsPage(
   page = 0,
   pageSize = 8
 ): Promise<PageResult<RobloxFriend>> {
+  assertUserId(userId);
   const key = `friends:${userId}`;
   let all = robloxCache.get<FriendRaw[]>(key);
   if (!all) {
     const result = await rbxFetch(getUsersUseridFriends, { userId, userSort: 2 });
-    all = ((result as { data?: FriendRaw[] }).data ?? []).slice(0, 500);
+    const data = (result as { data?: FriendRaw[] } | null)?.data;
+    all = (Array.isArray(data) ? data : [])
+      .filter((f) => f && Number.isFinite(f.id) && f.id > 0)
+      .slice(0, 500);
     robloxCache.set(key, all, TTL.friends);
   }
 
-  const start = page * pageSize;
+  const start = Math.max(0, page) * pageSize;
   const slice = all.slice(start, start + pageSize);
-  const heads = await getHeadshots(slice.map((f) => f.id));
-  const items: RobloxFriend[] = slice.map((f) => ({
-    id: f.id,
-    name: f.name,
-    displayName: f.displayName || f.name,
-    hasVerifiedBadge: Boolean(f.hasVerifiedBadge),
-    headshotUrl: heads.get(f.id) ?? null,
-  }));
+  // Soft: never let thumbnails sink the friends list.
+  const heads = await getHeadshots(slice.map((f) => f.id)).catch(
+    () => new Map<number, string | null>()
+  );
+  const items = toFriendItems(slice, heads);
 
   return {
     items,
@@ -90,6 +111,7 @@ async function pagedFollow(
   pageSize: 10 | 25 | 50 | 100,
   cursor?: string | null
 ): Promise<PageResult<RobloxFriend>> {
+  assertUserId(userId);
   const endpoint =
     kind === "followers"
       ? getUsersTargetuseridFollowers
@@ -101,16 +123,14 @@ async function pagedFollow(
     cursor: cursor ?? undefined,
     sortOrder: "Desc",
   });
-  const data = (result as { data?: FriendRaw[]; nextPageCursor?: string | null }).data ?? [];
+  const data = ((result as { data?: FriendRaw[] }).data ?? []).filter(
+    (f) => f && Number.isFinite(f.id) && f.id > 0
+  );
   const next = (result as { nextPageCursor?: string | null }).nextPageCursor ?? null;
-  const heads = await getHeadshots(data.map((f) => f.id));
-  const items: RobloxFriend[] = data.map((f) => ({
-    id: f.id,
-    name: f.name,
-    displayName: f.displayName || f.name,
-    hasVerifiedBadge: Boolean(f.hasVerifiedBadge),
-    headshotUrl: heads.get(f.id) ?? null,
-  }));
+  const heads = await getHeadshots(data.map((f) => f.id)).catch(
+    () => new Map<number, string | null>()
+  );
+  const items = toFriendItems(data, heads);
   return {
     items,
     page,

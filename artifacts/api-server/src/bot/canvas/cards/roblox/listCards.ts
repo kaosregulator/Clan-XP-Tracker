@@ -165,6 +165,7 @@ export interface RobloxFriendsCardView {
   friends: FriendRowView[];
   page: number;
   totalLabel: string;
+  note?: string | null;
 }
 
 export async function renderRobloxFriendsCard(view: RobloxFriendsCardView): Promise<Buffer> {
@@ -172,7 +173,7 @@ export async function renderRobloxFriendsCard(view: RobloxFriendsCardView): Prom
   const cols = 2;
   const rowH = 88;
   const rows = Math.ceil(view.friends.length / cols);
-  const H = 140 + rows * (rowH + 12) + 50;
+  const H = 140 + rows * (rowH + 12) + 70;
   const rc = createSurface(W, Math.max(H, 360));
   const { ctx } = rc;
   paintBackground(rc);
@@ -202,7 +203,8 @@ export async function renderRobloxFriendsCard(view: RobloxFriendsCardView): Prom
     const x = 40 + col * (colW + 12);
     const y = 140 + row * (rowH + 12);
     card(ctx, x, y, colW, rowH, { shadow: false, radius: 16 });
-    const img = await loadRemote(f.headshotUrl);
+    // One bad avatar URL must never abort the whole friends card.
+    const img = await loadRemote(f.headshotUrl).catch(() => null);
     drawAvatar(ctx, img, x + 16, y + 14, 60, f.username[0] ?? "?", RBX.blue);
     text(ctx, f.username, x + 92, y + 40, {
       size: 18,
@@ -218,7 +220,17 @@ export async function renderRobloxFriendsCard(view: RobloxFriendsCardView): Prom
   }
 
   if (view.friends.length === 0) {
-    text(ctx, "Nothing to show here.", 40, 180, { size: 20, color: RBX.soft });
+    text(ctx, view.note || "Nothing to show here.", 40, 180, {
+      size: 18,
+      color: RBX.soft,
+      maxWidth: W - 80,
+    });
+  } else if (view.note) {
+    text(ctx, view.note, 40, rc.height - 28, {
+      size: 13,
+      color: RBX.muted,
+      maxWidth: W - 80,
+    });
   }
   return toPng(rc.canvas);
 }
