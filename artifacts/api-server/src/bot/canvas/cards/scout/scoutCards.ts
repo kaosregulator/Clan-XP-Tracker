@@ -50,7 +50,7 @@ export async function renderScoutHomeCard(view: ScoutHomeCardView = {}): Promise
   text(ctx, "Scout Hub", 40, 88, { size: 40, weight: "bold", color: RBX.ink });
   text(
     ctx,
-    "Top games, trends, and snapshots — use the buttons and tools menu below.",
+    "Numbers plus meaning — Intelligence turns CCU history into watchlists.",
     40,
     136,
     { size: 18, color: RBX.soft, maxWidth: W - 80 }
@@ -76,10 +76,10 @@ export async function renderScoutHomeCard(view: ScoutHomeCardView = {}): Promise
   );
 
   const tiles: Array<[string, string]> = [
+    ["INTEL", "What the numbers mean"],
     ["TRENDING", "Hot games right now"],
     ["TOP GENRE", "Leaders by category"],
-    ["COMPARE", "Side-by-side stats"],
-    ["DEVEX", "Robux → USD"],
+    ["UPDATES", "Recently patched"],
   ];
   let x = 40;
   for (const [title, sub] of tiles) {
@@ -173,11 +173,17 @@ export interface ScoutGameIntelCardView {
   iconUrl: string | null;
   deltaLabel?: string | null;
   accentLabel?: string;
+  /** Intelligence assessment (from snapshot history — never invented news). */
+  bandLabel?: string | null;
+  assessmentSummary?: string | null;
+  signals?: string[];
 }
 
 export async function renderScoutGameIntelCard(view: ScoutGameIntelCardView): Promise<Buffer> {
   const W = 960;
-  const H = 520;
+  const signalLines = (view.signals ?? []).slice(0, 4);
+  const hasAssess = Boolean(view.bandLabel || view.assessmentSummary || signalLines.length);
+  const H = hasAssess ? 680 : 520;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
@@ -215,6 +221,34 @@ export async function renderScoutGameIntelCard(view: ScoutGameIntelCardView): Pr
     size: 15,
     color: RBX.muted,
   });
+
+  if (hasAssess) {
+    card(ctx, 40, 460, W - 80, 150, { radius: 16, shadow: false });
+    text(ctx, "SCOUT ASSESSMENT", 64, 495, {
+      size: 13,
+      weight: "bold",
+      color: SCOUT.accentDeep,
+    });
+    text(ctx, view.bandLabel ?? "Building history", 64, 528, {
+      size: 22,
+      weight: "bold",
+      color: RBX.ink,
+      maxWidth: W - 160,
+    });
+    if (view.assessmentSummary) {
+      text(ctx, view.assessmentSummary, 64, 562, {
+        size: 15,
+        color: RBX.soft,
+        maxWidth: W - 160,
+      });
+    }
+    let sy = 595;
+    for (const sig of signalLines.slice(0, 2)) {
+      text(ctx, `· ${sig}`, 64, sy, { size: 14, color: RBX.muted, maxWidth: W - 160 });
+      sy += 22;
+    }
+  }
+
   footerNote(ctx, W, H, "Bloxscout · Public Roblox APIs · Local SQLite snapshots");
   return toPng(rc.canvas);
 }
@@ -464,5 +498,97 @@ export async function renderScoutGroupCard(view: ScoutGroupCardView): Promise<Bu
     y += 28;
   }
   text(ctx, `Group ID ${view.groupId}`, 40, H - 50, { size: 14, color: RBX.muted });
+  return toPng(rc.canvas);
+}
+
+export interface ScoutIntelBoardSection {
+  title: string;
+  rows: Array<{ name: string; value: string; detail: string }>;
+}
+
+export interface ScoutIntelCardView {
+  intervalHint: string;
+  trackedGames: number;
+  needHistory: boolean;
+  hint: string | null;
+  watchHeadline?: string | null;
+  watchSummary?: string | null;
+  sections: ScoutIntelBoardSection[];
+}
+
+export async function renderScoutIntelCard(view: ScoutIntelCardView): Promise<Buffer> {
+  const W = 960;
+  const sections = view.sections.filter((s) => s.rows.length > 0).slice(0, 5);
+  const rowCount = sections.reduce((n, s) => n + Math.min(s.rows.length, 3), 0);
+  const H = Math.max(520, 180 + (view.watchHeadline ? 90 : 0) + sections.length * 36 + rowCount * 28 + 80);
+  const rc = createSurface(W, H);
+  const { ctx } = rc;
+  paintBackground(rc);
+  brand(ctx);
+
+  text(ctx, "INTELLIGENCE LAYER", 40, 72, {
+    size: 14,
+    weight: "bold",
+    color: SCOUT.accentDeep,
+  });
+  text(ctx, "Scout Intelligence", 40, 110, {
+    size: 32,
+    weight: "bold",
+    color: RBX.ink,
+  });
+  text(
+    ctx,
+    `${view.intervalHint} · Tracking ${view.trackedGames} games`,
+    40,
+    148,
+    { size: 16, color: RBX.soft, maxWidth: W - 80 }
+  );
+
+  let y = 180;
+  if (view.watchHeadline) {
+    card(ctx, 40, y, W - 80, 70, { radius: 14, shadow: false });
+    text(ctx, "WATCHLIST", 64, y + 28, { size: 12, weight: "bold", color: SCOUT.accentDeep });
+    text(ctx, view.watchHeadline, 64, y + 52, {
+      size: 18,
+      weight: "bold",
+      color: RBX.ink,
+      maxWidth: W - 160,
+    });
+    y += 90;
+  }
+
+  if (view.needHistory || sections.length === 0) {
+    text(
+      ctx,
+      view.hint ??
+        "Boards fill as Scout collects snapshot history — seed games snap automatically.",
+      40,
+      y + 20,
+      { size: 17, color: RBX.soft, maxWidth: W - 80 }
+    );
+  } else {
+    for (const section of sections) {
+      text(ctx, section.title, 40, y + 20, {
+        size: 14,
+        weight: "bold",
+        color: SCOUT.accentDeep,
+      });
+      y += 44;
+      for (const row of section.rows.slice(0, 3)) {
+        text(ctx, row.name, 50, y, { size: 16, weight: "bold", color: RBX.ink, maxWidth: 420 });
+        text(ctx, row.value, W - 50, y, {
+          size: 16,
+          weight: "bold",
+          color: RBX.ink,
+          align: "right",
+        });
+        text(ctx, row.detail, 50, y + 20, { size: 13, color: RBX.muted, maxWidth: W - 120 });
+        y += 48;
+      }
+      y += 8;
+    }
+  }
+
+  footerNote(ctx, W, H, "Assessments use Scout snapshots only — no invented events or leaks");
   return toPng(rc.canvas);
 }

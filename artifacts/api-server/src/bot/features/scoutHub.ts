@@ -144,6 +144,7 @@ function toolsMenu(placeholder = "More tools…") {
       .setCustomId(SCT_TOOLS)
       .setPlaceholder(placeholder)
       .addOptions(
+        { label: "Intelligence", value: "intel", description: "Risers, drops, unusual activity" },
         { label: "Compare games", value: "compare", description: "Side-by-side two universes" },
         { label: "DevEx calculator", value: "devex", description: "Robux → USD estimate" },
         { label: "Revenue estimate", value: "revenue", description: "Rough income for a game" },
@@ -164,10 +165,10 @@ function navRows(st: ScoutState): ActionRowBuilder<MessageActionRowComponentBuil
   if (st.view === "home") {
     return [
       row(
+        btn("Intel", SCT_NAV("intel"), ButtonStyle.Primary),
         btn("Trending", SCT_NAV("trending"), ButtonStyle.Primary),
-        btn("Top genre", SCT_NAV("top"), ButtonStyle.Primary),
+        btn("Top genre", SCT_NAV("top")),
         btn("Upcoming", SCT_NAV("upcoming")),
-        btn("Updated", SCT_NAV("updates")),
         btn("Search", SCT_SEARCH, ButtonStyle.Success)
       ),
       row(btn("Refresh", SCT_REFRESH)),
@@ -401,6 +402,19 @@ async function buildGame(st: ScoutState): Promise<BaseMessageOptions> {
     hist.latest && hist.previous
       ? `Players ${ScoutService.formatDeltaPct(hist.latest.playingDeltaPct)} since last snapshot`
       : null;
+
+  let bandLabel: string | null = null;
+  let assessmentSummary: string | null = null;
+  let signals: string[] = [];
+  try {
+    const assess = await ScoutService.assessGame(id);
+    bandLabel = `${assess.band.toUpperCase()} · score ${assess.score}`;
+    assessmentSummary = assess.summary;
+    signals = assess.signals.map((s) => s.label);
+  } catch {
+    /* assessment optional when history is thin */
+  }
+
   const file = await fileFrom(
     "scoutGame",
     {
@@ -414,6 +428,9 @@ async function buildGame(st: ScoutState): Promise<BaseMessageOptions> {
       placeId: g.placeId,
       iconUrl: g.iconUrl,
       deltaLabel,
+      bandLabel,
+      assessmentSummary,
+      signals,
     },
     "scout-game.png"
   );
@@ -422,10 +439,10 @@ async function buildGame(st: ScoutState): Promise<BaseMessageOptions> {
     components: [
       ...navRows(st),
       row(
+        btn("Intel", SCT_NAV("intel"), ButtonStyle.Primary),
         btn("Snapshot", SCT_SNAPSHOT, ButtonStyle.Success),
         btn("History", SCT_NAV("history")),
         btn("vs Genre", SCT_NAV("vsGenre")),
-        btn("Revenue", SCT_NAV("revenue")),
         new ButtonBuilder()
           .setStyle(ButtonStyle.Link)
           .setLabel("Open on Roblox")
@@ -799,6 +816,79 @@ async function buildSnapshot(st: ScoutState): Promise<BaseMessageOptions> {
   };
 }
 
+
+async function buildIntel(st: ScoutState): Promise<BaseMessageOptions> {
+  void ScoutService.startAutoSnapshots();
+  const dash = await ScoutService.intelDashboard();
+  const section = (
+    title: string,
+    rows: Array<{ name: string; valueLabel: string; detail: string; universeId?: number; playing?: number }>
+  ) => ({
+    title,
+    rows: rows.map((r) => ({ name: r.name, value: r.valueLabel, detail: r.detail })),
+  });
+  const watch = dash.watchlist[0];
+  const file = await fileFrom(
+    "scoutIntel",
+    {
+      intervalHint: dash.intervalHint,
+      trackedGames: dash.trackedGames,
+      needHistory: dash.needHistory,
+      hint: dash.hint,
+      watchHeadline: watch?.headline ?? null,
+      watchSummary: watch?.summary ?? null,
+      sections: [
+        section("BIGGEST RISERS", dash.boards.risers),
+        section("BIGGEST DROPS", dash.boards.drops),
+        section("UNUSUAL ACTIVITY", dash.boards.unusual),
+        section("UP-AND-COMING", dash.boards.upAndComing),
+        section("UPDATE IMPACT", dash.boards.updateImpact),
+      ],
+    },
+    "scout-intel.png"
+  );
+
+  const picks = [
+    ...dash.watchlist.map((w) => ({
+      universeId: w.universeId,
+      name: w.name,
+      playing: w.playing,
+    })),
+    ...dash.boards.risers,
+    ...dash.boards.unusual,
+    ...dash.boards.upAndComing,
+  ]
+    .filter((r, i, arr) => arr.findIndex((x) => x.universeId === r.universeId) === i)
+    .slice(0, 8);
+
+  const components = [...navRows(st)];
+  if (picks.length) {
+    components.push(
+      row(
+        new StringSelectMenuBuilder()
+          .setCustomId(SCT_PICK_GAME)
+          .setPlaceholder("Open a watched game…")
+          .addOptions(
+            picks.map((p) => ({
+              label: (p.name || `Universe ${p.universeId}`).slice(0, 100),
+              description: `${ScoutService.formatCount(p.playing ?? 0)} playing`.slice(0, 100),
+              value: String(p.universeId),
+            }))
+          )
+      )
+    );
+  }
+  components.push(
+    row(
+      btn("Snap seeds", SCT_SNAPSHOT, ButtonStyle.Success),
+      btn("Trending", SCT_NAV("trending")),
+      btn("Tracked", SCT_NAV("tracked")),
+      btn("Refresh", SCT_REFRESH)
+    )
+  );
+  return { files: [file], components };
+}
+
 async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
   try {
     switch (st.view) {
@@ -879,6 +969,8 @@ async function buildView(st: ScoutState): Promise<BaseMessageOptions> {
           rows
         );
       }
+      case "intel":
+        return await buildIntel(st);
       case "game":
         return await buildGame(st);
       case "history":
