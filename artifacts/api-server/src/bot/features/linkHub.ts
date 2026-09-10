@@ -34,6 +34,11 @@ import { renderOffThread } from "../canvas/render-pool";
 import { replaceHubCard, clearHubCard } from "../ui/hubMessage";
 import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
+  accessOwnedState,
+  bindAfterEditReply,
+  denyHubInteraction,
+} from "../ui/hubSession";
+import {
   parseId,
   LNK_SEARCH_DISCORD,
   LNK_SEARCH_ROBLOX,
@@ -63,6 +68,7 @@ interface LinkState {
   ts: number;
 }
 
+const HUB_TTL_MS = 20 * 60_000;
 const hubs = new Map<string, LinkState>();
 const TTL = 20 * 60_000;
 
@@ -348,8 +354,8 @@ export async function handleLinkCommand(interaction: ChatInputCommandInteraction
       }
     }
     const payload = await buildView(st);
-    const msg = await interaction.editReply(replaceHubCard(payload));
-    bindHub(msg.id, st);
+    await interaction.editReply(replaceHubCard(payload));
+    const msg = await bindAfterEditReply(interaction, hubs, st, HUB_TTL_MS);
     armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("handleLinkCommand", err);
@@ -385,13 +391,31 @@ export async function handleLinkAutocomplete(interaction: AutocompleteInteractio
 }
 
 export async function handleLinkButton(interaction: ButtonInteraction) {
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This link hub belongs to someone else — run `/link` to open yours.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => fresh(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "link", access.reason);
     return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    Object.assign(st, fresh(st.ownerId));
+    {
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      armHubAutoDelete(interaction.message);
+    }
+    await interaction
+      .followUp({
+        content:
+          "Your link hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
+        return;
   }
   const { action } = parseId(interaction.customId);
 
@@ -527,13 +551,31 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
 }
 
 export async function handleLinkSelect(interaction: StringSelectMenuInteraction) {
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This link hub belongs to someone else — run `/link`.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => fresh(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "link", access.reason);
     return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    Object.assign(st, fresh(st.ownerId));
+    {
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      armHubAutoDelete(interaction.message);
+    }
+    await interaction
+      .followUp({
+        content:
+          "Your link hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
+        return;
   }
   await interaction.deferUpdate();
   const { action } = parseId(interaction.customId);
@@ -554,13 +596,31 @@ export async function handleLinkSelect(interaction: StringSelectMenuInteraction)
 }
 
 export async function handleLinkRoleSelect(interaction: RoleSelectMenuInteraction) {
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This link hub belongs to someone else — run `/link`.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => fresh(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "link", access.reason);
     return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    Object.assign(st, fresh(st.ownerId));
+    {
+      const payload = await buildView(st);
+      await interaction.editReply(replaceHubCard(payload));
+      armHubAutoDelete(interaction.message);
+    }
+    await interaction
+      .followUp({
+        content:
+          "Your link hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
+        return;
   }
   await interaction.deferUpdate();
   const role = interaction.roles.first();
@@ -665,8 +725,8 @@ export async function handleLinkModal(interaction: ModalSubmitInteraction) {
     }
 
     const payload = await buildView(st);
-    const msg = await interaction.editReply(replaceHubCard(payload));
-    bindHub(msg.id, st);
+    await interaction.editReply(replaceHubCard(payload));
+    const msg = await bindAfterEditReply(interaction, hubs, st, HUB_TTL_MS);
     armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("handleLinkModal", err);

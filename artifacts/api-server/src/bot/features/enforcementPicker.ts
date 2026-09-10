@@ -279,7 +279,8 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
   };
 
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
-  const message = await interaction.editReply(panel);
+  await interaction.editReply(panel);
+  const message = await interaction.fetchReply();
   panels.set(message.id, state);
 }
 
@@ -295,7 +296,7 @@ export async function handleEnforcementSelect(interaction: UserSelectMenuInterac
   if (!interaction.inCachedGuild()) return;
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
-    await interaction.reply({ content: "This panel isn't yours (or it expired — rerun /xpwarn).", flags: 64 });
+    await interaction.reply({ content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.", flags: 64 });
     return;
   }
   await interaction.deferUpdate();
@@ -316,7 +317,7 @@ export async function handleEnforcementCategorySelect(interaction: StringSelectM
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel isn't yours (or it expired — rerun /xpwarn).",
+      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
       flags: 64,
     });
     return;
@@ -338,7 +339,7 @@ export async function handleEnforcementButton(interaction: ButtonInteraction) {
 
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel isn't yours (or it expired — rerun /xpwarn).",
+      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
       flags: 64,
     });
     return;
@@ -383,7 +384,7 @@ export async function handleEnforcementNoteModal(interaction: ModalSubmitInterac
   if (!interaction.inCachedGuild() || !interaction.isFromMessage()) return;
   const state = getState(interaction.message.id);
   if (!state || state.ownerId !== interaction.user.id) {
-    await interaction.reply({ content: "This panel isn't yours (or it expired).", flags: 64 });
+    await interaction.reply({ content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.", flags: 64 });
     return;
   }
   await interaction.deferUpdate();

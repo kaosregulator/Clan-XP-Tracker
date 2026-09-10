@@ -163,7 +163,8 @@ export async function openActivityLog(interaction: ChatInputCommandInteraction) 
   };
 
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
-  const message = await interaction.editReply(panel);
+  await interaction.editReply(panel);
+  const message = await interaction.fetchReply();
   panels.set(message.id, state);
 }
 
@@ -179,7 +180,7 @@ export async function handleActivityUserSelect(interaction: UserSelectMenuIntera
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel isn't yours (or it expired — rerun /activity).",
+      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/activity` again.",
       flags: 64,
     });
     return;
@@ -200,7 +201,7 @@ export async function handleActivityCategorySelect(interaction: StringSelectMenu
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel isn't yours (or it expired — rerun /activity).",
+      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/activity` again.",
       flags: 64,
     });
     return;
@@ -225,7 +226,7 @@ export async function handleActivityButton(interaction: ButtonInteraction) {
 
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel isn't yours (or it expired — rerun /activity).",
+      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/activity` again.",
       flags: 64,
     });
     return;
@@ -263,7 +264,7 @@ export async function handleActivityPointsModal(interaction: ModalSubmitInteract
   if (!interaction.inCachedGuild() || !interaction.isFromMessage()) return;
   const state = getState(interaction.message.id);
   if (!state || state.ownerId !== interaction.user.id) {
-    await interaction.reply({ content: "This panel isn't yours (or it expired).", flags: 64 });
+    await interaction.reply({ content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/activity` again.", flags: 64 });
     return;
   }
   await interaction.deferUpdate();

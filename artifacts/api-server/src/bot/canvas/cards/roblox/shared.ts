@@ -34,7 +34,7 @@ export const RBX = {
 
 export async function loadRemote(url: string | null | undefined): Promise<Image | null> {
   if (!url) return null;
-  return fetchAvatar(url, 4000);
+  return fetchAvatar(url, 6000);
 }
 
 export function headerBar(

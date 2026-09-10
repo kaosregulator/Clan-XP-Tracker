@@ -1,3 +1,4 @@
+import { stripEmoji } from "../fonts";
 /**
  * Tactical Player Card — game-style clan player profile.
  * Dark command HUD inspired by the clan player-manager mockup.
@@ -336,8 +337,22 @@ export async function renderPlayerCard(view: PlayerCardView): Promise<Buffer> {
       const row = i % 4;
       const x = 64 + col * colW;
       const y = actY + 58 + row * 22;
-      text(ctx, `${r.emoji} ${r.name}`, x, y, { size: 15, color: HUD.text, maxWidth: colW - 80 });
-      text(ctx, String(r.points), x + colW - 70, y, { size: 15, weight: "bold", family: "mono", color: HUD.cyan });
+      // Fonts have no emoji glyphs — draw a cyan bullet instead of tofu boxes.
+      ctx.beginPath();
+      ctx.arc(x + 4, y - 4, 4, 0, Math.PI * 2);
+      ctx.fillStyle = HUD.cyan;
+      ctx.fill();
+      text(ctx, stripEmoji(r.name) || r.name, x + 16, y, {
+        size: 15,
+        color: HUD.text,
+        maxWidth: colW - 96,
+      });
+      text(ctx, String(r.points), x + colW - 70, y, {
+        size: 15,
+        weight: "bold",
+        family: "mono",
+        color: HUD.cyan,
+      });
     });
   }
 

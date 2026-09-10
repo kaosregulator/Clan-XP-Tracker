@@ -23,6 +23,12 @@ import { renderOffThread } from "../canvas/render-pool";
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
+  accessOwnedState,
+  bindAfterEditReply,
+  denyHubInteraction,
+  type HubDenialReason,
+} from "../ui/hubSession";
+import {
   parseId,
   SCT_NAV,
   SCT_PAGE,
@@ -931,8 +937,8 @@ async function replyHub(
         setTimeout(() => reject(new Error("Scout hub timed out building the card")), 20_000)
       ),
     ]);
-    const msg = await interaction.editReply(replaceHubCard(payload));
-    bindHub(msg.id, state);
+    await interaction.editReply(replaceHubCard(payload));
+    const msg = await bindAfterEditReply(interaction, hubs, state, HUB_TTL_MS);
     armHubAutoDelete(msg);
     // Start snapshots after the card is visible — never block open on SQLite.
     setTimeout(() => {
@@ -1266,12 +1272,25 @@ export async function handleScoutButton(interaction: ButtonInteraction): Promise
     return;
   }
 
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This Scout Hub belongs to someone else — run `/scout` to open yours.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => freshState(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "scout", access.reason);
+    return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    await updateHub(interaction, st);
+    await interaction
+      .followUp({
+        content:
+          "Your Scout Hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
     return;
   }
 
@@ -1312,12 +1331,25 @@ export async function handleScoutButton(interaction: ButtonInteraction): Promise
 
 export async function handleScoutSelect(interaction: StringSelectMenuInteraction): Promise<void> {
   const { action } = parseId(interaction.customId);
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This Scout Hub belongs to someone else — run `/scout` to open yours.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => freshState(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "scout", access.reason);
+    return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    await updateHub(interaction, st);
+    await interaction
+      .followUp({
+        content:
+          "Your Scout Hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
     return;
   }
   await interaction.deferUpdate().catch(() => null);
