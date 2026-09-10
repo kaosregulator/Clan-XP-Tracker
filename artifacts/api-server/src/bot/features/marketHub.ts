@@ -41,6 +41,11 @@ import {
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
+  accessOwnedState,
+  bindAfterEditReply,
+  denyHubInteraction,
+} from "../ui/hubSession";
+import {
   searchMarketplace,
   getMarketItem,
   getBundleDetail,
@@ -548,8 +553,8 @@ async function replyHub(interaction: ChatInputCommandInteraction, state: MarketS
         setTimeout(() => reject(new Error("Market hub timed out building the card")), 25_000)
       ),
     ]);
-    const msg = await interaction.editReply(replaceHubCard(payload));
-    bindHub(msg.id, state);
+    await interaction.editReply(replaceHubCard(payload));
+    const msg = await bindAfterEditReply(interaction, hubs, state, HUB_TTL_MS);
     armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("marketReplyHub", err);
@@ -691,12 +696,26 @@ export async function handleMarketButton(interaction: ButtonInteraction): Promis
     return;
   }
 
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This Market Hub belongs to someone else — run `/market` to open yours.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => freshState(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "market", access.reason);
+    return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    Object.assign(st, freshState(st.ownerId));
+    await updateHub(interaction, st);
+    await interaction
+      .followUp({
+        content:
+          "Your Market Hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
     return;
   }
 
@@ -757,12 +776,26 @@ export async function handleMarketButton(interaction: ButtonInteraction): Promis
 
 export async function handleMarketSelect(interaction: StringSelectMenuInteraction): Promise<void> {
   const { action } = parseId(interaction.customId);
-  const st = getHub(interaction.message.id, interaction.user.id);
-  if (!st) {
-    await interaction.reply({
-      content: "This Market Hub belongs to someone else — run `/market` to open yours.",
-      flags: 64,
-    });
+  const access = accessOwnedState(hubs, interaction.message.id, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => freshState(interaction.user.id),
+  });
+  if (!access.ok) {
+    await denyHubInteraction(interaction, "market", access.reason);
+    return;
+  }
+  const st = access.state;
+  if (access.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    Object.assign(st, freshState(st.ownerId));
+    await updateHub(interaction, st);
+    await interaction
+      .followUp({
+        content:
+          "Your Market Hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
     return;
   }
   await interaction.deferUpdate();

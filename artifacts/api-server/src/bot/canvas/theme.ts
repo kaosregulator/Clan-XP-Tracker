@@ -382,7 +382,7 @@ const avatarCache = new Map<string, Image>();
  * Load a remote avatar with a small in-memory cache and a hard timeout, so a
  * slow CDN can never stall a hub render — we just fall back to the initial.
  */
-export async function fetchAvatar(url: string | null, timeoutMs = 2500): Promise<Image | null> {
+export async function fetchAvatar(url: string | null, timeoutMs = 4500): Promise<Image | null> {
   if (!url) return null;
   const cached = avatarCache.get(url);
   if (cached) return cached;

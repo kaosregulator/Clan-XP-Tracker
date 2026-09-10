@@ -1,3 +1,4 @@
+import { stripEmoji } from "../fonts";
 /**
  * Public /viewlink dashboard — top-3 podium strip + player profile.
  */
@@ -341,7 +342,15 @@ export async function renderViewLinkCard(view: ViewLinkCardView): Promise<Buffer
   } else {
     let ay = y + 54;
     for (const r of view.activityRows.slice(0, 4)) {
-      text(ctx, `${r.emoji} ${r.name}`, 64, ay, { size: 14, color: HUD.text, maxWidth: 320 });
+      ctx.beginPath();
+      ctx.arc(68, ay - 4, 4, 0, Math.PI * 2);
+      ctx.fillStyle = HUD.cyan;
+      ctx.fill();
+      text(ctx, stripEmoji(r.name) || r.name, 80, ay, {
+        size: 14,
+        color: HUD.text,
+        maxWidth: 300,
+      });
       text(ctx, `${r.points} pts`, 500, ay, { size: 14, color: HUD.cyan, align: "right" });
       ay += 26;
     }

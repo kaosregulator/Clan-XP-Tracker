@@ -58,6 +58,7 @@ import {
   renderScoutMoneyCard,
   renderScoutReportCard,
   renderScoutGroupCard,
+  renderScoutIntelCard,
 } from "./cards/scout/scoutCards";
 import {
   renderMarketHomeCard,
@@ -167,6 +168,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderScoutReportCard(p as any);
     case "scoutGroup":
       return renderScoutGroupCard(p as any);
+    case "scoutIntel":
+      return renderScoutIntelCard(p as any);
     case "marketHome":
       return renderMarketHomeCard(p as any);
     case "marketGrid":

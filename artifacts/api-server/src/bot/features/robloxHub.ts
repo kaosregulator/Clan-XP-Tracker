@@ -38,6 +38,12 @@ import {
 import { clearHubCard, replaceHubCard } from "../ui/hubMessage";
 import { armHubAutoDelete, deferPublicHub } from "../ui/hubVisibility";
 import {
+  accessOwnedState,
+  bindAfterEditReply,
+  denyHubInteraction,
+  type HubDenialReason,
+} from "../ui/hubSession";
+import {
   RobloxService,
   toUserError,
   logRobloxError,
@@ -67,29 +73,6 @@ interface HubState {
 const HUB_TTL_MS = 20 * 60_000;
 const hubs = new Map<string, HubState>();
 
-function pruneHubs() {
-  const cutoff = Date.now() - HUB_TTL_MS;
-  for (const [k, v] of hubs) if (v.ts < cutoff) hubs.delete(k);
-}
-
-function touch(state: HubState) {
-  state.ts = Date.now();
-}
-
-function getHub(messageId: string, userId: string): HubState | null {
-  pruneHubs();
-  const st = hubs.get(messageId);
-  if (!st) return null;
-  if (st.ownerId !== userId) return null;
-  touch(st);
-  return st;
-}
-
-function bindHub(messageId: string, state: HubState) {
-  pruneHubs();
-  hubs.set(messageId, state);
-}
-
 function freshState(ownerId: string, patch: Partial<HubState> = {}): HubState {
   return {
     ownerId,
@@ -105,6 +88,16 @@ function freshState(ownerId: string, patch: Partial<HubState> = {}): HubState {
     ts: Date.now(),
     ...patch,
   };
+}
+
+function getHub(messageId: string, userId: string): HubState | null {
+  const access = accessOwnedState(hubs, messageId, userId, { ttlMs: HUB_TTL_MS });
+  return access.ok ? access.state : null;
+}
+
+function bindHub(messageId: string, state: HubState) {
+  state.ts = Date.now();
+  hubs.set(messageId, state);
 }
 
 function resetPaging(st: HubState) {
@@ -1124,16 +1117,16 @@ async function replyHub(
         setTimeout(() => reject(new Error("Roblox hub timed out building the card")), 25_000)
       ),
     ]);
-    const msg = await interaction.editReply(replaceHubCard(payload));
-    bindHub(msg.id, state);
+    await interaction.editReply(replaceHubCard(payload));
+    const msg = await bindAfterEditReply(interaction, hubs, state, HUB_TTL_MS);
     armHubAutoDelete(msg);
   } catch (err) {
     logRobloxError("replyHub", err);
     const soft = softErrorView(state, toUserError(err));
-    const msg = await interaction.editReply(replaceHubCard(soft)).catch(() => null);
-    if (msg) {
-      bindHub(msg.id, state);
-      armHubAutoDelete(msg);
+    const edited = await interaction.editReply(replaceHubCard(soft)).catch(() => null);
+    if (edited) {
+      const msg = await bindAfterEditReply(interaction, hubs, state, HUB_TTL_MS).catch(() => null);
+      if (msg) armHubAutoDelete(msg);
     }
   }
 }
@@ -1165,11 +1158,22 @@ async function updateHub(
   }
 }
 
-function assertOwner(
+/**
+ * Resolve hub ownership for a component click.
+ * Missing session (worker restart / TTL) is NOT the same as "someone else's hub".
+ * Soft-reclaim restores a fresh home session for the clicker so they aren't stuck.
+ */
+function takeOwner(
   interaction: ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction
-): HubState | null {
-  const st = getHub(interaction.message!.id, interaction.user.id);
-  return st;
+): { state: HubState; reclaimed: boolean } | { denied: HubDenialReason } {
+  const messageId = interaction.message?.id;
+  if (!messageId) return { denied: "missing" };
+  const access = accessOwnedState(hubs, messageId, interaction.user.id, {
+    ttlMs: HUB_TTL_MS,
+    reclaim: () => freshState(interaction.user.id),
+  });
+  if (!access.ok) return { denied: access.reason };
+  return { state: access.state, reclaimed: access.reclaimed };
 }
 
 /* -------------------------------------------------------------- commands */
@@ -1346,12 +1350,22 @@ export async function handleMilitaryCommand(interaction: ChatInputCommandInterac
 /* ------------------------------------------------------- component handlers */
 
 export async function handleRobloxButton(interaction: ButtonInteraction): Promise<void> {
-  const st = assertOwner(interaction);
-  if (!st) {
-    await interaction.reply({
-      content: "This Roblox Hub belongs to someone else — run `/roblox` to open yours.",
-      flags: 64,
-    });
+  const owned = takeOwner(interaction);
+  if ("denied" in owned) {
+    await denyHubInteraction(interaction, "roblox", owned.denied);
+    return;
+  }
+  const st = owned.state;
+  if (owned.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    await updateHub(interaction, st);
+    await interaction
+      .followUp({
+        content:
+          "Your Roblox Hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
     return;
   }
   const { action, arg } = parseId(interaction.customId);
@@ -1435,12 +1449,22 @@ export async function handleRobloxButton(interaction: ButtonInteraction): Promis
 }
 
 export async function handleRobloxSelect(interaction: StringSelectMenuInteraction): Promise<void> {
-  const st = assertOwner(interaction);
-  if (!st) {
-    await interaction.reply({
-      content: "This Roblox Hub belongs to someone else — run `/roblox` to open yours.",
-      flags: 64,
-    });
+  const owned = takeOwner(interaction);
+  if ("denied" in owned) {
+    await denyHubInteraction(interaction, "roblox", owned.denied);
+    return;
+  }
+  const st = owned.state;
+  if (owned.reclaimed) {
+    await interaction.deferUpdate().catch(() => null);
+    await updateHub(interaction, st);
+    await interaction
+      .followUp({
+        content:
+          "Your Roblox Hub session was reset after a bot refresh — continue from Home (you're still the owner).",
+        flags: 64,
+      })
+      .catch(() => null);
     return;
   }
   await interaction.deferUpdate().catch(() => null);

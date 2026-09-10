@@ -47,14 +47,16 @@ export async function renderRobloxGroupsCard(view: RobloxGroupsCardView): Promis
     align: "right",
   });
 
+  const groupIcons = await Promise.all(view.groups.map((g) => loadRemote(g.iconUrl)));
   let y = 130;
-  for (const g of view.groups) {
+  for (let gi = 0; gi < view.groups.length; gi++) {
+    const g = view.groups[gi]!;
     card(ctx, 40, y, W - 80, rowH, {
       shadow: false,
       radius: 18,
       fill: g.highlight ? "rgba(0,162,255,0.08)" : "#ffffff",
     });
-    const icon = await loadRemote(g.iconUrl);
+    const icon = groupIcons[gi] ?? null;
     drawRoundedImage(ctx, icon, 58, y + 16, 60, 60, 14);
     text(ctx, g.name, 140, y + 40, {
       size: 22,
@@ -121,6 +123,8 @@ export async function renderRobloxBadgesCard(view: RobloxBadgesCardView): Promis
   });
 
   const colW = (W - 80 - 12) / cols;
+  // Prefetch icons in parallel — sequential awaits were timing out mid-page.
+  const badgeIcons = await Promise.all(view.badges.map((b) => loadRemote(b.iconUrl)));
   for (let i = 0; i < view.badges.length; i++) {
     const b = view.badges[i]!;
     const col = i % cols;
@@ -128,13 +132,13 @@ export async function renderRobloxBadgesCard(view: RobloxBadgesCardView): Promis
     const x = 40 + col * (colW + 12);
     const y = 150 + row * (rowH + 12);
     card(ctx, x, y, colW, rowH, { shadow: false, radius: 16 });
-    const icon = await loadRemote(b.iconUrl);
+    const icon = badgeIcons[i] ?? null;
     drawRoundedImage(ctx, icon, x + 16, y + 20, 70, 70, 14);
     text(ctx, b.name, x + 102, y + 40, {
       size: 18,
       weight: "bold",
       color: RBX.ink,
-      maxWidth: colW - 120,
+      maxWidth: colW - 112,
     });
     text(ctx, `ID ${b.id}`, x + 102, y + 68, { size: 14, color: RBX.muted });
     if (b.awardedLabel || b.experience) {
@@ -196,6 +200,9 @@ export async function renderRobloxFriendsCard(view: RobloxFriendsCardView): Prom
   });
 
   const colW = (W - 80 - 12) / cols;
+  const friendHeads = await Promise.all(
+    view.friends.map((f) => loadRemote(f.headshotUrl).catch(() => null))
+  );
   for (let i = 0; i < view.friends.length; i++) {
     const f = view.friends[i]!;
     const col = i % cols;
@@ -204,18 +211,18 @@ export async function renderRobloxFriendsCard(view: RobloxFriendsCardView): Prom
     const y = 140 + row * (rowH + 12);
     card(ctx, x, y, colW, rowH, { shadow: false, radius: 16 });
     // One bad avatar URL must never abort the whole friends card.
-    const img = await loadRemote(f.headshotUrl).catch(() => null);
+    const img = friendHeads[i] ?? null;
     drawAvatar(ctx, img, x + 16, y + 14, 60, f.username[0] ?? "?", RBX.blue);
     text(ctx, f.username, x + 92, y + 40, {
       size: 18,
       weight: "bold",
       color: RBX.ink,
-      maxWidth: colW - 110,
+      maxWidth: colW - 100,
     });
     text(ctx, f.displayName !== f.username ? f.displayName : " ", x + 92, y + 66, {
       size: 15,
       color: RBX.soft,
-      maxWidth: colW - 110,
+      maxWidth: colW - 100,
     });
   }
 

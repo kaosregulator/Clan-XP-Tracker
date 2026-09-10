@@ -8,7 +8,9 @@ import type {
   Message,
 } from "discord.js";
 
-export const HUB_AUTO_DELETE_MS = 180_000; // 3 min — hubs have multi-step buttons
+// Multi-step hubs (Friends pages, Scout drills) need more than a couple minutes.
+// Auto-delete still refreshes on each click via armHubAutoDelete.
+export const HUB_AUTO_DELETE_MS = 600_000; // 10 min
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 

@@ -16,7 +16,68 @@ export type ScoutView =
   | "revenue"
   | "devex"
   | "tracked"
-  | "updates";
+  | "updates"
+  | "intel";
+
+/** Momentum band derived from Scout snapshot history (not invented news). */
+export type ScoutIntelBand = "hot" | "rising" | "stable" | "watch" | "cooling" | "unknown";
+
+export type ScoutIntelSignalTone = "positive" | "warning" | "neutral" | "negative";
+
+export interface ScoutIntelSignal {
+  id: string;
+  label: string;
+  detail: string;
+  tone: ScoutIntelSignalTone;
+}
+
+export interface ScoutGameAssessment {
+  universeId: number;
+  name: string;
+  band: ScoutIntelBand;
+  headline: string;
+  summary: string;
+  score: number;
+  playing: number;
+  deltaPct: number | null;
+  signals: ScoutIntelSignal[];
+  metrics: {
+    snapshotCount: number;
+    avg6h: number | null;
+    avg24h: number | null;
+    avg7d: number | null;
+    peak7d: number | null;
+    vs7dAvgPct: number | null;
+    hoursSinceUpdate: number | null;
+    recentGrowthPct: number | null;
+  };
+}
+
+export interface ScoutIntelBoardRow {
+  universeId: number;
+  name: string;
+  playing: number;
+  valueLabel: string;
+  detail: string;
+  deltaPct?: number | null;
+}
+
+export interface ScoutIntelDashboard {
+  generatedAt: string;
+  trackedGames: number;
+  snapshotWindowHours: number;
+  intervalHint: string;
+  needHistory: boolean;
+  hint: string | null;
+  boards: {
+    risers: ScoutIntelBoardRow[];
+    drops: ScoutIntelBoardRow[];
+    unusual: ScoutIntelBoardRow[];
+    upAndComing: ScoutIntelBoardRow[];
+    updateImpact: ScoutIntelBoardRow[];
+  };
+  watchlist: ScoutGameAssessment[];
+}
 
 export interface ScoutGameRow {
   universeId: number;

@@ -5,11 +5,13 @@ import { SnapshotStore, defaultDbPath } from "bloxscout/dist/core/snapshots.js";
 import { SnapshotScheduler } from "bloxscout/dist/core/scheduler.js";
 import { logger } from "../../../lib/logger";
 import { MILITARY_TYCOON_UNIVERSE_ID } from "../roblox/constants";
+import { scoutIntelSnapshotIds } from "./seeds";
 
 let client: RobloxClient | null = null;
 let store: SnapshotStore | null = null;
 let storeFailed = false;
 let scheduler: SnapshotScheduler | null = null;
+let schedulerIds: number[] = [];
 
 /** Resolve SQLite path — prefer BLOXSCOUT_DATA_DIR / BLOXSCOUT_DB_PATH, else /tmp or cwd. */
 export function resolveScoutDbPath(): string {
@@ -78,7 +80,6 @@ export function startScoutAutoSnapshots(extraUniverseIds: number[] = []): void {
     logger.warn({ intervalSec }, "Scout auto-snapshot interval too low; skipping");
     return;
   }
-  if (scheduler?.running) return;
 
   const snapStore = getScoutStore();
   if (!snapStore) {
@@ -86,9 +87,26 @@ export function startScoutAutoSnapshots(extraUniverseIds: number[] = []): void {
     return;
   }
 
-  const ids = Array.from(
-    new Set([MILITARY_TYCOON_UNIVERSE_ID, ...extraUniverseIds].filter((n) => Number.isFinite(n) && n > 0))
-  );
+  const tracked = snapStore.getTrackedUniverseIds();
+  const ids = scoutIntelSnapshotIds([
+    MILITARY_TYCOON_UNIVERSE_ID,
+    ...tracked,
+    ...extraUniverseIds,
+  ]);
+
+  // Restart if already running on a smaller set so Intelligence gets seed history.
+  if (scheduler?.running) {
+    const missing = ids.filter((id) => !schedulerIds.includes(id));
+    if (!missing.length) return;
+    try {
+      scheduler.stop();
+    } catch {
+      /* ignore */
+    }
+    scheduler = null;
+    schedulerIds = [];
+  }
+
   try {
     scheduler = new SnapshotScheduler({
       client: getScoutClient(),
@@ -99,6 +117,7 @@ export function startScoutAutoSnapshots(extraUniverseIds: number[] = []): void {
       const recorded = (tick as { recorded?: number })?.recorded;
       logger.debug({ recorded, ids }, "Scout snapshot tick");
     });
+    schedulerIds = ids;
     logger.info({ ids, intervalSec }, "Scout auto-snapshots started");
   } catch (err) {
     logger.warn({ err }, "Scout auto-snapshots failed to start");
@@ -109,11 +128,14 @@ export function scoutAutoSnapshotStatus(): {
   running: boolean;
   dbPath: string;
   tracked: number[];
+  intervalSec: number;
 } {
   const snapStore = getScoutStore();
+  const intervalSec = Number(process.env.BLOXSCOUT_SNAPSHOT_INTERVAL_SEC ?? 900);
   return {
     running: Boolean(scheduler?.running),
     dbPath: resolveScoutDbPath(),
-    tracked: snapStore?.getTrackedUniverseIds() ?? [],
+    tracked: schedulerIds.length ? schedulerIds : (snapStore?.getTrackedUniverseIds() ?? []),
+    intervalSec: Number.isFinite(intervalSec) ? intervalSec : 900,
   };
 }

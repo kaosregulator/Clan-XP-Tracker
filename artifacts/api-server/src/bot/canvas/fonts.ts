@@ -86,3 +86,16 @@ export function font(
   const face = weight === "bold" ? "Outfit Bold" : "Outfit";
   return `${size}px "${face}", "DejaVu Sans"`;
 }
+
+
+/**
+ * Canvas fonts (Outfit / DejaVu) have no color-emoji glyphs — raw emoji render
+ * as tofu boxes and also steal width from names. Strip them before draw.
+ */
+export function stripEmoji(value: string): string {
+  return value
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/\uFE0F/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}

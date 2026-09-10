@@ -23,8 +23,16 @@ import {
   scoutAutoSnapshotStatus,
   startScoutAutoSnapshots,
 } from "./client";
+import { SCOUT_PRESET_UNIVERSE_IDS, scoutIntelSnapshotIds } from "./seeds";
+import {
+  assessScoutGame,
+  assembleIntelDashboard,
+  emptyIntelDashboard,
+} from "./intelligence";
 import { ScoutServiceError, formatCount, formatDeltaPct, formatUsd } from "./errors";
 import type {
+  ScoutGameAssessment,
+  ScoutIntelDashboard,
   ScoutCompareResult,
   ScoutCreatorRow,
   ScoutDevexResult,
@@ -183,25 +191,7 @@ export async function getScoutGame(universeId: number): Promise<ScoutGameRow> {
 }
 
 /** Guaranteed Top-N from known popular universe IDs (no charts API required). */
-export const SCOUT_PRESET_UNIVERSE_IDS = [
-  MILITARY_TYCOON_UNIVERSE_ID, // Military Tycoon
-  994732206, // Blox Fruits
-  383310974, // Adopt Me!
-  1686885941, // Brookhaven RP
-  4924922222, // Brookhaven (alt)
-  245662005, // Jailbreak (legacy seed)
-  606849621, // Jailbreak
-  3317771874, // Pet Simulator 99
-  2440500124, // Doors
-  111958650, // Arsenal (legacy seed)
-  286090429, // Arsenal
-  66654135, // Murder Mystery 2
-  1176784616, // Tower Defense Simulator
-  920587237, // Bee Swarm Simulator
-  2788229376, // Da Hood
-  189707, // Natural Disaster Survival
-  4777817887, // Blade Ball
-] as const;
+export { SCOUT_PRESET_UNIVERSE_IDS } from "./seeds";
 
 /** Rank popular seed universes by live CCU — one Roblox games call, no omni-search. */
 export async function getPresetTopGames(limit = 10): Promise<ScoutGameRow[]> {
@@ -696,6 +686,44 @@ export async function getRecentlyUpdated(limit = 12): Promise<ScoutGameRow[]> {
   }
 }
 
+
+/** Assess one game from live CCU + local snapshot history. */
+export async function assessGame(universeId: number): Promise<ScoutGameAssessment> {
+  const live = await getScoutGame(universeId);
+  const history = await getHistory(universeId, 48);
+  return assessScoutGame(live, history);
+}
+
+/**
+ * Intelligence dashboard — risers, drops, unusual activity, up-and-coming, update impact.
+ * Derived only from Scout live data + local snapshots (never invented news).
+ */
+export async function getIntelDashboard(): Promise<ScoutIntelDashboard> {
+  const status = scoutAutoSnapshotStatus();
+  const ids = scoutIntelSnapshotIds(status.tracked);
+  if (!ids.length) {
+    return emptyIntelDashboard("No tracked or seed games yet — open Scout to start auto-snapshots.");
+  }
+
+  try {
+    const games = await getScoutClient().getGames(ids);
+    const rows = await enrichRows(
+      games.map((g) => mapGameLike(g as unknown as Record<string, unknown>))
+    );
+    const assessments = await Promise.all(
+      rows.map(async (row) => {
+        const history = await getHistory(row.universeId, 48);
+        return assessScoutGame(row, history);
+      })
+    );
+    return assembleIntelDashboard(assessments, { intervalSec: status.intervalSec });
+  } catch (err) {
+    return emptyIntelDashboard(
+      err instanceof Error ? err.message : "Could not build Intelligence boards right now."
+    );
+  }
+}
+
 export const ScoutService = {
   search: searchScoutGames,
   resolveGame: resolveScoutGame,
@@ -705,6 +733,8 @@ export const ScoutService = {
   topByGenre: getTopGamesByGenre,
   upAndComing: getUpAndComing,
   recentlyUpdated: getRecentlyUpdated,
+  intelDashboard: getIntelDashboard,
+  assessGame,
   compare: compareScoutGames,
   vsGenre: analyzeVsGenre,
   snapshot: takeSnapshots,
@@ -724,6 +754,11 @@ export const ScoutService = {
   formatUsd,
 };
 
-export type { ScoutGameRow, ScoutView } from "./types";
+export type {
+  ScoutGameRow,
+  ScoutView,
+  ScoutGameAssessment,
+  ScoutIntelDashboard,
+} from "./types";
 export { toScoutUserError, logScoutError, ScoutServiceError } from "./errors";
 export { startScoutAutoSnapshots, scoutAutoSnapshotStatus } from "./client";

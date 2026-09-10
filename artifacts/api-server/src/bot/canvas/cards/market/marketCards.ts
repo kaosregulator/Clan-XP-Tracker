@@ -109,6 +109,7 @@ export async function renderMarketGridCard(view: MarketGridCardView): Promise<Bu
   }
 
   const cellW = (W - 80 - 16) / cols;
+  const rowIcons = await Promise.all(view.rows.map((r) => loadRemote(r.iconUrl)));
   for (let i = 0; i < view.rows.length; i++) {
     const r = view.rows[i]!;
     const col = i % cols;
@@ -116,18 +117,18 @@ export async function renderMarketGridCard(view: MarketGridCardView): Promise<Bu
     const x = 40 + col * (cellW + 16);
     const y = 150 + row * (rowH + 12);
     card(ctx, x, y, cellW, rowH, { radius: 14, shadow: false });
-    const icon = await loadRemote(r.iconUrl);
+    const icon = rowIcons[i] ?? null;
     drawRoundedImage(ctx, icon, x + 14, y + 14, 82, 82, 12);
     text(ctx, r.name, x + 110, y + 36, {
       size: 17,
       weight: "bold",
       color: RBX.ink,
-      maxWidth: cellW - 130,
+      maxWidth: cellW - 120,
     });
     text(ctx, r.meta, x + 110, y + 60, {
       size: 13,
       color: RBX.muted,
-      maxWidth: cellW - 130,
+      maxWidth: cellW - 120,
     });
     text(ctx, r.price, x + 110, y + 88, {
       size: 16,
