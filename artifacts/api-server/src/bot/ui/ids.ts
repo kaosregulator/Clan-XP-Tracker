@@ -88,6 +88,11 @@ export const SETUP_ADMIN_ROLES = id(NS.setup, "adminRoles");
 export const SETUP_EXEMPT_ROLES = id(NS.setup, "exemptRoles");
 export const SETUP_LEAVE_ROLES = id(NS.setup, "leaveRoles");
 export const SETUP_WARN_ROLES = id(NS.setup, "warnRoles");
+/** Role whose members are tracked for clan activity (leaderboard / requirements). */
+export const SETUP_REQUIRED_ROLE = id(NS.setup, "requiredRole");
+/** Wizard / hub: create a default "Clan Activity" Discord role and select it. */
+export const SETUP_CREATE_TRACK_ROLE = id(NS.setup, "createTrackRole");
+export const wizCreateTrackRole = (step: number) => id(NS.setup, "wizCreateTrack", step);
 // Whitelist: individual users granted admin/staff command access.
 export const SETUP_WHITELIST_USERS = id(NS.setup, "whitelistUsers");
 // Enforcement cards & warning-role auto-removal.

@@ -364,13 +364,29 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
 
   new SlashCommandBuilder()
     .setName("leaderboard")
-    .setDescription("Clean standing — who can go without warnings (top 3 + board)")
+    .setDescription("Activity standing — top 3 podium + tracked roster")
+    .setDMPermission(false)
+    .toJSON(),
+
+  new SlashCommandBuilder()
+    .setName("viewlink")
+    .setDescription("View a clan player's public link dashboard (anyone)")
+    .addUserOption((o) =>
+      o.setName("user").setDescription("Discord member to view").setRequired(false)
+    )
+    .addStringOption((o) =>
+      o
+        .setName("member")
+        .setDescription("Search a tracked member")
+        .setRequired(false)
+        .setAutocomplete(true)
+    )
     .setDMPermission(false)
     .toJSON(),
 
   new SlashCommandBuilder()
     .setName("help")
-    .setDescription("How the XP manager works (officers & members)")
+    .setDescription("How the clan player manager works (officers & members)")
     .setDMPermission(false)
     .toJSON(),
 

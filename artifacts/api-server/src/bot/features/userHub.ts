@@ -159,7 +159,7 @@ export async function buildMemberHub(
         new ButtonBuilder()
           .setCustomId(hubHistory(target.id))
           .setStyle(ButtonStyle.Secondary)
-          .setLabel("XP history"),
+          .setLabel("Activity history"),
         new ButtonBuilder()
           .setCustomId(hubRefresh(target.id))
           .setStyle(ButtonStyle.Primary)
@@ -180,7 +180,7 @@ export async function buildMemberHub(
         new ButtonBuilder()
           .setCustomId(hubHistory(target.id))
           .setStyle(ButtonStyle.Secondary)
-          .setLabel("XP history"),
+          .setLabel("Activity history"),
         new ButtonBuilder()
           .setCustomId(hubRefresh(target.id))
           .setStyle(ButtonStyle.Secondary)

@@ -25,6 +25,7 @@ import { renderStandingCard } from "./cards/standingCard";
 import { renderMemberEditorCard } from "./cards/memberEditorCard";
 import { renderPlayerCard } from "./cards/playerCard";
 import { renderLeaderboardCard } from "./cards/leaderboardCard";
+import { renderViewLinkCard } from "./cards/viewLinkCard";
 import { renderLinkPreviewCard } from "./cards/linkPreviewCard";
 import {
   renderRobloxHomeCard,
@@ -114,6 +115,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderPlayerCard(p as any);
     case "leaderboardCard":
       return renderLeaderboardCard(p as any);
+    case "viewLinkCard":
+      return renderViewLinkCard(p as any);
     case "linkPreview":
       return renderLinkPreviewCard(p as any);
     case "robloxHome":

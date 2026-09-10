@@ -758,7 +758,7 @@ async function handleMissing(interaction: ChatInputCommandInteraction<"cached">,
       if (m) members.push(m);
     }
   } else {
-    members = await listTracked(clan);
+    members = await listTracked(clan, interaction.guild);
   }
 
   const missing = await membersMissingToday(clan, members);

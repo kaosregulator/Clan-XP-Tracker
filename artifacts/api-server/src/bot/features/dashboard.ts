@@ -15,6 +15,7 @@ import {
   type BaseMessageOptions,
   type ButtonInteraction,
   type ChatInputCommandInteraction,
+  type Guild,
   type MessageActionRowComponentBuilder,
   type StringSelectMenuInteraction,
 } from "discord.js";
@@ -246,14 +247,18 @@ function browseComponents(
 export async function buildDashboardPayload(
   clan: Clan,
   filter: DashFilter = "attention",
-  page = 0
+  page = 0,
+  guild?: Guild | null
 ): Promise<BaseMessageOptions> {
-  return buildMemberBrowsePayload(clan, filter, page);
+  return buildMemberBrowsePayload(clan, filter, page, "player", guild);
 }
 
 /** Overview Command Center — counts first, no @mention lists. */
-export async function buildOverviewPayload(clan: Clan): Promise<BaseMessageOptions> {
-  const members = await listTracked(clan);
+export async function buildOverviewPayload(
+  clan: Clan,
+  guild?: Guild | null
+): Promise<BaseMessageOptions> {
+  const members = await listTracked(clan, guild);
   const tracked = members.filter((m) => !m.exempt && !m.onLeave).length;
   const attention = reminderTargets(clan, members).length;
   const warnEligible = warningTargets(clan, members).length;
@@ -308,9 +313,10 @@ export async function buildMemberBrowsePayload(
   clan: Clan,
   filter: DashFilter,
   index: number,
-  view: DashBrowseView = "player"
+  view: DashBrowseView = "player",
+  guild?: Guild | null
 ): Promise<BaseMessageOptions> {
-  const members = await listTracked(clan);
+  const members = await listTracked(clan, guild);
   const queue = filterMembers(clan, members, filter);
   const meta = filterMeta(filter);
 
@@ -359,7 +365,7 @@ export async function buildMemberBrowsePayload(
     const goal = effectiveGoal(clan, member);
     const progress = currentProgress(clan, member);
     const pct = goal > 0 ? Math.min(100, Math.round((progress / goal) * 100)) : progress > 0 ? 100 : 0;
-    const rank = await cleanRankOf(clan, member.userId);
+    const rank = await cleanRankOf(clan, member.userId, guild);
     const png = await renderOffThread("memberEditorCard", {
       communityName: clan.clanName,
       queueLabel: meta.label,
@@ -464,7 +470,7 @@ export async function openDashboard(interaction: ChatInputCommandInteraction) {
   await interaction.deferReply({ flags: 64 });
   const clan = await officerGuard(interaction);
   if (!clan) return;
-  await interaction.editReply(await buildOverviewPayload(clan));
+  await interaction.editReply(await buildOverviewPayload(clan, interaction.guild));
 }
 
 function parseFilterIndex(arg: string | undefined): { filter: DashFilter; index: number } {
@@ -481,10 +487,11 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   const clan = await officerGuard(interaction);
   if (!clan) return;
   const { action, arg } = parseId(interaction.customId);
+  const guild = interaction.guild;
 
   if (action === "refresh" || action === "home") {
     await interaction.editReply({
-      ...(await buildOverviewPayload(clan)),
+      ...(await buildOverviewPayload(clan, guild)),
       attachments: [],
     });
     return;
@@ -493,7 +500,7 @@ export async function handleDashButton(interaction: ButtonInteraction) {
   if (action === "browse" || action === "page") {
     const { filter, index } = parseFilterIndex(arg);
     await interaction.editReply({
-      ...(await buildMemberBrowsePayload(clan, filter, index, "player")),
+      ...(await buildMemberBrowsePayload(clan, filter, index, "player", guild)),
       attachments: [],
     });
     return;
@@ -504,7 +511,7 @@ export async function handleDashButton(interaction: ButtonInteraction) {
     const view = parts.pop() === "editor" ? "editor" : "player";
     const { filter, index } = parseFilterIndex(parts.join("-"));
     await interaction.editReply({
-      ...(await buildMemberBrowsePayload(clan, filter, index, view)),
+      ...(await buildMemberBrowsePayload(clan, filter, index, view, guild)),
       attachments: [],
     });
     return;
@@ -514,7 +521,7 @@ export async function handleDashButton(interaction: ButtonInteraction) {
     const { filter, index } = parseFilterIndex(arg);
     const delta = action === "next" ? 1 : -1;
     await interaction.editReply({
-      ...(await buildMemberBrowsePayload(clan, filter, index + delta, "player")),
+      ...(await buildMemberBrowsePayload(clan, filter, index + delta, "player", guild)),
       attachments: [],
     });
   }
@@ -526,7 +533,7 @@ export async function handleDashSelect(interaction: StringSelectMenuInteraction)
   if (!clan) return;
   const filter = (interaction.values[0] ?? "attention") as DashFilter;
   await interaction.editReply({
-    ...(await buildMemberBrowsePayload(clan, filter, 0)),
+    ...(await buildMemberBrowsePayload(clan, filter, 0, "player", interaction.guild)),
     attachments: [],
   });
 }

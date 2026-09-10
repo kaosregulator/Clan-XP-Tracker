@@ -107,7 +107,8 @@ export const clansTable = pgTable("clans", {
   dmOnWarn: boolean("dm_on_warn").notNull().default(true),
   setupComplete: boolean("setup_complete").notNull().default(false),
 
-  // The role whose members are REQUIRED to submit (the tracker denominator).
+  // Discord role whose members are tracked for clan activity (leaderboard +
+  // period requirements). Null = all members already in clan_members.
   requiredRoleId: text("required_role_id"),
   // Channel holding the live admin progress tracker embed.
   trackerChannelId: text("tracker_channel_id"),

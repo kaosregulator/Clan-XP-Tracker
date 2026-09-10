@@ -155,10 +155,10 @@ function standingOf(clan: Clan, member: ClanMember): { standing: ClanStanding; h
     };
   }
   if (statusOf(clan, member) === "complete") {
-    return { standing: "Good Standing", hint: "Weekly activity complete" };
+    return { standing: "Good Standing", hint: "Activity complete" };
   }
   if (statusOf(clan, member) !== "notStarted" || (member.weekReminders ?? 0) > 0) {
-    return { standing: "Needs Attention", hint: "Weekly activity still open" };
+    return { standing: "Needs Attention", hint: "Activity still open" };
   }
   return { standing: "Good Standing", hint: "Keep it up" };
 }

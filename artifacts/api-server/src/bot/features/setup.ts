@@ -54,6 +54,8 @@ import {
   SETUP_EXEMPT_ROLES,
   SETUP_LEAVE_ROLES,
   SETUP_WARN_ROLES,
+  SETUP_REQUIRED_ROLE,
+  SETUP_CREATE_TRACK_ROLE,
   SETUP_WHITELIST_USERS,
   SETUP_CARD_STYLE,
   SETUP_WARN_REMOVAL,
@@ -63,6 +65,7 @@ import {
   wizGo,
   parseId,
 } from "../ui/ids";
+import { syncTrackedRoleMembers } from "../services/progress";
 import {
   wizardStepPayload,
   handleWizardButton,
@@ -185,7 +188,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
     .setColor(clan.setupComplete ? 0x3ba55d : 0x5865f2)
     .setTitle(`⚙️ Configuration — ${clan.clanName}`)
     .setDescription(
-      `Officers verify XP in **${clan.gameName}** and update the bot. Members never submit anything.\n` +
+      `Officers log **activity** in **${clan.gameName}** and update the bot. Members never submit anything.\n` +
         `Tracking period: **${periodLabel(clan)}**` +
         (getTrackingPeriod(clan) === "weekly"
           ? ` · Current week: **${weekRangeLabel(weekKey(clan))}**`
@@ -233,7 +236,7 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         inline: false,
       },
       {
-        name: `${check(clan.disputeCategoryId)} XP Disputes`,
+        name: `${check(clan.disputeCategoryId)} Activity Disputes`,
         value: [
           `Category: ${clan.disputeCategoryId ? `<#${clan.disputeCategoryId}>` : "_not set — /dispute disabled_"}`,
           `Staff role: ${
@@ -247,8 +250,9 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         inline: false,
       },
       {
-        name: `${check(clan.staffRoleIds.length || clan.adminRoleIds.length)} Roles`,
+        name: `${check(clan.staffRoleIds.length || clan.adminRoleIds.length || clan.requiredRoleId)} Roles`,
         value: [
+          `Activity track: ${clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "_not set — all linked members_"}`,
           `Officers: ${clan.staffRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
           `Admins: ${clan.adminRoleIds.map((r) => `<@&${r}>`).join(" ") || "_server managers only_"}`,
           `Whitelisted users: ${clan.adminUserIds.map((u) => `<@${u}>`).join(" ") || "_none_"}`,
@@ -434,8 +438,8 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x5865f2)
         .setTitle("📥 Channels")
         .setDescription(
-          "**Reminders** — where progress nudges post (also the fallback when a member's DMs are closed).\n" +
-            "**Warnings** — where XP enforcement warnings are announced.\n" +
+            "**Reminders** — where progress nudges post (also the fallback when a member's DMs are closed).\n" +
+            "**Warnings** — where activity warnings are announced.\n" +
             "**Logs** — the audit trail of every officer action."
         ),
     ],
@@ -449,7 +453,7 @@ function channelsPayload(clan: Clan): BaseMessageOptions {
 }
 
 function rolesPayload(clan: Clan): BaseMessageOptions {
-  const menu = (cid: string, placeholder: string, current: string[]) =>
+  const multi = (cid: string, placeholder: string, current: string[]) =>
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId(cid)
@@ -458,23 +462,40 @@ function rolesPayload(clan: Clan): BaseMessageOptions {
         .setMaxValues(5)
         .setDefaultRoles(current)
     );
+  const tracked = new RoleSelectMenuBuilder()
+    .setCustomId(SETUP_REQUIRED_ROLE)
+    .setPlaceholder("Activity track role (who must complete activity)")
+    .setMinValues(0)
+    .setMaxValues(1);
+  if (clan.requiredRoleId) tracked.setDefaultRoles([clan.requiredRoleId]);
+
   return {
     embeds: [
       new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("🛡️ Roles")
         .setDescription(
-          "**Officers** — update progress, remind, warn, run the review.\n" +
+          "**Activity track role** — members with this role appear on the leaderboard and count toward activity requirements. " +
+            "Use **Create Clan Activity role** if you don't have one yet.\n\n" +
+            "**Officers** — log activity, remind, warn, run the review.\n" +
             "**Admins** — everything officers can do, plus configuration.\n" +
-            "**Exempt / On leave** — members holding these roles are skipped by reminders, warnings and completion-rate math."
+            "**Exempt** — skipped by reminders, warnings and completion-rate math.\n" +
+            "(On-leave roles are on the Notifications page.)"
         ),
     ],
     components: [
-      menu(SETUP_OFFICER_ROLES, "Officer roles", clan.staffRoleIds),
-      menu(SETUP_ADMIN_ROLES, "Admin roles", clan.adminRoleIds),
-      menu(SETUP_EXEMPT_ROLES, "Exempt roles", clan.exemptRoleIds),
-      menu(SETUP_LEAVE_ROLES, "Leave roles", clan.leaveRoleIds),
-      backRow(),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(tracked),
+      multi(SETUP_OFFICER_ROLES, "Officer roles", clan.staffRoleIds),
+      multi(SETUP_ADMIN_ROLES, "Admin roles", clan.adminRoleIds),
+      multi(SETUP_EXEMPT_ROLES, "Exempt roles", clan.exemptRoleIds),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(SETUP_CREATE_TRACK_ROLE)
+          .setLabel("Create Clan Activity role")
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji("✨"),
+        new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+      ),
     ],
   };
 }
@@ -508,10 +529,11 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
             "**DM reminders** — send nudges by direct message.\n" +
             "**Ping in channel** — mention members in the reminder channel.\n" +
             "**DM on warning** — send the warning by direct message too.\n" +
-            "**Auto weekly reset** — archive & reset progress at the week boundary.\n" +
-            "**Archive history** — keep per-member weekly snapshots for `/xp history`.\n\n" +
+            "**Auto period reset** — archive & reset progress at the period boundary.\n" +
+            "**Archive history** — keep per-member period snapshots for history commands.\n\n" +
             "**Warning role** — assigned automatically whenever a member is warned, " +
-            "and removed once they have no active warnings left. Leave empty for none."
+            "and removed once they have no active warnings left. Leave empty for none.\n" +
+            "**On leave roles** — members with these roles are skipped until leave ends."
         ),
     ],
     components: [
@@ -524,6 +546,14 @@ function notifyPayload(clan: Clan): BaseMessageOptions {
           .setMinValues(0)
           .setMaxValues(5)
           .setDefaultRoles(clan.warningRoleIds)
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_LEAVE_ROLES)
+          .setPlaceholder("On-leave roles (skipped until leave ends)")
+          .setMinValues(0)
+          .setMaxValues(5)
+          .setDefaultRoles(clan.leaveRoleIds)
       ),
       backRow(),
     ],
@@ -907,7 +937,7 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
         await interaction.editReply({
           ...disputesPayload(updated),
           content: created
-            ? "✅ Created private **XP DISPUTES** category and saved it."
+            ? "✅ Created private **ACTIVITY DISPUTES** category and saved it."
             : "✅ Existing dispute category verified and saved.",
         });
       } catch (err) {
@@ -924,6 +954,37 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(channelsPayload(clan)));
     case "roles":
       return void (await interaction.editReply(rolesPayload(clan)));
+    case "createTrackRole": {
+      if (!interaction.guild) return;
+      try {
+        const existing = interaction.guild.roles.cache.find(
+          (r) => r.name.toLowerCase() === "clan activity" && r.editable
+        );
+        const role =
+          existing ??
+          (await interaction.guild.roles.create({
+            name: "Clan Activity",
+            reason: "Tracked activity role for clan leaderboard / requirements",
+            mentionable: false,
+          }));
+        await updateClan(clan.guildId, { requiredRoleId: role.id });
+        const refreshed = (await getClan(clan.guildId)) ?? clan;
+        await syncTrackedRoleMembers(refreshed, interaction.guild).catch(() => 0);
+        return void (await interaction.editReply({
+          ...rolesPayload(refreshed),
+          content: existing
+            ? `✅ Using existing **${role.name}** as the activity track role.`
+            : `✅ Created **${role.name}** and set it as the activity track role. Assign it to members you want tracked.`,
+        }));
+      } catch {
+        return void (await interaction.editReply({
+          content:
+            "⚠️ Couldn't create the role. Make sure the bot has **Manage Roles** and sits above the new role.",
+          embeds: [],
+          components: [backRow()],
+        }));
+      }
+    }
     case "notify":
       return void (await interaction.editReply(notifyPayload(clan)));
     case "whitelist":
@@ -1087,6 +1148,16 @@ export async function handleSetupSelect(
       await interaction.editReply(disputesPayload((await getClan(clan.guildId)) ?? clan));
       return;
     }
+    if (action === "requiredRole") {
+      const requiredRoleId = roleIds[0] ?? null;
+      await updateClan(clan.guildId, { requiredRoleId });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      if (requiredRoleId && interaction.guild) {
+        await syncTrackedRoleMembers(refreshed, interaction.guild).catch(() => 0);
+      }
+      await interaction.editReply(rolesPayload(refreshed));
+      return;
+    }
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
       officerRoles: "staffRoleIds",
       adminRoles: "adminRoleIds",
@@ -1097,10 +1168,9 @@ export async function handleSetupSelect(
     const key = map[action];
     if (key) await updateClan(clan.guildId, { [key]: roleIds });
     const refreshed = (await getClan(clan.guildId)) ?? clan;
-    // The warning-role selector lives on the Notifications page; everything
-    // else on the Roles page. Re-render whichever the officer is looking at.
+    // Warning + leave role selectors live on Notifications; everything else on Roles.
     await interaction.editReply(
-      action === "warnRoles" ? notifyPayload(refreshed) : rolesPayload(refreshed)
+      action === "warnRoles" || action === "leaveRoles" ? notifyPayload(refreshed) : rolesPayload(refreshed)
     );
     return;
   }

@@ -573,14 +573,14 @@ export function renderReminderCard(v: EnforcementCardView): Promise<Buffer> {
     v,
     accent: LIGHT.blue,
     accentSoft: LIGHT.blueSoft,
-    title: ["XP", "REMINDER"],
+    title: ["ACTIVITY", "REMINDER"],
     icon: "bell",
     // A reminder is a friendly nudge — never a warning. The caller passes the
     // (random) nudge line via `message`; this default is only a fallback.
     bodySegs: [
       [
         {
-          t: `A friendly nudge to get your ${period} XP in.`,
+          t: `A friendly nudge to finish your ${period} activity.`,
           color: LIGHT.inkSoft,
           bold: true,
         },

@@ -140,7 +140,7 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
           target: user,
           moderatorId: interaction.user.id,
           moderatorUsername: interaction.user.username,
-          reason: `Missed the weekly ${clan.activityName} goal.`,
+          reason: `Missed the ${clan.activityName} activity goal.`,
         });
         await interaction.editReply({ content: `⚠️ Warned **${identity.username}** — now **${activeCount}** active warning(s).` });
       } catch (err) {
