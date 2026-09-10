@@ -570,6 +570,9 @@ async function buildFriends(st: HubState): Promise<BaseMessageOptions> {
     return { files: [file], components };
   } catch (err) {
     logRobloxError(`buildFriends.${kind}`, err);
+    // Followers/following lists are auth-walled by Roblox; counts stay public.
+    // Prefer that accurate message over a soft "temporarily unavailable".
+    const note = toUserError(err);
     const file = await fileFrom(
       "robloxFriends",
       {
@@ -578,19 +581,19 @@ async function buildFriends(st: HubState): Promise<BaseMessageOptions> {
         page: st.page,
         totalLabel: kind,
         friends: [],
-        note: toUserError(err),
+        note,
       },
       "roblox-friends.png"
     ).catch(() => null);
 
     if (file) {
       return {
-        content: toUserError(err),
+        content: note,
         files: [file],
         components: navRows(st),
       };
     }
-    return softErrorView(st, toUserError(err));
+    return softErrorView(st, note);
   }
 }
 

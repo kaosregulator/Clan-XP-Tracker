@@ -9,7 +9,8 @@ import {
 import { rbxFetch } from "./client";
 import { robloxCache, TTL } from "./cache";
 import { getHeadshots } from "./thumbnails";
-import { RobloxServiceError } from "./errors";
+import { getUsersByIds } from "./users";
+import { RobloxServiceError, logRobloxError } from "./errors";
 import type { PageResult, RobloxFriend } from "./types";
 
 interface FriendRaw {
@@ -69,6 +70,26 @@ function toFriendItems(slice: FriendRaw[], heads: Map<number, string | null>): R
   }));
 }
 
+/**
+ * Roblox privacy change: GET /v1/users/{id}/friends still returns friend ids,
+ * but `name` / `displayName` are empty strings. Enrich via POST /v1/users.
+ */
+async function enrichFriendNames(rows: FriendRaw[]): Promise<FriendRaw[]> {
+  const need = rows.filter((f) => !f.name?.trim() || !f.displayName?.trim()).map((f) => f.id);
+  if (need.length === 0) return rows;
+  const profiles = await getUsersByIds(need);
+  return rows.map((f) => {
+    const p = profiles.get(f.id);
+    if (!p) return f;
+    return {
+      ...f,
+      name: p.name || f.name,
+      displayName: p.displayName || f.displayName || p.name,
+      hasVerifiedBadge: p.hasVerifiedBadge || Boolean(f.hasVerifiedBadge),
+    };
+  });
+}
+
 /** Friends API returns the full list (not cursor-paged). We cache + slice. */
 export async function getFriendsPage(
   userId: number,
@@ -84,15 +105,17 @@ export async function getFriendsPage(
     all = (Array.isArray(data) ? data : [])
       .filter((f) => f && Number.isFinite(f.id) && f.id > 0)
       .slice(0, 500);
+    all = await enrichFriendNames(all);
+    robloxCache.set(key, all, TTL.friends);
+  } else if (all.some((f) => !f.name?.trim())) {
+    // Migrate pre-enrichment cache entries (empty names from Roblox privacy change).
+    all = await enrichFriendNames(all);
     robloxCache.set(key, all, TTL.friends);
   }
 
   const start = Math.max(0, page) * pageSize;
   const slice = all.slice(start, start + pageSize);
-  // Soft: never let thumbnails sink the friends list.
-  const heads = await getHeadshots(slice.map((f) => f.id)).catch(
-    () => new Map<number, string | null>()
-  );
+  const heads = await getHeadshots(slice.map((f) => f.id));
   const items = toFriendItems(slice, heads);
 
   return {
@@ -117,20 +140,31 @@ async function pagedFollow(
       ? getUsersTargetuseridFollowers
       : getUsersTargetuseridFollowings;
 
-  const result = await rbxFetch(endpoint, {
-    targetUserId: userId,
-    limit: pageSize,
-    cursor: cursor ?? undefined,
-    sortOrder: "Desc",
-  });
+  let result;
+  try {
+    result = await rbxFetch(endpoint, {
+      targetUserId: userId,
+      limit: pageSize,
+      cursor: cursor ?? undefined,
+      sortOrder: "Desc",
+    });
+  } catch (err) {
+    // Roblox now requires auth for follower/following *lists* (counts stay public).
+    // Surface as auth_required — not a generic "temporarily unavailable".
+    if (err instanceof RobloxServiceError && err.kind === "auth_required") {
+      throw err;
+    }
+    logRobloxError(`pagedFollow.${kind}`, err);
+    throw err;
+  }
+
   const data = ((result as { data?: FriendRaw[] }).data ?? []).filter(
     (f) => f && Number.isFinite(f.id) && f.id > 0
   );
+  const enriched = await enrichFriendNames(data);
   const next = (result as { nextPageCursor?: string | null }).nextPageCursor ?? null;
-  const heads = await getHeadshots(data.map((f) => f.id)).catch(
-    () => new Map<number, string | null>()
-  );
-  const items = toFriendItems(data, heads);
+  const heads = await getHeadshots(enriched.map((f) => f.id));
+  const items = toFriendItems(enriched, heads);
   return {
     items,
     page,
