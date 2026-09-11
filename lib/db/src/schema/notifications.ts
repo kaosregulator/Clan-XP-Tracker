@@ -18,6 +18,7 @@ export const NOTIFICATION_TYPES = [
   "note",
   "ticket",
   "system",
+  "service_order",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
