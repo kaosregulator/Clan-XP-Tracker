@@ -27,6 +27,9 @@ const STATEMENTS = [
   // Activity Manager — category-tagged warnings + staff activity logs.
   `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS category_key text`,
   `ALTER TABLE warnings ADD COLUMN IF NOT EXISTS category_label text`,
+  // Category-scoped reminders (same idea as warnings — cooldown is per category).
+  `ALTER TABLE reminders ADD COLUMN IF NOT EXISTS category_key text`,
+  `ALTER TABLE reminders ADD COLUMN IF NOT EXISTS category_label text`,
   `CREATE TABLE IF NOT EXISTS activity_categories (
       id serial PRIMARY KEY,
       guild_id text NOT NULL,

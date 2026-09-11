@@ -206,6 +206,8 @@ export const ENF_NOTE = id(NS.enf, "note"); // open optional-note modal
 export const ENF_NOTE_MODAL = id(NS.enf, "noteModal"); // note modal submit
 export const ENF_SEND = id(NS.enf, "send"); // dispatch to everyone selected
 export const ENF_CLEAR = id(NS.enf, "clear"); // clear the current selection
+export const ENF_FORCE_CONFIRM = id(NS.enf, "forceConfirm"); // confirm re-warn / re-remind
+export const ENF_FORCE_CANCEL = id(NS.enf, "forceCancel"); // cancel the re-send prompt
 
 // Staff activity log (/activity) — multi-member + category + points.
 export const ACT_SELECT = id(NS.act, "select");

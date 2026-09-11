@@ -13,6 +13,8 @@ import {
   nextPeriodReset,
   staffProgressDetail,
   containsStaffAccounting,
+  categoryEnforcementNoun,
+  enforcementEmbedAuthor,
 } from "./tracking";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { renderOffThread } from "../canvas/render-pool";
@@ -41,6 +43,9 @@ export interface SendReminderInput {
   note?: string | null;
   /** Explicit channel/DM override; falls back to clan settings when omitted. */
   deliver?: ReminderDelivery;
+  /** Activity category this reminder is about (cooldown is scoped per category). */
+  categoryKey?: string | null;
+  categoryLabel?: string | null;
 }
 
 export interface SendReminderResult {
@@ -52,7 +57,8 @@ async function renderReminderCardSafe(
   clan: Clan,
   target: User,
   body: string,
-  member: ClanMember | null
+  member: ClanMember | null,
+  categoryLabel?: string | null
 ): Promise<Buffer | null> {
   try {
     const discordUrl = target.displayAvatarURL({ size: 256, extension: "png" });
@@ -66,6 +72,7 @@ async function renderReminderCardSafe(
       robloxUsername: member?.gameUsername ?? null,
       message: body,
       periodLabel: periodAdjective(clan),
+      categoryLabel: categoryLabel ?? null,
     });
   } catch (err) {
     logger.warn({ err }, "Reminder card render failed — falling back to embed");
@@ -86,14 +93,15 @@ function reminderEmbed(
   clan: Clan,
   target: User,
   body: string,
-  faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null }
+  faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null },
+  categoryLabel?: string | null
 ): EmbedBuilder {
   const deadline = discordRelative(nextPeriodReset(clan));
   const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
   const robloxUrl = faces?.robloxAvatarUrl || null;
   return new EmbedBuilder()
     .setColor(0xfaa61a)
-    .setAuthor({ name: `🔔 ACTIVITY REMINDER • ${clan.clanName}`, iconURL: discordUrl || undefined })
+    .setAuthor({ name: enforcementEmbedAuthor("reminder", categoryLabel, clan.clanName), iconURL: discordUrl || undefined })
     .setThumbnail(robloxUrl || discordUrl || null)
     .setDescription(
       `${body}\n\nThe ${periodAdjective(clan)} period resets ${deadline}. Just a friendly nudge — not a warning.`
@@ -124,12 +132,12 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     member,
     target.displayAvatarURL({ size: 256, extension: "png" })
   );
-  const embed = reminderEmbed(clan, target, body, faces);
+  const embed = reminderEmbed(clan, target, body, faces, input.categoryLabel ?? null);
   // The canvas card is the primary visual (matches the warning card); the embed
   // stays as a fallback when a render fails so a reminder always gets through.
   // When the server picked the classic embed style, skip the card entirely.
   const card =
-    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, body, member);
+    clan.cardStyle === "embed" ? null : await renderReminderCardSafe(clan, target, body, member, input.categoryLabel ?? null);
 
   // Delivery targets: explicit override wins; otherwise the clan defaults
   // (DM when dmReminders is on, and the reminder channel when configured).
@@ -179,6 +187,8 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
     sentByUsername: input.moderatorUsername ?? null,
     channel: channelUsed,
     delivered,
+    categoryKey: input.categoryKey ?? null,
+    categoryLabel: input.categoryLabel ?? null,
   });
 
   await recordWeeklyReminder(clan, target.id);
@@ -291,9 +301,18 @@ export async function sendReminder(input: SendReminderInput): Promise<SendRemind
 export async function recentReminder(
   clan: Clan,
   userId: string,
-  windowMs = 20 * 3600_000
+  windowMs = 20 * 3600_000,
+  categoryKey?: string | null
 ): Promise<{ createdAt: Date; sentByUsername: string | null; auto: boolean } | null> {
   const cutoff = new Date(Date.now() - windowMs);
+  const filters = [
+    eq(remindersTable.guildId, clan.guildId),
+    eq(remindersTable.userId, userId),
+    gte(remindersTable.createdAt, cutoff),
+  ];
+  if (categoryKey) {
+    filters.push(eq(remindersTable.categoryKey, categoryKey));
+  }
   const [row] = await db
     .select({
       createdAt: remindersTable.createdAt,
@@ -301,13 +320,7 @@ export async function recentReminder(
       auto: remindersTable.auto,
     })
     .from(remindersTable)
-    .where(
-      and(
-        eq(remindersTable.guildId, clan.guildId),
-        eq(remindersTable.userId, userId),
-        gte(remindersTable.createdAt, cutoff)
-      )
-    )
+    .where(and(...filters))
     .orderBy(desc(remindersTable.createdAt))
     .limit(1);
   return row ?? null;

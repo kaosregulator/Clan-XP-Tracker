@@ -49,7 +49,7 @@ export async function handleHelp(interaction: ChatInputCommandInteraction) {
           `/warnings  —  Command Center member editor (no target)`,
           `/warnings member:…  —  standing card with lifetime history`,
           `/viewlink @user  —  private player dashboard (warnings + activity)`,
-          `/link  —  assign Roblox avatars to member cards (role walkthrough)`,
+          `/link  —  assign Roblox avatars (shows Discord nick + username; role walkthrough)`,
         ],
       },
       {

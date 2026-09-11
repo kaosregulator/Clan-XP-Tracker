@@ -38,6 +38,8 @@ export interface EnforcementPickerView {
   members: PickerMemberView[];
   /** A warning role is configured for the server (drives role-status copy). */
   warnRoleConfigured: boolean;
+  /** Chosen activity category — shown big above WARNING/REMINDER. */
+  categoryLabel?: string | null;
 }
 
 const W = 1200;
@@ -149,23 +151,25 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
   // A quiet "PREVIEW" tag so it's unmistakably a control panel.
   drawCenter(ctx, "SELECTION PREVIEW", W / 2, 58, 18, UI.muted, true, "display");
 
-  // Huge mode banner.
-  const title = v.mode === "warning" ? "WARNING" : "REMINDER";
-  drawCenter(ctx, title, W / 2, 138, 92, accent, true, "display");
+  // Category-first banner: activity name large, then WARNING / REMINDER.
+  const category = (v.categoryLabel || "Activity").trim() || "Activity";
+  const verb = v.mode === "warning" ? "WARNING" : "REMINDER";
+  drawCenter(ctx, category.toUpperCase(), W / 2, 118, 64, accent, true, "display");
+  drawCenter(ctx, verb, W / 2, 168, 52, UI.text, true, "display");
   const count = v.members.length;
   const subtitle =
     count === 0
       ? "Select members below — this preview updates as you pick"
-      : `${count} member${count === 1 ? "" : "s"} will be ${v.mode === "warning" ? "warned" : "reminded"}`;
-  drawCenter(ctx, subtitle, W / 2, 180, 26, UI.soft, false, "body");
+      : `${count} member${count === 1 ? "" : "s"} will be ${v.mode === "warning" ? "warned" : "reminded"} for ${category}`;
+  drawCenter(ctx, subtitle, W / 2, 206, 24, UI.soft, false, "body");
 
   // Divider.
   ctx.strokeStyle = accent;
   ctx.globalAlpha = 0.45;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(120, 210);
-  ctx.lineTo(W - 120, 210);
+  ctx.moveTo(120, 230);
+  ctx.lineTo(W - 120, 230);
   ctx.stroke();
   ctx.globalAlpha = 1;
 
@@ -187,7 +191,7 @@ export async function renderEnforcementPicker(v: EnforcementPickerView): Promise
   const shown = v.members.slice(0, 10);
   const perRow = Math.min(5, shown.length);
   const rows = Math.ceil(shown.length / perRow);
-  const gridTop = 258;
+  const gridTop = 278;
   const cellW = (W - 160) / perRow;
   const cellH = rows === 1 ? 300 : 240;
   const avatarSize = rows === 1 ? 128 : 104;

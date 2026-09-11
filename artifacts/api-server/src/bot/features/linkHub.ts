@@ -55,16 +55,30 @@ import { ensureSchema } from "../../lib/ensureSchema";
 import { notConfiguredMessage } from "./xp";
 import { handleMemberSearchAutocomplete } from "./leaderboard";
 
+interface DiscordFace {
+  id: string;
+  /** Login username — always kept for disambiguation. */
+  username: string;
+  /** Guild nickname (Bloxlink often sets this to the Roblox name). */
+  nickname: string | null;
+  avatarUrl: string | null;
+}
+
 interface LinkState {
   ownerId: string;
   discordUserId: string | null;
+  /** Discord username (handle). */
   discordName: string | null;
+  /** Guild nickname when present. */
+  discordNickname: string | null;
   discordAvatarUrl: string | null;
   robloxUserId: number | null;
   robloxName: string | null;
   robloxAvatarUrl: string | null;
   queue: string[];
   queueIndex: number;
+  /** Warm identity cache for role walks (avoids re-fetch per step). */
+  identityCache: Record<string, DiscordFace>;
   ts: number;
 }
 
@@ -95,15 +109,32 @@ function fresh(ownerId: string, patch: Partial<LinkState> = {}): LinkState {
     ownerId,
     discordUserId: null,
     discordName: null,
+    discordNickname: null,
     discordAvatarUrl: null,
     robloxUserId: null,
     robloxName: null,
     robloxAvatarUrl: null,
     queue: [],
     queueIndex: 0,
+    identityCache: {},
     ts: Date.now(),
     ...patch,
   };
+}
+
+function applyDiscordFace(st: LinkState, face: DiscordFace) {
+  st.discordUserId = face.id;
+  st.discordName = face.username;
+  st.discordNickname = face.nickname;
+  st.discordAvatarUrl = face.avatarUrl;
+  st.identityCache[face.id] = face;
+}
+
+function discordLabel(st: LinkState): string {
+  const user = st.discordName ?? "member";
+  const nick = st.discordNickname?.trim();
+  if (nick && nick.toLowerCase() !== user.toLowerCase()) return `${nick} (@${user})`;
+  return user;
 }
 
 function row(...c: MessageActionRowComponentBuilder[]) {
@@ -118,23 +149,56 @@ async function fileFrom(fn: string, params: unknown, name: string) {
 }
 
 async function loadDiscordIdentity(
-  interaction: { client: ChatInputCommandInteraction["client"]; guildId: string | null },
-  userId: string
-) {
+  interaction: {
+    client: ChatInputCommandInteraction["client"];
+    guildId: string | null;
+    guild?: ChatInputCommandInteraction["guild"];
+  },
+  userId: string,
+  cache?: Record<string, DiscordFace>
+): Promise<DiscordFace> {
+  const cached = cache?.[userId];
+  if (cached) return cached;
+
+  // Prefer guild member so we get the live nickname (Bloxlink / server nick).
+  const guild =
+    interaction.guild ??
+    (interaction.guildId
+      ? await interaction.client.guilds.fetch(interaction.guildId).catch(() => null)
+      : null);
+  const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+  if (member) {
+    const face: DiscordFace = {
+      id: member.id,
+      username: member.user.username,
+      nickname: member.nickname,
+      avatarUrl: member.displayAvatarURL({ size: 256, extension: "png" }),
+    };
+    if (cache) cache[userId] = face;
+    return face;
+  }
+
   const user = await interaction.client.users.fetch(userId).catch(() => null);
   if (user) {
-    return {
+    const face: DiscordFace = {
       id: user.id,
-      name: user.username,
+      username: user.username,
+      nickname: null,
       avatarUrl: user.displayAvatarURL({ size: 256, extension: "png" }),
     };
+    if (cache) cache[userId] = face;
+    return face;
   }
+
   const m = interaction.guildId ? await getMember(interaction.guildId, userId) : null;
-  return {
+  const face: DiscordFace = {
     id: userId,
-    name: m?.username ?? "member",
+    username: m?.username ?? "member",
+    nickname: null,
     avatarUrl: m?.avatarUrl ?? null,
   };
+  if (cache) cache[userId] = face;
+  return face;
 }
 
 async function buildView(st: LinkState): Promise<BaseMessageOptions> {
@@ -148,6 +212,7 @@ async function buildView(st: LinkState): Promise<BaseMessageOptions> {
     {
       title: st.discordUserId ? "Confirm this match" : "Link a Roblox avatar",
       discordName: st.discordName ?? "Pick a Discord member",
+      discordNickname: st.discordNickname,
       discordAvatarUrl: st.discordAvatarUrl,
       robloxName: st.robloxName,
       robloxAvatarUrl: st.robloxAvatarUrl,
@@ -156,8 +221,8 @@ async function buildView(st: LinkState): Promise<BaseMessageOptions> {
       hint: st.discordUserId
         ? st.robloxUserId
           ? "Looks good? Hit Confirm link to save on their standing & warning cards."
-          : "Search Roblox and pick from the top matches."
-        : "Pick a Discord user, pick a ROLE to walk, then search Roblox.",
+          : "Search Roblox — nicknames often match the Roblox name (Bloxlink)."
+        : "Pick a Discord user, or a ROLE to walk. Nicknames help spot the right Roblox.",
     },
     "avatar-link.png"
   );
@@ -245,14 +310,13 @@ async function advanceQueue(
     st.queueIndex = 0;
     st.discordUserId = null;
     st.discordName = null;
+    st.discordNickname = null;
     st.discordAvatarUrl = null;
     return;
   }
   const nextId = st.queue[st.queueIndex]!;
-  const id = await loadDiscordIdentity(interaction, nextId);
-  st.discordUserId = id.id;
-  st.discordName = id.name;
-  st.discordAvatarUrl = id.avatarUrl;
+  const face = await loadDiscordIdentity(interaction, nextId, st.identityCache);
+  applyDiscordFace(st, face);
   const existing = await getMember(interaction.guildId!, nextId);
   if (existing?.robloxUserId) {
     st.robloxUserId = existing.robloxUserId;
@@ -276,34 +340,43 @@ async function startRoleQueue(
   const role = await guild.roles.fetch(roleId).catch(() => null);
   if (!role) return "That role couldn't be found.";
 
+  // One guild fetch — warm nickname cache for the whole walk (snappy skips/advances).
   const members = await guild.members.fetch();
-  const inRole = [...members.values()]
-    .filter((m) => !m.user.bot && m.roles.cache.has(role.id))
-    .map((m) => m.id);
+  const inRoleMembers = [...members.values()].filter(
+    (m) => !m.user.bot && m.roles.cache.has(role.id)
+  );
+  const inRole = inRoleMembers.map((m) => m.id);
 
   if (!inRole.length) return "That role has no members to walk.";
 
+  st.identityCache = {};
+  for (const m of inRoleMembers) {
+    st.identityCache[m.id] = {
+      id: m.id,
+      username: m.user.username,
+      nickname: m.nickname,
+      avatarUrl: m.displayAvatarURL({ size: 256, extension: "png" }),
+    };
+  }
+
   st.queue = inRole;
   st.queueIndex = 0;
-  const first = await loadDiscordIdentity(interaction, inRole[0]!);
-  st.discordUserId = first.id;
-  st.discordName = first.name;
-  st.discordAvatarUrl = first.avatarUrl;
+  applyDiscordFace(st, st.identityCache[inRole[0]!]!);
   st.robloxUserId = null;
   st.robloxName = null;
   st.robloxAvatarUrl = null;
-  const existing = await getMember(guildId, first.id);
+  const existing = await getMember(guildId, inRole[0]!);
   if (existing?.robloxUserId) {
     st.robloxUserId = existing.robloxUserId;
     st.robloxName = existing.gameUsername;
     st.robloxAvatarUrl = existing.robloxAvatarUrl;
   }
 
-  // Ensure rows exist for everyone in the walk (best-effort).
-  for (const id of inRole.slice(0, 50)) {
-    const u = await interaction.client.users.fetch(id).catch(() => null);
-    if (u) await ensureMember(guildId, identityFromUser(u));
-  }
+  // Ensure roster rows in parallel (bounded) — don't block the walk on serial fetches.
+  const seed = inRoleMembers.slice(0, 50);
+  await Promise.allSettled(
+    seed.map((m) => ensureMember(guildId, identityFromUser(m.user)))
+  );
   return null;
 }
 
@@ -336,9 +409,8 @@ export async function handleLinkCommand(interaction: ChatInputCommandInteraction
     } else if (targetId) {
       const user = await interaction.client.users.fetch(targetId);
       await ensureMember(interaction.guildId, identityFromUser(user));
-      st.discordUserId = user.id;
-      st.discordName = user.username;
-      st.discordAvatarUrl = user.displayAvatarURL({ size: 256, extension: "png" });
+      const face = await loadDiscordIdentity(interaction, user.id, st.identityCache);
+      applyDiscordFace(st, face);
       const existing = await getMember(interaction.guildId, user.id);
       if (existing?.robloxUserId) {
         st.robloxUserId = existing.robloxUserId;
@@ -427,11 +499,12 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
         new ActionRowBuilder<TextInputBuilder>().addComponents(
           new TextInputBuilder()
             .setCustomId("query")
-            .setLabel("Username (or paste Discord user ID)")
+            .setLabel("Nickname, username, or Discord user ID")
             .setStyle(TextInputStyle.Short)
             .setRequired(true)
             .setMinLength(2)
             .setMaxLength(40)
+            .setPlaceholder("Server nick / @username / ID")
         )
       );
     await interaction.showModal(modal);
@@ -505,7 +578,7 @@ export async function handleLinkButton(interaction: ButtonInteraction) {
           throw err;
         }
       }
-      const linkedName = st.discordName ?? "member";
+      const linkedName = discordLabel(st);
       const linkedRbx = st.robloxName ?? "Roblox";
       if (st.queue.length) {
         await advanceQueue(interaction, st);
@@ -651,6 +724,25 @@ export async function handleLinkModal(interaction: ModalSubmitInteraction) {
     if (action === "discordModal") {
       const q = interaction.fields.getTextInputValue("query").trim();
       let userId = /^\d{16,20}$/.test(q) ? q : null;
+      if (!userId && interaction.guild) {
+        const qLower = q.toLowerCase();
+        // Ensure member cache is warm so nickname search works even mid-session.
+        if (interaction.guild.members.cache.size < 5) {
+          await interaction.guild.members.fetch().catch(() => null);
+        }
+        // Prefer live guild members so officers can search by server nickname
+        // (Bloxlink often sets nick = Roblox name).
+        const guildHit = interaction.guild.members.cache.find(
+          (m) =>
+            !m.user.bot &&
+            (m.user.username.toLowerCase() === qLower ||
+              m.displayName.toLowerCase() === qLower ||
+              m.nickname?.toLowerCase() === qLower ||
+              m.user.username.toLowerCase().includes(qLower) ||
+              m.displayName.toLowerCase().includes(qLower))
+        );
+        if (guildHit) userId = guildHit.id;
+      }
       if (!userId && interaction.guildId) {
         const tracked = await listTracked(
           await getClan(interaction.guildId).then((c) => c!),
@@ -666,17 +758,16 @@ export async function handleLinkModal(interaction: ModalSubmitInteraction) {
       }
       if (!userId) {
         await interaction.followUp({
-          content: "Couldn't find that Discord member in this clan's tracked list. Try their user ID.",
+          content:
+            "Couldn't find that Discord member. Try their server nickname, username, or paste their user ID.",
           flags: 64,
         });
         return;
       }
-      const id = await loadDiscordIdentity(interaction, userId);
+      const face = await loadDiscordIdentity(interaction, userId, st.identityCache);
       const user = await interaction.client.users.fetch(userId).catch(() => null);
       if (user) await ensureMember(interaction.guildId!, identityFromUser(user));
-      st.discordUserId = id.id;
-      st.discordName = id.name;
-      st.discordAvatarUrl = id.avatarUrl;
+      applyDiscordFace(st, face);
       st.robloxUserId = null;
       st.robloxName = null;
       st.robloxAvatarUrl = null;

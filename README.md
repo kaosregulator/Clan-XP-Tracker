@@ -105,6 +105,8 @@ commands and interactive panels.
 - `/disputes` — Review member warning disputes
 - `/tickets` — Track staff issues to resolution
 - `/help` — In-app guide
+- `/link` — Link a Roblox avatar to a Discord member (role walkthrough; shows Discord nickname + username for Bloxlink-style matching)
+- `/viewlink @user` — Private player dashboard (warnings + activity)
 
 ### Admin Commands
 - `/setup` — Guided setup wizard (new servers) or the advanced config hub
