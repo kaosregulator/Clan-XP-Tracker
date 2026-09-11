@@ -45,30 +45,34 @@ the image sets `NODE_ENV`). Optional variables (`DISCORD_DEV_GUILD_ID`,
 The server **will not boot** without `DATABASE_URL` and `SESSION_SECRET`, so set
 those before the first successful deploy.
 
-## 4. Create the database tables
+## 4. Database tables (automatic on deploy)
 
-The app uses Drizzle. The session table auto-creates, but the application tables
-must be pushed once (and again whenever the schema changes). Run this **locally**
-against Railway's Postgres:
+The container entrypoint (`artifacts/api-server/scripts/start-with-schema.sh`)
+runs **`drizzle-kit push` without `--force`** against `DATABASE_URL` **before**
+the API/bot process starts. That creates `clan_members` and every other table
+from `lib/db/src/schema` on a fresh Railway Postgres, and applies safe additive
+schema changes on later deploys.
 
-1. In the **Postgres** service → **Connect**, copy the **public** connection
-   string.
-2. From a checkout of this repo:
+You do **not** need to open a Railway shell or run `pnpm --filter @workspace/db
+push` manually for normal deploys. Watch deploy logs for
+`Applying database schema` / drizzle-kit output, then `Starting ClanXP API
+server...`.
 
-   ```bash
-   pnpm install
-   DATABASE_URL="<public-connection-string>" pnpm --filter @workspace/db push
-   ```
+Boot still runs additive `ensureSchema` (safe `ADD COLUMN IF NOT EXISTS` /
+activity table helpers) as a second safety net after Node starts.
 
-Answer the prompts to create the tables. (Railway does not have a separate
-release phase, so this schema push is a manual step rather than part of the
-container start.)
+**Manual push (optional / recovery only):** if a deploy fails on a destructive
+schema change (drizzle-kit will not auto-approve data loss without `--force`),
+review the change locally, then either adjust the schema or run a careful
+manual push against the Railway public URL from your laptop:
 
-**After every merge that adds columns** (e.g. `roblox_user_id`, `clean_points`),
-the app now runs an automatic `ensureSchema` on boot (safe `ADD COLUMN IF NOT
-EXISTS`). You usually do **not** need a manual push after deploy. Keep the
-manual `pnpm --filter @workspace/db push` step for the **first** install only
-(creating all tables from scratch).
+```bash
+pnpm install
+DATABASE_URL="<public-connection-string>" pnpm --filter @workspace/db push
+```
+
+Never use `push-force` on production unless you have explicitly accepted data
+loss.
 
 ## 4b. Instant slash-command updates (optional)
 
@@ -99,11 +103,15 @@ wipe `/link`, hubs, or the dashboard anymore.
 - **Crash loop right after build** → almost always a missing `DATABASE_URL` or
   `SESSION_SECRET`. Check the deploy logs for the thrown error.
 - **Login bounces back to the home page** → `DISCORD_REDIRECT_URI` doesn't match
-  the URL registered in the Discord portal, or the tables weren't pushed
-  (step 4).
+  the URL registered in the Discord portal, or schema push failed at container
+  start (check logs for drizzle-kit / `DATABASE_URL`).
 - **Slash commands don't appear / old hubs stick around** → check deploy logs for
   `Missing Access` (see §4b). Otherwise wait up to ~1h for global sync, or set a
   valid `DISCORD_DEV_GUILD_ID`. Fully quit the Discord client after a successful
   “Slash commands registered globally” log line.
-- **`/link` says database is updating / missing columns** → redeploy so boot
-  `ensureSchema` can add them, or run the schema push in §4 once.
+- **`relation "clan_members" does not exist` / `/help` / `/xpwarn` fail** → the
+  start script did not run or schema push failed. Confirm the service start
+  command is `sh artifacts/api-server/scripts/start-with-schema.sh`, redeploy,
+  and verify deploy logs show the schema step before `Server listening`.
+- **`/link` says database is updating / missing columns** → redeploy so
+  entrypoint push + boot `ensureSchema` can add them.
