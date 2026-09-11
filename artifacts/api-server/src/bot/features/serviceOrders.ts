@@ -23,15 +23,18 @@ import {
   listServiceOrders,
   findOpenOrderForCustomer,
   canManageServiceOrders,
+  canPlaceServiceOrder,
   serviceOrderPanelPayload,
   SERVICE_CATALOG,
   STATUS_LABEL,
   STATUS_EMOJI,
   queueHeadline,
   ordersAhead,
+  SERVICE_ORDER_ACCESS_DENIED,
   type ServiceOrderAction,
 } from "../services/serviceOrders";
-import { resolveServiceKey } from "../services/serviceOrderHelpers";
+import { resolveServiceKey, staffQuickReplyByKey } from "../services/serviceOrderHelpers";
+import { logger } from "../../lib/logger";
 import {
   NS,
   parseId,
@@ -328,6 +331,11 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
     return;
   }
 
+  if (!canPlaceServiceOrder(interaction.member, interaction.user.id, clan)) {
+    await interaction.reply({ content: SERVICE_ORDER_ACCESS_DENIED, flags: 64 });
+    return;
+  }
+
   const existing = await findOpenOrderForCustomer(clan.guildId, interaction.user.id);
   if (existing) {
     const where = existing.channelId ? ` — see <#${existing.channelId}>` : "";
@@ -361,6 +369,20 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
 
 async function openDetailsModal(interaction: StringSelectMenuInteraction) {
   if (!interaction.inCachedGuild()) return;
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.reply({
+      ...notConfiguredMessage(isOfficer(interaction.member, null)),
+      flags: 64,
+    });
+    return;
+  }
+  if (!canPlaceServiceOrder(interaction.member, interaction.user.id, clan)) {
+    await interaction.reply({ content: SERVICE_ORDER_ACCESS_DENIED, flags: 64 });
+    return;
+  }
+
   const raw = interaction.values[0] ?? "other";
   const serviceKey = resolveServiceKey(raw);
   const catalog = SERVICE_CATALOG[serviceKey];
@@ -411,6 +433,10 @@ async function submitPlaceOrder(interaction: ModalSubmitInteraction) {
   });
 
   if (!res.ok) {
+    if (res.error === SERVICE_ORDER_ACCESS_DENIED) {
+      await interaction.editReply({ content: res.error });
+      return;
+    }
     await interaction.editReply({ content: `⚠️ ${res.error}` });
     return;
   }
@@ -508,6 +534,58 @@ async function runSyncFiles(interaction: ButtonInteraction, orderId: number) {
 
 /* -------------------------------------------------------------- handlers */
 
+
+async function runQuickReply(interaction: StringSelectMenuInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+  if (!canManageServiceOrders(interaction.member, clan)) {
+    await interaction.editReply({
+      content: "Only leveling staff / officers can send quick replies.",
+    });
+    return;
+  }
+
+  const message = staffQuickReplyByKey(interaction.values[0] ?? "");
+  if (!message) {
+    await interaction.editReply({ content: "Unknown quick reply." });
+    return;
+  }
+
+  const order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+  if (!order.channelId) {
+    await interaction.editReply({ content: "This order has no ticket channel yet." });
+    return;
+  }
+
+  try {
+    const ch = await interaction.client.channels.fetch(order.channelId);
+    if (!ch?.isTextBased() || !("send" in ch)) {
+      await interaction.editReply({ content: "Couldn't reach the ticket channel." });
+      return;
+    }
+    await ch.send({
+      content: `<@${order.customerId}> ${message}`,
+      allowedMentions: { users: [order.customerId] },
+    });
+  } catch (err) {
+    logger.warn({ err, orderId }, "service order quick reply failed");
+    await interaction.editReply({ content: "Failed to post the quick reply in the ticket." });
+    return;
+  }
+
+  await interaction.editReply({ content: "✅ Quick reply sent in the ticket." });
+}
+
 export async function handleServiceOrderButton(interaction: ButtonInteraction) {
   if (!interaction.inCachedGuild()) return;
   if (parseId(interaction.customId).ns !== NS.svc) return;
@@ -540,11 +618,21 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
 
 export async function handleServiceOrderSelect(interaction: StringSelectMenuInteraction) {
   if (!interaction.inCachedGuild()) return;
-  const { ns, action } = parseId(interaction.customId);
+  const { ns, action, arg } = parseId(interaction.customId);
   if (ns !== NS.svc) return;
 
   if (action === "servicePick" || interaction.customId === SVC_SERVICE_PICK) {
     await openDetailsModal(interaction);
+    return;
+  }
+
+  if (action === "quickReply") {
+    const orderId = Number(arg);
+    if (!orderId) {
+      await interaction.reply({ content: "Invalid order reference.", flags: 64 });
+      return;
+    }
+    await runQuickReply(interaction, orderId);
     return;
   }
 

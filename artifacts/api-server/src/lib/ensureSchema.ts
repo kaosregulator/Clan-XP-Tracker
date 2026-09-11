@@ -77,6 +77,10 @@ const STATEMENTS = [
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_dm_customer boolean NOT NULL DEFAULT true`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_dm_queue boolean NOT NULL DEFAULT true`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_next_number integer NOT NULL DEFAULT 1`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_whitelist_user_ids text[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_whitelist_role_ids text[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_blacklist_user_ids text[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_blacklist_role_ids text[] NOT NULL DEFAULT '{}'`,
   `CREATE TABLE IF NOT EXISTS service_orders (
       id serial PRIMARY KEY,
       guild_id text NOT NULL,

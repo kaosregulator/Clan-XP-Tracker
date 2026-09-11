@@ -8,6 +8,9 @@ import {
   isTerminalStatus,
   isQueueStatus,
   queueHeadline,
+  canPlaceServiceOrderAccess,
+  staffQuickReplyByKey,
+  STAFF_QUICK_REPLIES,
 } from "./serviceOrderHelpers.js";
 
 describe("serviceOrderHelpers", () => {
@@ -50,5 +53,75 @@ describe("serviceOrderHelpers", () => {
     });
     assert.match(line, /#3/);
     assert.match(line, /2 order/);
+  });
+
+  it("enforces blacklist over whitelist for placing orders", () => {
+    assert.equal(
+      canPlaceServiceOrderAccess({
+        userId: "u1",
+        memberRoleIds: ["r1"],
+        whitelistUserIds: ["u1"],
+        whitelistRoleIds: [],
+        blacklistUserIds: ["u1"],
+        blacklistRoleIds: [],
+      }),
+      false
+    );
+    assert.equal(
+      canPlaceServiceOrderAccess({
+        userId: "u1",
+        memberRoleIds: ["r-bad"],
+        whitelistUserIds: ["u1"],
+        whitelistRoleIds: [],
+        blacklistUserIds: [],
+        blacklistRoleIds: ["r-bad"],
+      }),
+      false
+    );
+  });
+
+  it("requires whitelist when configured", () => {
+    assert.equal(
+      canPlaceServiceOrderAccess({
+        userId: "u1",
+        memberRoleIds: [],
+        whitelistUserIds: ["u2"],
+        whitelistRoleIds: [],
+        blacklistUserIds: [],
+        blacklistRoleIds: [],
+      }),
+      false
+    );
+    assert.equal(
+      canPlaceServiceOrderAccess({
+        userId: "u1",
+        memberRoleIds: ["vip"],
+        whitelistUserIds: [],
+        whitelistRoleIds: ["vip"],
+        blacklistUserIds: [],
+        blacklistRoleIds: [],
+      }),
+      true
+    );
+  });
+
+  it("allows everyone when whitelist empty (unless blacklisted)", () => {
+    assert.equal(
+      canPlaceServiceOrderAccess({
+        userId: "anyone",
+        memberRoleIds: [],
+        whitelistUserIds: [],
+        whitelistRoleIds: [],
+        blacklistUserIds: [],
+        blacklistRoleIds: [],
+      }),
+      true
+    );
+  });
+
+  it("resolves staff quick replies", () => {
+    assert.equal(STAFF_QUICK_REPLIES.length, 10);
+    assert.match(staffQuickReplyByKey("qr0") ?? "", /patient/i);
+    assert.equal(staffQuickReplyByKey("nope"), null);
   });
 });

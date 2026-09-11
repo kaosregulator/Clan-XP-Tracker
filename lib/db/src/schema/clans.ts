@@ -216,6 +216,28 @@ export const clansTable = pgTable("clans", {
   /** Monotonic counter for public ids (LV-0001…). */
   serviceOrderNextNumber: integer("service_order_next_number").notNull().default(1),
 
+  /**
+   * Who may press Place Service Order.
+   * Blacklist always wins. If any whitelist entry exists, only those users/roles
+   * may place; empty whitelist = everyone except blacklisted.
+   */
+  serviceOrderWhitelistUserIds: text("service_order_whitelist_user_ids")
+    .array()
+    .notNull()
+    .default([]),
+  serviceOrderWhitelistRoleIds: text("service_order_whitelist_role_ids")
+    .array()
+    .notNull()
+    .default([]),
+  serviceOrderBlacklistUserIds: text("service_order_blacklist_user_ids")
+    .array()
+    .notNull()
+    .default([]),
+  serviceOrderBlacklistRoleIds: text("service_order_blacklist_role_ids")
+    .array()
+    .notNull()
+    .default([]),
+
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

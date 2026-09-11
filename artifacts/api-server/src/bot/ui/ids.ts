@@ -157,6 +157,13 @@ export const SETUP_LEVELING_TEAM_ROLE = id(NS.setup, "levelingTeamRole");
 export const SETUP_LEVELING_CREATE_CATEGORY = id(NS.setup, "levelingCreateCategory");
 export const SETUP_LEVELING_TOGGLE = id(NS.setup, "levelingToggle");
 export const SETUP_LEVELING_POST_PANEL = id(NS.setup, "levelingPostPanel");
+export const SETUP_LEVELING_ACCESS = id(NS.setup, "levelingAccess");
+export const SETUP_LEVELING_WL_USERS = id(NS.setup, "levelingWlUsers");
+export const SETUP_LEVELING_WL_ROLES = id(NS.setup, "levelingWlRoles");
+export const SETUP_LEVELING_BL_USERS = id(NS.setup, "levelingBlUsers");
+export const SETUP_LEVELING_BL_ROLES = id(NS.setup, "levelingBlRoles");
+export const SETUP_LEVELING_CLEAR_WL = id(NS.setup, "levelingClearWl");
+export const SETUP_LEVELING_CLEAR_BL = id(NS.setup, "levelingClearBl");
 
 
 // Tickets.
@@ -294,4 +301,5 @@ export const svcQueue = (orderId: number) => id(NS.svc, "queue", orderId);
 export const svcUp = (orderId: number) => id(NS.svc, "up", orderId);
 export const svcDown = (orderId: number) => id(NS.svc, "down", orderId);
 export const svcSyncFiles = (orderId: number) => id(NS.svc, "syncFiles", orderId);
+export const svcQuickReply = (orderId: number) => id(NS.svc, "quickReply", orderId);
 

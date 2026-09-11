@@ -56,6 +56,13 @@ import {
   SETUP_LEVELING_CREATE_CATEGORY,
   SETUP_LEVELING_TOGGLE,
   SETUP_LEVELING_POST_PANEL,
+  SETUP_LEVELING_ACCESS,
+  SETUP_LEVELING_WL_USERS,
+  SETUP_LEVELING_WL_ROLES,
+  SETUP_LEVELING_BL_USERS,
+  SETUP_LEVELING_BL_ROLES,
+  SETUP_LEVELING_CLEAR_WL,
+  SETUP_LEVELING_CLEAR_BL,
   SETUP_BACK,
   SETUP_FINISH,
   SETUP_REMINDER_CHANNEL,
@@ -449,8 +456,21 @@ function disputesPayload(clan: Clan): BaseMessageOptions {
 }
 
 
+
+function formatIdList(ids: string[] | null | undefined, kind: "user" | "role"): string {
+  if (!ids?.length) return "_none_";
+  const mention = kind === "user" ? (id: string) => `<@${id}>` : (id: string) => `<@&${id}>`;
+  const shown = ids.slice(0, 15).map(mention).join(" ");
+  return ids.length > 15 ? `${shown} _(+${ids.length - 15} more)_` : shown;
+}
+
 function levelingPayload(clan: Clan): BaseMessageOptions {
   const teamFallback = serviceTeamRoleIds(clan);
+  const wlUsers = clan.serviceOrderWhitelistUserIds ?? [];
+  const wlRoles = clan.serviceOrderWhitelistRoleIds ?? [];
+  const blUsers = clan.serviceOrderBlacklistUserIds ?? [];
+  const blRoles = clan.serviceOrderBlacklistRoleIds ?? [];
+  const hasWhitelist = wlUsers.length > 0 || wlRoles.length > 0;
   return {
     embeds: [
       new EmbedBuilder()
@@ -469,7 +489,16 @@ function levelingPayload(clan: Clan): BaseMessageOptions {
                 : teamFallback.map((r) => `<@&${r}>`).join(" ") || "_officers / admins_"
             }\n` +
             `DM customer on status changes: **${clan.serviceOrderDmCustomer ? "on" : "off"}**\n` +
-            `DM on queue-position changes: **${clan.serviceOrderDmQueue ? "on" : "off"}**`
+            `DM on queue-position changes: **${clan.serviceOrderDmQueue ? "on" : "off"}**\n\n` +
+            `**Order access:** ${
+              hasWhitelist
+                ? "whitelist mode (only listed users/roles)"
+                : "open (everyone except blacklist)"
+            }\n` +
+            `Whitelist users: ${formatIdList(wlUsers, "user")}\n` +
+            `Whitelist roles: ${formatIdList(wlRoles, "role")}\n` +
+            `Blacklist users: ${formatIdList(blUsers, "user")}\n` +
+            `Blacklist roles: ${formatIdList(blRoles, "role")}`
         ),
     ],
     components: [
@@ -512,7 +541,88 @@ function levelingPayload(clan: Clan): BaseMessageOptions {
           .setCustomId(SETUP_LEVELING_POST_PANEL)
           .setLabel("Post order panel here")
           .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING_ACCESS)
+          .setLabel("Access Control")
+          .setStyle(ButtonStyle.Primary)
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+  };
+}
+
+function levelingAccessPayload(clan: Clan): BaseMessageOptions {
+  const wlUsers = clan.serviceOrderWhitelistUserIds ?? [];
+  const wlRoles = clan.serviceOrderWhitelistRoleIds ?? [];
+  const blUsers = clan.serviceOrderBlacklistUserIds ?? [];
+  const blRoles = clan.serviceOrderBlacklistRoleIds ?? [];
+  const hasWhitelist = wlUsers.length > 0 || wlRoles.length > 0;
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x3f51e0)
+        .setTitle("🛠️ Leveling Service — Access Control")
+        .setDescription(
+          "Who can press **Place Service Order**.\n\n" +
+            "• **Blacklist always wins** (user or role).\n" +
+            "• If any whitelist entry exists → only those users/roles can order.\n" +
+            "• If whitelist is empty → everyone except blacklisted can order.\n\n" +
+            `Mode: **${hasWhitelist ? "whitelist" : "open (+ blacklist)"}**\n\n` +
+            `Whitelist users: ${formatIdList(wlUsers, "user")}\n` +
+            `Whitelist roles: ${formatIdList(wlRoles, "role")}\n` +
+            `Blacklist users: ${formatIdList(blUsers, "user")}\n` +
+            `Blacklist roles: ${formatIdList(blRoles, "role")}\n\n` +
+            "_Pick people/roles below to set each list (replaces the list)._"
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new UserSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_WL_USERS)
+          .setPlaceholder("Whitelist users…")
+          .setMinValues(0)
+          .setMaxValues(25)
+          .setDefaultUsers(wlUsers.slice(0, 25))
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_WL_ROLES)
+          .setPlaceholder("Whitelist roles…")
+          .setMinValues(0)
+          .setMaxValues(25)
+          .setDefaultRoles(wlRoles.slice(0, 25))
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new UserSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_BL_USERS)
+          .setPlaceholder("Blacklist users…")
+          .setMinValues(0)
+          .setMaxValues(25)
+          .setDefaultUsers(blUsers.slice(0, 25))
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_BL_ROLES)
+          .setPlaceholder("Blacklist roles…")
+          .setMinValues(0)
+          .setMaxValues(25)
+          .setDefaultRoles(blRoles.slice(0, 25))
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING_CLEAR_WL)
+          .setLabel("Clear whitelist")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING_CLEAR_BL)
+          .setLabel("Clear blacklist")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING)
+          .setLabel("← Back to Leveling")
+          .setStyle(ButtonStyle.Primary)
       ),
     ],
   };
@@ -1016,6 +1126,30 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(disputesPayload(clan)));
     case "leveling":
       return void (await interaction.editReply(levelingPayload(clan)));
+    case "levelingAccess":
+      return void (await interaction.editReply(levelingAccessPayload(clan)));
+    case "levelingClearWl": {
+      const updated =
+        (await updateClan(clan.guildId, {
+          serviceOrderWhitelistUserIds: [],
+          serviceOrderWhitelistRoleIds: [],
+        })) ?? clan;
+      return void (await interaction.editReply({
+        ...levelingAccessPayload(updated),
+        content: "✅ Whitelist cleared — order access is open (except blacklist).",
+      }));
+    }
+    case "levelingClearBl": {
+      const updated =
+        (await updateClan(clan.guildId, {
+          serviceOrderBlacklistUserIds: [],
+          serviceOrderBlacklistRoleIds: [],
+        })) ?? clan;
+      return void (await interaction.editReply({
+        ...levelingAccessPayload(updated),
+        content: "✅ Blacklist cleared.",
+      }));
+    }
 
     case "levelingCreateCategory": {
       const botId = interaction.client.user?.id;
@@ -1277,12 +1411,39 @@ export async function handleSetupSelect(
     return;
   }
 
+  if (interaction.isUserSelectMenu() && action === "levelingWlUsers") {
+    const userIds = interaction.users.filter((u) => !u.bot).map((u) => u.id);
+    await updateClan(clan.guildId, { serviceOrderWhitelistUserIds: userIds });
+    await interaction.editReply(levelingAccessPayload((await getClan(clan.guildId)) ?? clan));
+    return;
+  }
+  if (interaction.isUserSelectMenu() && action === "levelingBlUsers") {
+    const userIds = interaction.users.filter((u) => !u.bot).map((u) => u.id);
+    await updateClan(clan.guildId, { serviceOrderBlacklistUserIds: userIds });
+    await interaction.editReply(levelingAccessPayload((await getClan(clan.guildId)) ?? clan));
+    return;
+  }
+
   if (interaction.isChannelSelectMenu()) {
     const channelId = interaction.values[0] ?? null;
     if (action === "disputeCategory") {
       await updateClan(clan.guildId, { disputeCategoryId: channelId });
       await interaction.editReply(disputesPayload((await getClan(clan.guildId)) ?? clan));
       return;
+    }
+    if (action === "levelingChannel") {
+      await updateClan(clan.guildId, { serviceOrderChannelId: channelId });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      return void (await interaction.editReply(
+        levelingPayload({ ...refreshed, serviceOrderChannelId: channelId })
+      ));
+    }
+    if (action === "levelingCategory") {
+      await updateClan(clan.guildId, { serviceOrderCategoryId: channelId });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      return void (await interaction.editReply(
+        levelingPayload({ ...refreshed, serviceOrderCategoryId: channelId })
+      ));
     }
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {
       reminderChannel: "reminderChannelId",
@@ -1302,6 +1463,24 @@ export async function handleSetupSelect(
         disputeStaffRoleId: roleIds[0] ?? null,
       });
       await interaction.editReply(disputesPayload((await getClan(clan.guildId)) ?? clan));
+      return;
+    }
+    if (action === "levelingTeamRole") {
+      const roleId = roleIds[0] ?? null;
+      await updateClan(clan.guildId, { serviceOrderTeamRoleId: roleId });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      return void (await interaction.editReply(
+        levelingPayload({ ...refreshed, serviceOrderTeamRoleId: roleId })
+      ));
+    }
+    if (action === "levelingWlRoles") {
+      await updateClan(clan.guildId, { serviceOrderWhitelistRoleIds: roleIds });
+      await interaction.editReply(levelingAccessPayload((await getClan(clan.guildId)) ?? clan));
+      return;
+    }
+    if (action === "levelingBlRoles") {
+      await updateClan(clan.guildId, { serviceOrderBlacklistRoleIds: roleIds });
+      await interaction.editReply(levelingAccessPayload((await getClan(clan.guildId)) ?? clan));
       return;
     }
     if (action === "requiredRole") {
@@ -1354,25 +1533,7 @@ export async function handleSetupSelect(
   }
 
 
-  if (action === "levelingChannel") {
-    const channelId = interaction.values[0] ?? null;
-    await updateClan(clan.guildId, { serviceOrderChannelId: channelId });
-    const refreshed = (await getClan(clan.guildId)) ?? clan;
-    return void (await interaction.editReply(levelingPayload({ ...refreshed, serviceOrderChannelId: channelId })));
-  }
-  if (action === "levelingCategory") {
-    const channelId = interaction.values[0] ?? null;
-    await updateClan(clan.guildId, { serviceOrderCategoryId: channelId });
-    const refreshed = (await getClan(clan.guildId)) ?? clan;
-    return void (await interaction.editReply(levelingPayload({ ...refreshed, serviceOrderCategoryId: channelId })));
-  }
-  if (action === "levelingTeamRole") {
-    const roleId = interaction.values[0] ?? null;
-    await updateClan(clan.guildId, { serviceOrderTeamRoleId: roleId });
-    const refreshed = (await getClan(clan.guildId)) ?? clan;
-    return void (await interaction.editReply(levelingPayload({ ...refreshed, serviceOrderTeamRoleId: roleId })));
-  }
-
+  
   if (interaction.isStringSelectMenu() && action === "cardStyle") {
     const style = interaction.values[0] === "embed" ? "embed" : "canvas";
     const updated = (await updateClan(clan.guildId, { cardStyle: style })) ?? clan;

@@ -19,6 +19,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   type Client,
   type Guild,
   type GuildMember,
@@ -48,6 +49,10 @@ import {
   queueHeadline,
   statusTone,
   isTerminalStatus,
+  canPlaceServiceOrderAccess,
+  SERVICE_ORDER_ACCESS_DENIED,
+  SERVICE_ORDER_PATIENCE_NOTICE,
+  STAFF_QUICK_REPLIES,
 } from "./serviceOrderHelpers";
 import {
   svcClaim,
@@ -60,6 +65,7 @@ import {
   svcUp,
   svcDown,
   svcSyncFiles,
+  svcQuickReply,
   SVC_PLACE,
 } from "../ui/ids";
 
@@ -73,6 +79,9 @@ export {
   ordersAhead,
   isTerminalStatus,
   parseAttachmentsJson,
+  SERVICE_ORDER_ACCESS_DENIED,
+  SERVICE_ORDER_PATIENCE_NOTICE,
+  STAFF_QUICK_REPLIES,
 };
 
 /* ------------------------------------------------------------------ ready */
@@ -86,6 +95,17 @@ export function canManageServiceOrders(member: GuildMember | null, clan: Clan): 
   if (isOfficer(member, clan)) return true;
   if (!member || !clan.serviceOrderTeamRoleId) return false;
   return member.roles.cache.has(clan.serviceOrderTeamRoleId);
+}
+
+export function canPlaceServiceOrder(member: GuildMember | null, userId: string, clan: Clan): boolean {
+  return canPlaceServiceOrderAccess({
+    userId,
+    memberRoleIds: member ? [...member.roles.cache.keys()] : [],
+    whitelistUserIds: clan.serviceOrderWhitelistUserIds ?? [],
+    whitelistRoleIds: clan.serviceOrderWhitelistRoleIds ?? [],
+    blacklistUserIds: clan.serviceOrderBlacklistUserIds ?? [],
+    blacklistRoleIds: clan.serviceOrderBlacklistRoleIds ?? [],
+  });
 }
 
 export function serviceOrdersReady(clan: Clan): { ok: true } | { ok: false; error: string } {
@@ -200,6 +220,13 @@ export async function placeServiceOrder(
 ): Promise<{ ok: true; order: ServiceOrder; channelId: string } | { ok: false; error: string }> {
   const ready = serviceOrdersReady(input.clan);
   if (!ready.ok) return ready;
+
+  const member =
+    input.guild.members.cache.get(input.customer.id) ??
+    (await input.guild.members.fetch(input.customer.id).catch(() => null));
+  if (!canPlaceServiceOrder(member, input.customer.id, input.clan)) {
+    return { ok: false, error: SERVICE_ORDER_ACCESS_DENIED };
+  }
 
   const details = input.details.trim();
   if (!details) return { ok: false, error: "Please include important information for staff." };
@@ -673,6 +700,18 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
       new ButtonBuilder().setCustomId(svcReject(orderId)).setLabel("Reject").setEmoji("❌").setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId(svcCancel(orderId)).setLabel("Cancel").setEmoji("🚫").setStyle(ButtonStyle.Danger)
     ),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(svcQuickReply(orderId))
+        .setPlaceholder("Staff quick reply…")
+        .addOptions(
+          STAFF_QUICK_REPLIES.map((r) => ({
+            label: r.label.slice(0, 100),
+            value: r.key,
+            description: r.message.slice(0, 100),
+          }))
+        )
+    ),
   ];
 }
 
@@ -838,6 +877,7 @@ export function serviceOrderPanelPayload(): MessageCreateOptions {
             "2. Tell us what you need + important details\n" +
             "3. Get an order ID + queue position\n" +
             "4. Drop screenshots in your private ticket channel\n\n" +
+            `${SERVICE_ORDER_PATIENCE_NOTICE}\n\n` +
             "_No external websites — everything stays in Discord._"
         ),
     ],

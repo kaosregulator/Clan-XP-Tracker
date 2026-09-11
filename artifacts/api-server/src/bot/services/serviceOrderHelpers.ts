@@ -152,3 +152,109 @@ export function resolveServiceKey(raw: string): ServiceKey {
   if (n === "other") return "other";
   return "other";
 }
+
+/** Exact ephemeral deny copy when Place Service Order is blocked by ACL. */
+export const SERVICE_ORDER_ACCESS_DENIED =
+  "🚫 Whoa there!\n" +
+  "This service counter isn't open for you just yet. You don't have permission to place a service order here. " +
+  "If you think this is a mistake, contact the staff team.";
+
+/**
+ * Blacklist always overrides whitelist.
+ * Empty whitelist → everyone except blacklisted.
+ * Non-empty whitelist → only listed users/roles (unless blacklisted).
+ */
+export function canPlaceServiceOrderAccess(opts: {
+  userId: string;
+  memberRoleIds: readonly string[];
+  whitelistUserIds: readonly string[];
+  whitelistRoleIds: readonly string[];
+  blacklistUserIds: readonly string[];
+  blacklistRoleIds: readonly string[];
+}): boolean {
+  const {
+    userId,
+    memberRoleIds,
+    whitelistUserIds,
+    whitelistRoleIds,
+    blacklistUserIds,
+    blacklistRoleIds,
+  } = opts;
+
+  if (blacklistUserIds.includes(userId)) return false;
+  if (blacklistRoleIds.some((id) => memberRoleIds.includes(id))) return false;
+
+  const hasWhitelist = whitelistUserIds.length > 0 || whitelistRoleIds.length > 0;
+  if (!hasWhitelist) return true;
+
+  if (whitelistUserIds.includes(userId)) return true;
+  if (whitelistRoleIds.some((id) => memberRoleIds.includes(id))) return true;
+  return false;
+}
+
+/** Staff canned replies on order cards (value = key). */
+export const STAFF_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string; message: string }> = [
+  {
+    key: "qr0",
+    label: "Almost ready — please be patient",
+    message:
+      "🛠️ Almost ready — please be patient a little longer! We're wrapping your order up now.",
+  },
+  {
+    key: "qr1",
+    label: "Working on it — hang tight",
+    message: "🔧 We're working on it! Hang tight — no need to ping, we'll update you here.",
+  },
+  {
+    key: "qr2",
+    label: "Queue is moving — thanks",
+    message: "📈 The queue is moving — thanks for your patience. You're still on our radar.",
+  },
+  {
+    key: "qr3",
+    label: "In good hands — sit tight",
+    message: "🙌 Your order is in good hands. Sit tight and we'll ping you when there's news.",
+  },
+  {
+    key: "qr4",
+    label: "Nearly there",
+    message: "🏁 Nearly there! Just finishing a few details — please be patient.",
+  },
+  {
+    key: "qr5",
+    label: "Staff on it — don't spam ping",
+    message:
+      "👀 Staff are on it — please don't ping repeatedly. We'll post here as soon as there's an update.",
+  },
+  {
+    key: "qr6",
+    label: "Progress happening — patience is XP",
+    message: "✨ Progress is happening. Patience is XP — thanks for waiting with us.",
+  },
+  {
+    key: "qr7",
+    label: "Still cooking — wait for update",
+    message: "🍳 Still cooking… please wait for the next update in this ticket.",
+  },
+  {
+    key: "qr8",
+    label: "We see you — stay patient",
+    message:
+      "🫡 We see you! Service is underway — please stay patient and keep an eye on this channel.",
+  },
+  {
+    key: "qr9",
+    label: "Almost at the finish line",
+    message:
+      "🚗 Almost parked at the finish line — please be patient just a bit longer. Appreciate you!",
+  },
+];
+
+export function staffQuickReplyByKey(key: string): string | null {
+  return STAFF_QUICK_REPLIES.find((r) => r.key === key)?.message ?? null;
+}
+
+/** Clear patient reminder for customers (panel + ticket). */
+export const SERVICE_ORDER_PATIENCE_NOTICE =
+  "**Please be patient.** Staff work the queue in order. Don't spam-ping — updates land in your ticket.";
+
