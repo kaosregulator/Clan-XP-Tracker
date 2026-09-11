@@ -64,6 +64,12 @@ import {
   handleMarketSelect,
   handleMarketModal,
 } from "./features/marketHub";
+import {
+  openLevelingCommand,
+  handleServiceOrderButton,
+  handleServiceOrderSelect,
+  handleServiceOrderModal,
+} from "./features/serviceOrders";
 import { handleLeaderboard } from "./features/leaderboard";
 import { handleViewLink, handleViewLinkAutocomplete } from "./features/viewLink";
 import {
@@ -125,6 +131,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleScoutCommand(interaction));
         case "market":
           return void (await handleMarketCommand(interaction));
+        case "leveling":
+          return void (await openLevelingCommand(interaction));
       }
       return;
     }
@@ -193,6 +201,8 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
           return void (await handleMarketButton(interaction));
         case NS.link:
           return void (await handleLinkButton(interaction));
+        case NS.svc:
+          return void (await handleServiceOrderButton(interaction));
       }
       return;
     }
@@ -218,6 +228,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.scout) return void (await handleScoutModal(interaction));
       if (ns === NS.mkt) return void (await handleMarketModal(interaction));
       if (ns === NS.link) return void (await handleLinkModal(interaction));
+      if (ns === NS.svc) return void (await handleServiceOrderModal(interaction));
       return;
     }
 
@@ -244,6 +255,7 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
       if (ns === NS.scout) return void (await handleScoutSelect(interaction));
       if (ns === NS.mkt) return void (await handleMarketSelect(interaction));
       if (ns === NS.link) return void (await handleLinkSelect(interaction));
+      if (ns === NS.svc) return void (await handleServiceOrderSelect(interaction));
       return;
     }
   } catch (err) {

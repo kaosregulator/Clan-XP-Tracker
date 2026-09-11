@@ -29,6 +29,11 @@ import { parseHm, weekRangeLabel, weekKey } from "../services/time";
 import { getTrackingPeriod, periodLabel, periodAdjective } from "../services/tracking";
 import { ensureDisputeCategory, disputeStaffRoleIds } from "../services/disputes";
 import {
+  ensureServiceOrderCategory,
+  serviceOrderPanelPayload,
+  serviceTeamRoleIds,
+} from "../services/serviceOrders";
+import {
   SETUP_GOAL,
   SETUP_GOAL_MODAL,
   SETUP_MODE,
@@ -44,6 +49,13 @@ import {
   SETUP_DISPUTE_CATEGORY,
   SETUP_DISPUTE_STAFF_ROLE,
   SETUP_DISPUTE_CREATE_CATEGORY,
+  SETUP_LEVELING,
+  SETUP_LEVELING_CHANNEL,
+  SETUP_LEVELING_CATEGORY,
+  SETUP_LEVELING_TEAM_ROLE,
+  SETUP_LEVELING_CREATE_CATEGORY,
+  SETUP_LEVELING_TOGGLE,
+  SETUP_LEVELING_POST_PANEL,
   SETUP_BACK,
   SETUP_FINISH,
   SETUP_REMINDER_CHANNEL,
@@ -250,6 +262,20 @@ function summaryEmbed(clan: Clan): EmbedBuilder {
         inline: false,
       },
       {
+        name: `${check(clan.serviceOrdersEnabled && clan.serviceOrderChannelId && clan.serviceOrderCategoryId)} Leveling Service`,
+        value: [
+          `Enabled: ${clan.serviceOrdersEnabled ? "yes" : "no"}`,
+          `Orders board: ${clan.serviceOrderChannelId ? `<#${clan.serviceOrderChannelId}>` : "_not set_"}`,
+          `Ticket category: ${clan.serviceOrderCategoryId ? `<#${clan.serviceOrderCategoryId}>` : "_not set_"}`,
+          `Team role: ${
+            clan.serviceOrderTeamRoleId
+              ? `<@&${clan.serviceOrderTeamRoleId}>`
+              : serviceTeamRoleIds(clan).map((r) => `<@&${r}>`).join(" ") || "_officers / admins_"
+          }`,
+        ].join("\n"),
+        inline: false,
+      },
+      {
         name: `${check(clan.staffRoleIds.length || clan.adminRoleIds.length || clan.requiredRoleId)} Roles`,
         value: [
           `Activity track: ${clan.requiredRoleId ? `<@&${clan.requiredRoleId}>` : "_not set — all linked members_"}`,
@@ -290,6 +316,7 @@ function mainButtons(): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       b(SETUP_DISPUTES, "XP Disputes", ButtonStyle.Primary),
+      b(SETUP_LEVELING, "Leveling Service", ButtonStyle.Primary),
       b(SETUP_FINISH, "Finish", ButtonStyle.Success),
       b(wizGo(1), "🧭 Guided setup wizard")
     ),
@@ -415,6 +442,76 @@ function disputesPayload(clan: Clan): BaseMessageOptions {
           .setCustomId(SETUP_DISPUTE_CREATE_CATEGORY)
           .setLabel("Create private XP DISPUTES category")
           .setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+  };
+}
+
+
+function levelingPayload(clan: Clan): BaseMessageOptions {
+  const teamFallback = serviceTeamRoleIds(clan);
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0x3f51e0)
+        .setTitle("🛠️ Leveling Service")
+        .setDescription(
+          "Amazon-style vehicle leveling / trading queue for Military Tycoon.\n\n" +
+            "Customers press **Place Service Order**, fill a short form, then drop screenshots in a private ticket.\n" +
+            "Staff claim, reorder, and complete jobs from the order card.\n\n" +
+            `Enabled: **${clan.serviceOrdersEnabled ? "yes" : "no"}**\n` +
+            `Orders board: ${clan.serviceOrderChannelId ? `<#${clan.serviceOrderChannelId}>` : "_not set_"}\n` +
+            `Ticket category: ${clan.serviceOrderCategoryId ? `<#${clan.serviceOrderCategoryId}>` : "_not set_"}\n` +
+            `Team role: ${
+              clan.serviceOrderTeamRoleId
+                ? `<@&${clan.serviceOrderTeamRoleId}>`
+                : teamFallback.map((r) => `<@&${r}>`).join(" ") || "_officers / admins_"
+            }\n` +
+            `DM customer on status changes: **${clan.serviceOrderDmCustomer ? "on" : "off"}**\n` +
+            `DM on queue-position changes: **${clan.serviceOrderDmQueue ? "on" : "off"}**`
+        ),
+    ],
+    components: [
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_CHANNEL)
+          .setPlaceholder("Orders board channel…")
+          .setChannelTypes(ChannelType.GuildText)
+          .setMinValues(0)
+          .setMaxValues(1)
+          .setDefaultChannels(clan.serviceOrderChannelId ? [clan.serviceOrderChannelId] : [])
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_CATEGORY)
+          .setPlaceholder("Ticket category…")
+          .setChannelTypes(ChannelType.GuildCategory)
+          .setMinValues(0)
+          .setMaxValues(1)
+          .setDefaultChannels(clan.serviceOrderCategoryId ? [clan.serviceOrderCategoryId] : [])
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_TEAM_ROLE)
+          .setPlaceholder("Leveling team role…")
+          .setMinValues(0)
+          .setMaxValues(1)
+          .setDefaultRoles(clan.serviceOrderTeamRoleId ? [clan.serviceOrderTeamRoleId] : [])
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING_TOGGLE)
+          .setLabel(clan.serviceOrdersEnabled ? "Disable service" : "Enable service")
+          .setStyle(clan.serviceOrdersEnabled ? ButtonStyle.Danger : ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING_CREATE_CATEGORY)
+          .setLabel("Create LEVELING ORDERS category")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(SETUP_LEVELING_POST_PANEL)
+          .setLabel("Post order panel here")
+          .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
       ),
     ],
@@ -917,6 +1014,65 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(periodPayload(clan)));
     case "disputes":
       return void (await interaction.editReply(disputesPayload(clan)));
+    case "leveling":
+      return void (await interaction.editReply(levelingPayload(clan)));
+
+    case "levelingCreateCategory": {
+      const botId = interaction.client.user?.id;
+      if (!botId) {
+        return void (await interaction.editReply({
+          content: "Bot user isn't ready — try again.",
+          embeds: [],
+          components: [],
+        }));
+      }
+      try {
+        const { categoryId, clan: updated } = await ensureServiceOrderCategory(
+          interaction.guild!,
+          clan,
+          botId
+        );
+        await interaction.editReply({
+          ...levelingPayload(updated),
+          content: `✅ Ticket category ready: <#${categoryId}>`,
+        });
+      } catch (err) {
+        await interaction.editReply({
+          content: `Couldn't create the category — check Manage Channels. (${err instanceof Error ? err.message : "error"})`,
+          embeds: [],
+          components: [],
+        });
+      }
+      return;
+    }
+    case "levelingToggle": {
+      const updated =
+        (await updateClan(clan.guildId, { serviceOrdersEnabled: !clan.serviceOrdersEnabled })) ?? clan;
+      await interaction.editReply({
+        ...levelingPayload(updated),
+        content: updated.serviceOrdersEnabled
+          ? "✅ Leveling service enabled."
+          : "Leveling service disabled.",
+      });
+      return;
+    }
+    case "levelingPostPanel": {
+      const channel = interaction.channel;
+      if (!channel || !channel.isTextBased() || !channel.isSendable()) {
+        return void (await interaction.editReply({
+          content: "Open /setup in a text channel to post the panel.",
+          embeds: [],
+          components: [],
+        }));
+      }
+      await channel.send(serviceOrderPanelPayload());
+      await interaction.editReply({
+        ...levelingPayload(clan),
+        content: "✅ Order panel posted in this channel.",
+      });
+      return;
+    }
+
     case "disputeCreateCategory": {
       const botId = interaction.client.user?.id;
       if (!botId) {
@@ -1195,6 +1351,26 @@ export async function handleSetupSelect(
     const updated = (await updateClan(clan.guildId, patch)) ?? clan;
     await interaction.editReply(periodPayload(updated));
     return;
+  }
+
+
+  if (action === "levelingChannel") {
+    const channelId = interaction.values[0] ?? null;
+    await updateClan(clan.guildId, { serviceOrderChannelId: channelId });
+    const refreshed = (await getClan(clan.guildId)) ?? clan;
+    return void (await interaction.editReply(levelingPayload({ ...refreshed, serviceOrderChannelId: channelId })));
+  }
+  if (action === "levelingCategory") {
+    const channelId = interaction.values[0] ?? null;
+    await updateClan(clan.guildId, { serviceOrderCategoryId: channelId });
+    const refreshed = (await getClan(clan.guildId)) ?? clan;
+    return void (await interaction.editReply(levelingPayload({ ...refreshed, serviceOrderCategoryId: channelId })));
+  }
+  if (action === "levelingTeamRole") {
+    const roleId = interaction.values[0] ?? null;
+    await updateClan(clan.guildId, { serviceOrderTeamRoleId: roleId });
+    const refreshed = (await getClan(clan.guildId)) ?? clan;
+    return void (await interaction.editReply(levelingPayload({ ...refreshed, serviceOrderTeamRoleId: roleId })));
   }
 
   if (interaction.isStringSelectMenu() && action === "cardStyle") {

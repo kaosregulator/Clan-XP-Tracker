@@ -65,6 +65,7 @@ import {
   renderMarketGridCard,
   renderMarketItemCard,
 } from "./cards/market/marketCards";
+import { renderServiceOrderCard } from "./cards/serviceOrderCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -176,6 +177,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderMarketGridCard(p as any);
     case "marketItem":
       return renderMarketItemCard(p as any);
+    case "serviceOrderCard":
+      return renderServiceOrderCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

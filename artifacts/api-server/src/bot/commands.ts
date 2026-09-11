@@ -487,4 +487,28 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
         .setAutocomplete(true)
     )
     .toJSON(),
+
+  // Leveling / service-order queue
+  new SlashCommandBuilder()
+    .setName("leveling")
+    .setDescription("Military Tycoon leveling service — panel, queue, and order lookup")
+    .setDMPermission(false)
+    .addSubcommand((s) =>
+      s.setName("panel").setDescription("Post the Place Service Order panel (admins)")
+    )
+    .addSubcommand((s) =>
+      s.setName("queue").setDescription("View the active leveling queue (staff)")
+    )
+    .addSubcommand((s) =>
+      s
+        .setName("order")
+        .setDescription("Look up a service order by public ID")
+        .addStringOption((o) =>
+          o.setName("public_id").setDescription("e.g. LV-0042").setRequired(true)
+        )
+    )
+    .addSubcommand((s) =>
+      s.setName("setup").setDescription("Show leveling service setup status (admins)")
+    )
+    .toJSON(),
 ];

@@ -68,6 +68,46 @@ const STATEMENTS = [
      SET lifetime_warnings = warnings_count
    WHERE lifetime_warnings = 0
      AND warnings_count > 0`,
+
+  // Leveling / service-order queue
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_orders_enabled boolean NOT NULL DEFAULT false`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_channel_id text`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_category_id text`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_team_role_id text`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_dm_customer boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_dm_queue boolean NOT NULL DEFAULT true`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_next_number integer NOT NULL DEFAULT 1`,
+  `CREATE TABLE IF NOT EXISTS service_orders (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      public_id text NOT NULL,
+      service_key text NOT NULL DEFAULT 'vehicle_leveling',
+      service_label text NOT NULL,
+      details text NOT NULL,
+      status text NOT NULL DEFAULT 'queued',
+      queue_position integer,
+      customer_id text NOT NULL,
+      customer_username text NOT NULL,
+      customer_display_name text NOT NULL,
+      staff_id text,
+      staff_username text,
+      channel_id text,
+      board_message_id text,
+      board_channel_id text,
+      ticket_message_id text,
+      attachments_json text,
+      attachment_count integer NOT NULL DEFAULT 0,
+      status_note text,
+      claimed_at timestamptz,
+      started_at timestamptz,
+      completed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS service_orders_guild_public_uidx
+     ON service_orders (guild_id, public_id)`,
+  `CREATE INDEX IF NOT EXISTS service_orders_guild_status_idx
+     ON service_orders (guild_id, status)`,
 ] as const;
 
 export async function ensureSchema(): Promise<void> {

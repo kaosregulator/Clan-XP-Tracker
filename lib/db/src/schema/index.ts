@@ -17,3 +17,4 @@ export * from "./tickets";
 export * from "./member_notes";
 export * from "./connect_sessions";
 export * from "./sessions";
+export * from "./service_orders";

@@ -21,6 +21,7 @@ export const NS = {
   scout: "sct", // Game Intelligence Hub (/scout) — Bloxscout
   mkt: "mkt", // Marketplace Hub (/market) — avatar items
   link: "lnk", // Avatar link hub (/link) — Discord ↔ Roblox face
+  svc: "svc", // Leveling / service-order queue
 } as const;
 
 export function id(ns: string, action: string, arg?: string | number): string {
@@ -148,6 +149,16 @@ export const SETUP_DISPUTE_CATEGORY = id(NS.setup, "disputeCategory");
 export const SETUP_DISPUTE_STAFF_ROLE = id(NS.setup, "disputeStaffRole");
 export const SETUP_DISPUTE_CREATE_CATEGORY = id(NS.setup, "disputeCreateCategory");
 
+// Setup — leveling / service-order queue
+export const SETUP_LEVELING = id(NS.setup, "leveling");
+export const SETUP_LEVELING_CHANNEL = id(NS.setup, "levelingChannel");
+export const SETUP_LEVELING_CATEGORY = id(NS.setup, "levelingCategory");
+export const SETUP_LEVELING_TEAM_ROLE = id(NS.setup, "levelingTeamRole");
+export const SETUP_LEVELING_CREATE_CATEGORY = id(NS.setup, "levelingCreateCategory");
+export const SETUP_LEVELING_TOGGLE = id(NS.setup, "levelingToggle");
+export const SETUP_LEVELING_POST_PANEL = id(NS.setup, "levelingPostPanel");
+
+
 // Tickets.
 export const TICKET_PICK = id(NS.tkt, "pick");
 export const ticketProgress = (tid: number) => id(NS.tkt, "progress", tid);
@@ -268,3 +279,19 @@ export const LNK_ROLE = id(NS.link, "role");
 export const LNK_ROLE_PICK = id(NS.link, "rolePick");
 export const LNK_REFRESH = id(NS.link, "refresh");
 export const LNK_HOME = id(NS.link, "home");
+
+// Leveling / service-order queue
+export const SVC_PLACE = id(NS.svc, "place");
+export const SVC_SERVICE_PICK = id(NS.svc, "servicePick");
+export const svcDetailsModal = (serviceKey: string) => id(NS.svc, "details", serviceKey);
+export const svcClaim = (orderId: number) => id(NS.svc, "claim", orderId);
+export const svcStart = (orderId: number) => id(NS.svc, "start", orderId);
+export const svcHold = (orderId: number) => id(NS.svc, "hold", orderId);
+export const svcComplete = (orderId: number) => id(NS.svc, "complete", orderId);
+export const svcReject = (orderId: number) => id(NS.svc, "reject", orderId);
+export const svcCancel = (orderId: number) => id(NS.svc, "cancel", orderId);
+export const svcQueue = (orderId: number) => id(NS.svc, "queue", orderId);
+export const svcUp = (orderId: number) => id(NS.svc, "up", orderId);
+export const svcDown = (orderId: number) => id(NS.svc, "down", orderId);
+export const svcSyncFiles = (orderId: number) => id(NS.svc, "syncFiles", orderId);
+
