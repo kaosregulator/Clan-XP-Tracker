@@ -416,7 +416,9 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
   // Avatar link hub — Discord member + Roblox face (role walkthrough via option or hub)
   new SlashCommandBuilder()
     .setName("link")
-    .setDescription("Link a Roblox avatar to a Discord member (officers)")
+    .setDescription(
+      "Link a Roblox avatar to a Discord member (shows nick + username; officers)"
+    )
     .setDMPermission(false)
     .addUserOption((o) =>
       o
