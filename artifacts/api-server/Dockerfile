@@ -54,18 +54,27 @@ COPY lib/api-client-react/package.json lib/api-client-react/
 COPY lib/api-spec/package.json lib/api-spec/
 COPY artifacts/api-server/package.json artifacts/api-server/
 
-# Install only production deps
+# Install only production deps.
+# drizzle-kit lives in @workspace/db dependencies so schema push works at boot
+# without installing the full monorepo devDependency tree.
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built artifacts. The API server bundle is self-contained (api-zod and db
-# are compiled into it), so only the server bundle and the static frontend are
-# needed at runtime.
+# API bundle + static frontend (api-zod / db schema are already bundled into the
+# server for runtime queries). Separately copy Drizzle config + schema source so
+# `drizzle-kit push` can create/update tables on a fresh Railway Postgres before
+# the bot starts.
 COPY --from=builder /app/artifacts/api-server/dist artifacts/api-server/dist
 COPY --from=builder /app/artifacts/clan-xp-tracker/dist/public artifacts/clan-xp-tracker/dist/public
+COPY --from=builder /app/lib/db/drizzle.config.ts lib/db/drizzle.config.ts
+COPY --from=builder /app/lib/db/src lib/db/src
+COPY artifacts/api-server/scripts/start-with-schema.sh artifacts/api-server/scripts/start-with-schema.sh
+RUN chmod +x artifacts/api-server/scripts/start-with-schema.sh
 
 # Railway injects its own PORT and overrides this; the default just keeps the
 # container bootable (and aligned with EXPOSE) if PORT is ever left unset.
 ENV PORT=8080
 ENV BLOXSCOUT_DATA_DIR=/tmp/bloxscout
 EXPOSE 8080
-CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
+# Schema push runs first (see start-with-schema.sh); Railway startCommand must
+# match this so deploys do not skip the migration step.
+CMD ["sh", "artifacts/api-server/scripts/start-with-schema.sh"]

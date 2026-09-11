@@ -1,8 +1,8 @@
 /**
- * Apply additive schema fixes that Railway deploys do not run automatically.
- * Drizzle `push` is still the full tool for greenfield installs; this covers the
+ * Apply additive schema fixes after deploy-time `drizzle-kit push`.
+ * The container entrypoint creates/updates the full schema; this covers the
  * common case where production already has `clan_members` but is missing columns
- * introduced in later merges (#15+).
+ * introduced in later merges (#15+), or push was skipped on an old image.
  */
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
@@ -80,7 +80,7 @@ export async function ensureSchema(): Promise<void> {
   } catch (err) {
     logger.error(
       { err },
-      "Failed to ensure database schema — /link and leaderboard may fail until you run: pnpm --filter @workspace/db push"
+      "Failed to ensure database schema — /link and leaderboard may fail until deploy runs start-with-schema.sh (drizzle-kit push) or you run: pnpm --filter @workspace/db push"
     );
     throw err;
   } finally {
