@@ -262,7 +262,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
           ? "automatically"
           : `by ${priorReminder.sentByUsername ?? "an officer"}`;
         await interaction.editReply({
-          content: `🔕 **${target.username}** was already reminded ${discordRelative(priorReminder.createdAt)} ${who} — not sending another to avoid double-pinging.`,
+          content: `🔕 **${target.username}** was already reminded ${discordRelative(priorReminder.createdAt)} ${who} — not sending another to avoid double-pinging. Use **/xpwarn** and switch category for a fresh reminder window.`,
         });
         return;
       }
@@ -299,7 +299,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
       const priorWarning = await recentWarning(clan.guildId, target.id);
       if (priorWarning) {
         await interaction.editReply({
-          content: `🛑 **${target.username}** was already warned ${discordRelative(priorWarning.issuedAt)} by ${priorWarning.issuedByUsername} — not issuing a duplicate. Use **/warnings @${target.username}** to review.`,
+          content: `🛑 **${target.username}** was already warned ${discordRelative(priorWarning.issuedAt)} by ${priorWarning.issuedByUsername} — not issuing a duplicate. Use **/warnings @${target.username}** to review, or **/xpwarn** to confirm a re-warn / switch category.`,
         });
         return;
       }

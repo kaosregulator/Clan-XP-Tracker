@@ -24,6 +24,13 @@ export const remindersTable = pgTable("reminders", {
   sentByUsername: text("sent_by_username"),
   channel: text("channel").notNull().default("dm"), // "dm" | "channel"
   delivered: boolean("delivered").notNull().default(true),
+  /**
+   * Activity category this reminder is about (e.g. "xp", "combat_support").
+   * Recent-reminder checks are scoped per category so switching categories is a
+   * fresh nudge, matching the warning cooldown behaviour.
+   */
+  categoryKey: text("category_key"),
+  categoryLabel: text("category_label"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

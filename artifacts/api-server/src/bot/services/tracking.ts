@@ -193,11 +193,44 @@ export function memberReminderPingLine(): string {
  * ready. When a warning number is known it's surfaced as the dispute ticket so
  * the member can reference it. Never leaks staff accounting.
  */
-export function memberWarningBody(reason?: string | null, warningId?: number | null): string {
+/** Human label for the chosen activity (fallback "Activity"). */
+export function categoryEnforcementNoun(categoryLabel?: string | null): string {
+  const label = (categoryLabel || "Activity").trim();
+  return label || "Activity";
+}
+
+/** Canvas title pair — activity first, then WARNING / REMINDER. */
+export function enforcementCanvasTitle(
+  kind: "warning" | "reminder",
+  categoryLabel?: string | null
+): [string, string] {
+  return [
+    categoryEnforcementNoun(categoryLabel).toUpperCase(),
+    kind === "warning" ? "WARNING" : "REMINDER",
+  ];
+}
+
+/** Embed author line: "⚠️ COMBAT SUPPORT WARNING • Clan". */
+export function enforcementEmbedAuthor(
+  kind: "warning" | "reminder",
+  categoryLabel: string | null | undefined,
+  guildName: string
+): string {
+  const [activity, verb] = enforcementCanvasTitle(kind, categoryLabel);
+  const emoji = kind === "warning" ? "⚠️" : "🔔";
+  return `${emoji} ${activity} ${verb} • ${guildName}`;
+}
+
+export function memberWarningBody(
+  reason?: string | null,
+  warningId?: number | null,
+  categoryLabel?: string | null
+): string {
   const safe = sanitizeMemberReason(reason);
   const ticket = warningId ? `\n\n**Warning ticket:** #${warningId}` : "";
+  const noun = categoryEnforcementNoun(categoryLabel);
   return (
-    `⚠️ You received an **Activity Warning**.\n\n` +
+    `⚠️ You received a **${noun} Warning**.\n\n` +
     `**Reason:** ${safe}\n\n` +
     `If you believe this warning is incorrect, run \`${DISPUTE_COMMAND}\` to dispute it — ` +
     `have your proof/screenshot ready to submit with the dispute.` +
@@ -206,25 +239,34 @@ export function memberWarningBody(reason?: string | null, warningId?: number | n
 }
 
 /** Plain-text variant for canvas cards (no markdown). */
-export function memberWarningCanvasMessage(reason?: string | null): string {
+export function memberWarningCanvasMessage(
+  reason?: string | null,
+  categoryLabel?: string | null
+): string {
   const safe = sanitizeMemberReason(reason);
+  const noun = categoryEnforcementNoun(categoryLabel);
   return (
-    `You received an Activity Warning. Reason: ${safe}. ` +
+    `You received a ${noun} Warning. Reason: ${safe}. ` +
     `If this is incorrect, run ${DISPUTE_COMMAND} to dispute it — have your proof ready.`
   );
 }
 
 /** Compact DM companion text when a canvas card is attached. */
-export function memberWarningDmContent(reason?: string | null, warningId?: number | null): string {
+export function memberWarningDmContent(
+  reason?: string | null,
+  warningId?: number | null,
+  categoryLabel?: string | null
+): string {
   const ticket = warningId ? ` (ticket #${warningId})` : "";
+  const noun = categoryEnforcementNoun(categoryLabel);
   return (
-    `⚠️ You received an **Activity Warning**${ticket}.\n` +
+    `⚠️ You received a **${noun} Warning**${ticket}.\n` +
     `**Reason:** ${sanitizeMemberReason(reason)}\n` +
     `Dispute with \`${DISPUTE_COMMAND}\` — have your proof/screenshot ready.`
   );
 }
 
-/** Canvas / embed title fragments. */
+/** Canvas / embed title fragments (legacy defaults — prefer enforcementCanvasTitle). */
 export const MEMBER_WARNING_TITLE = "ACTIVITY WARNING";
 export const MEMBER_REMINDER_TITLE = "ACTIVITY REMINDER";
 

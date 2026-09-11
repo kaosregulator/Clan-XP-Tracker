@@ -15,6 +15,8 @@ import {
   periodAdjective,
   staffProgressDetail,
   DISPUTE_COMMAND,
+  categoryEnforcementNoun,
+  enforcementEmbedAuthor,
 } from "./tracking";
 import { scheduleDashboardRefresh } from "./commandCenter";
 import { createNotification, resolveRelated } from "./notifications";
@@ -117,7 +119,8 @@ async function renderWarningCardSafe(
   target: User,
   memberReason: string,
   warningNumber: number | null,
-  member?: ClanMember | null
+  member?: ClanMember | null,
+  categoryLabel?: string | null
 ): Promise<Buffer | null> {
   try {
     const discordUrl = target.displayAvatarURL({ size: 256, extension: "png" });
@@ -132,6 +135,7 @@ async function renderWarningCardSafe(
       reason: memberReason,
       warningNumber,
       disputeCommand: DISPUTE_COMMAND,
+      categoryLabel: categoryLabel ?? null,
       // Intentionally omit count/threshold — those are staff-only.
     });
   } catch (err) {
@@ -156,15 +160,19 @@ function memberWarningEmbed(
   target: User,
   memberReason: string,
   warningNumber: number | null,
-  faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null }
+  faces?: { discordAvatarUrl: string | null; robloxAvatarUrl: string | null },
+  categoryLabel?: string | null
 ): EmbedBuilder {
   const discordUrl = faces?.discordAvatarUrl || target.displayAvatarURL({ size: 256, extension: "png" });
   const robloxUrl = faces?.robloxAvatarUrl || null;
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setAuthor({ name: `⚠️ ACTIVITY WARNING • ${guildName}`, iconURL: discordUrl || undefined })
+    .setAuthor({
+      name: enforcementEmbedAuthor("warning", categoryLabel, guildName),
+      iconURL: discordUrl || undefined,
+    })
     .setThumbnail(robloxUrl || discordUrl || null)
-    .setDescription(memberWarningBody(memberReason, warningNumber))
+    .setDescription(memberWarningBody(memberReason, warningNumber, categoryLabel))
     .setTimestamp();
   if (warningNumber) embed.setFooter({ text: `Warning ticket #${warningNumber} · dispute with ${DISPUTE_COMMAND}` });
   return embed;
@@ -241,11 +249,22 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
 
   const warningNumber = warning?.id ?? null;
 
+  const categoryLabel = input.categoryLabel ?? null;
+
   // Member-facing card: no warning-count badge, no escalation threshold.
   const card =
     clan.cardStyle === "embed"
       ? null
-      : await renderWarningCardSafe(clan, target, memberFacingReason, warningNumber, memberRow);
+      : await renderWarningCardSafe(
+          clan,
+          target,
+          memberFacingReason,
+          warningNumber,
+          memberRow,
+          categoryLabel
+        );
+
+  const noun = categoryEnforcementNoun(categoryLabel);
 
   // Post to the dedicated warning channel when one is configured. This is a
   // MEMBER-facing surface — never include staff accounting.
@@ -258,11 +277,12 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
           target,
           memberFacingReason,
           warningNumber,
-          faces
+          faces,
+          categoryLabel
         );
         await channel.send({
           content:
-            `⚠️ <@${target.id}> — you received an Activity Warning` +
+            `⚠️ <@${target.id}> — you received a ${noun} Warning` +
             `${warningNumber ? ` (ticket **#${warningNumber}**)` : ""}. ` +
             `Dispute with \`${DISPUTE_COMMAND}\` — have your proof ready.`,
           ...(card ? { files: [warningAttachment(card)] } : { embeds: [fallbackEmbed] }),
@@ -276,12 +296,19 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
   }
 
   if (deliverDm) {
-    const dmEmbed = memberWarningEmbed(guild.name, target, memberFacingReason, warningNumber, faces);
+    const dmEmbed = memberWarningEmbed(
+      guild.name,
+      target,
+      memberFacingReason,
+      warningNumber,
+      faces,
+      categoryLabel
+    );
     dmSent = await target
       .send(
         card
           ? {
-              content: memberWarningDmContent(memberFacingReason, warningNumber),
+              content: memberWarningDmContent(memberFacingReason, warningNumber, categoryLabel),
               files: [warningAttachment(card)],
             }
           : { embeds: [dmEmbed] }
@@ -408,24 +435,30 @@ export async function issueWarning(input: IssueWarningInput): Promise<IssueWarni
  * The most recent active warning for a member issued within `windowMs`, or
  * null. Used to stop the same member being warned (and pinged) twice in quick
  * succession by stacked commands or a slip of the finger.
+ *
+ * When `categoryKey` is set, only warnings for that same activity category
+ * count — switching from XP to Combat Support is a brand-new warning window.
  */
 export async function recentWarning(
   guildId: string,
   userId: string,
-  windowMs = 20 * 3600_000
+  windowMs = 20 * 3600_000,
+  categoryKey?: string | null
 ): Promise<Warning | null> {
   const cutoff = new Date(Date.now() - windowMs);
+  const filters = [
+    eq(warningsTable.guildId, guildId),
+    eq(warningsTable.userId, userId),
+    isNull(warningsTable.removedAt),
+    gte(warningsTable.issuedAt, cutoff),
+  ];
+  if (categoryKey) {
+    filters.push(eq(warningsTable.categoryKey, categoryKey));
+  }
   const [row] = await db
     .select()
     .from(warningsTable)
-    .where(
-      and(
-        eq(warningsTable.guildId, guildId),
-        eq(warningsTable.userId, userId),
-        isNull(warningsTable.removedAt),
-        gte(warningsTable.issuedAt, cutoff)
-      )
-    )
+    .where(and(...filters))
     .orderBy(desc(warningsTable.issuedAt))
     .limit(1);
   return row ?? null;

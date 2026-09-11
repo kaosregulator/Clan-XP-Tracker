@@ -31,6 +31,8 @@ export interface EnforcementCardView {
   message?: string | null;
   /** Configured tracking period adjective ("daily" / "weekly") for default copy. */
   periodLabel?: string;
+  /** Activity category shown first in the big title (e.g. "Combat Support"). */
+  categoryLabel?: string | null;
 }
 
 export interface WarningCardView extends EnforcementCardView {
@@ -379,14 +381,22 @@ async function renderEnforcementCard(opts: {
   if (opts.icon === "warning") warningIcon(ctx, W / 2, iconCy, iconR, accent);
   else bellIcon(ctx, W / 2, iconCy, iconR, accent);
 
-  // Title — "XP" in accent, second word in ink.
-  const titleSize = 116;
+  // Title — activity category in accent, WARNING/REMINDER in ink. Shrinks to fit.
+  const maxTitleW = W - 96;
+  let titleSize = 116;
+  let w1 = 0;
+  let wSpace = 0;
+  let w2 = 0;
+  let totalW = 0;
+  for (; titleSize >= 48; titleSize -= 4) {
+    ctx.font = font(titleSize, "bold", "display");
+    w1 = ctx.measureText(opts.title[0]).width;
+    wSpace = ctx.measureText(" ").width;
+    w2 = ctx.measureText(opts.title[1]).width;
+    totalW = w1 + wSpace + w2;
+    if (totalW <= maxTitleW) break;
+  }
   const titleY = 320;
-  ctx.font = font(titleSize, "bold", "display");
-  const w1 = ctx.measureText(opts.title[0]).width;
-  const wSpace = ctx.measureText(" ").width;
-  const w2 = ctx.measureText(opts.title[1]).width;
-  const totalW = w1 + wSpace + w2;
   const startX = W / 2 - totalW / 2;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -541,17 +551,18 @@ function bellIcon(ctx: SKRSContext2D, cx: number, cy: number, r: number, color: 
 export function renderWarningCard(v: WarningCardView): Promise<Buffer> {
   const dispute = (v.disputeCommand ?? "/dispute").trim() || "/dispute";
   const ticketLabel = v.warningNumber ? `DISPUTE WARNING #${v.warningNumber}` : undefined;
+  const noun = (v.categoryLabel || "Activity").trim() || "Activity";
   return renderEnforcementCard({
     // Drop any freeform message so the standard dispute lines always render.
     v: { ...v, message: null },
     accent: LIGHT.red,
     accentSoft: LIGHT.redSoft,
-    title: ["ACTIVITY", "WARNING"],
+    title: [noun.toUpperCase(), "WARNING"],
     // No count/threshold badge — those are staff-only accounting.
     icon: "warning",
     ticketLabel,
     bodySegs: [
-      [{ t: "You received an Activity Warning.", color: LIGHT.ink, bold: true }],
+      [{ t: `You received a ${noun} Warning.`, color: LIGHT.ink, bold: true }],
       [
         { t: "Dispute it with ", color: LIGHT.inkSoft },
         { t: dispute, color: LIGHT.red, bold: true },
@@ -569,18 +580,19 @@ export function renderReminderCard(v: EnforcementCardView): Promise<Buffer> {
   const period = (v.periodLabel === "daily" || v.periodLabel === "weekly"
     ? v.periodLabel
     : "weekly") as string;
+  const noun = (v.categoryLabel || "Activity").trim() || "Activity";
   return renderEnforcementCard({
     v,
     accent: LIGHT.blue,
     accentSoft: LIGHT.blueSoft,
-    title: ["ACTIVITY", "REMINDER"],
+    title: [noun.toUpperCase(), "REMINDER"],
     icon: "bell",
     // A reminder is a friendly nudge — never a warning. The caller passes the
     // (random) nudge line via `message`; this default is only a fallback.
     bodySegs: [
       [
         {
-          t: `A friendly nudge to finish your ${period} activity.`,
+          t: `A friendly nudge to finish your ${period} ${noun} activity.`,
           color: LIGHT.inkSoft,
           bold: true,
         },

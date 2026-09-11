@@ -98,7 +98,10 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
       }
       const prior = await recentReminder(clan, userId);
       if (prior) {
-        await interaction.editReply({ content: `🔕 **${identity.username}** was already reminded ${discordRelative(prior.createdAt)} — skipping to avoid a double-ping.` });
+        const by = prior.auto ? "auto" : (prior.sentByUsername ? `**${prior.sentByUsername}**` : "an officer");
+        await interaction.editReply({
+          content: `🔕 **${identity.username}** was already reminded ${discordRelative(prior.createdAt)} by ${by} — skipping to avoid a double-ping. Switch category in the activity picker for a fresh reminder window.`,
+        });
         return;
       }
       const user = await interaction.client.users.fetch(userId).catch(() => null);
@@ -123,8 +126,11 @@ export async function handleMemberPanelButton(interaction: ButtonInteraction) {
         await interaction.editReply({ content: "Only admins can issue warnings. Officers can use Remind." });
         return;
       }
-      if (await recentWarning(clan.guildId, userId)) {
-        await interaction.editReply({ content: `🛑 **${identity.username}** was warned recently — not issuing a duplicate.` });
+      const priorWarn = await recentWarning(clan.guildId, userId);
+      if (priorWarn) {
+        await interaction.editReply({
+          content: `🛑 **${identity.username}** was already warned ${discordRelative(priorWarn.issuedAt)} by **${priorWarn.issuedByUsername}** — not issuing a duplicate. Use the activity picker to confirm a re-warn (or switch category for a fresh cooldown).`,
+        });
         return;
       }
       const user = await interaction.client.users.fetch(userId).catch(() => null);

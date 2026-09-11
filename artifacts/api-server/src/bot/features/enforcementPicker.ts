@@ -19,8 +19,14 @@ import {
   type User,
 } from "discord.js";
 import type { Clan } from "@workspace/db";
-import { getClan, isOfficer, isAdmin, getMember, identityFromUser } from "../services/config";
-import { issueWarning, recentWarning, listActive, isImmuneFromEnforcement, cardAvatarPair } from "../services/warnings";
+import { getClan, isOfficer, isAdmin, getMember } from "../services/config";
+import {
+  issueWarning,
+  recentWarning,
+  listActive,
+  isImmuneFromEnforcement,
+  cardAvatarPair,
+} from "../services/warnings";
 import { sendReminder, recentReminder } from "../services/reminders";
 import {
   staffWarningReason,
@@ -28,6 +34,7 @@ import {
   sanitizeMemberReason,
   containsStaffAccounting,
   periodAdjective,
+  activityMissedReason,
 } from "../services/tracking";
 import { statusOf, STATUS_LABEL } from "../services/progress";
 import { discordRelative } from "../services/time";
@@ -40,32 +47,35 @@ import {
   ENF_NOTE_MODAL,
   ENF_SEND,
   ENF_CLEAR,
+  ENF_FORCE_CONFIRM,
+  ENF_FORCE_CANCEL,
   parseId,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
-import { ensureDefaultCategories, categoryActivityLabel, getCategory } from "../services/activity";
-import { activityMissedReason } from "../services/tracking";
+import {
+  ensureDefaultCategories,
+  categoryActivityLabel,
+  getCategory,
+} from "../services/activity";
 import type { PickerMemberView } from "../canvas/cards/enforcementPickerCard";
 
 /**
- * The unified XP enforcement picker — one panel that consolidates the old
- * `/xpwarn` (single) and `/xpremind` flows.
+ * Unified XP enforcement picker — warnings and reminders in one panel.
  *
- *   • A clear **mode toggle**: Reminder or Warning (same command handles both).
- *   • A native Discord **multi-user selector** so an officer picks many clan
- *     members in one operation instead of running the command over and over.
- *   • A live **canvas preview** that re-renders on every pick / toggle, showing
- *     who is selected and each member's standing (warnings + warning-role).
- *   • A single **Send** that dispatches the reminder / warning to everyone
- *     selected, reusing the existing sendReminder / issueWarning pipelines so
- *     canvas and embed output stay identical to the single-target commands.
- *
- * Panel state (mode / selection / note) lives in memory keyed by the panel's
- * ephemeral message id. Ephemeral panels are short-lived and single-process, so
- * an in-memory store with a TTL is the right tool — nothing to persist.
+ * Re-warn / re-remind for the same activity category asks for confirmation
+ * (who + when) instead of hard-skipping. Switching categories starts a fresh
+ * cooldown. Panel titles lead with the chosen activity name.
  */
 
 type Mode = "warning" | "reminder";
+
+interface PendingRecent {
+  userId: string;
+  /** Nick (@username) when available, otherwise username. */
+  label: string;
+  by: string;
+  when: string;
+}
 
 interface PanelState {
   mode: Mode;
@@ -74,6 +84,8 @@ interface PanelState {
   note: string | null;
   ownerId: string;
   ts: number;
+  pendingRecent: PendingRecent[] | null;
+  forceUserIds: string[];
 }
 
 const PANEL_TTL_MS = 15 * 60_000;
@@ -92,9 +104,38 @@ function getState(messageId: string): PanelState | null {
   return st ?? null;
 }
 
-/* --------------------------------------------------------------- rendering */
+function clearForceState(state: PanelState) {
+  state.pendingRecent = null;
+  state.forceUserIds = [];
+}
 
-/** Build the per-member preview rows (warnings + warning-role standing). */
+/** Discord nick (@username) when the nick differs; otherwise the username. */
+async function memberLabel(guild: Guild, user: User): Promise<string> {
+  const gm = await guild.members.fetch(user.id).catch(() => null);
+  const nick = gm?.nickname || gm?.displayName || null;
+  if (nick && nick !== user.username) return `${nick} (@${user.username})`;
+  return user.username;
+}
+
+/** Resolve the selected activity title for panel / member copy. */
+async function selectedCategoryTitle(
+  guildId: string,
+  categoryKey: string
+): Promise<{ key: string; label: string; emoji: string }> {
+  if (categoryKey === "custom") {
+    return { key: "custom", label: "Custom", emoji: "✏️" };
+  }
+  const cat = await getCategory(guildId, categoryKey);
+  if (cat) {
+    return {
+      key: cat.key,
+      label: categoryActivityLabel(cat),
+      emoji: cat.emoji || "📁",
+    };
+  }
+  return { key: categoryKey, label: categoryActivityLabel(categoryKey), emoji: "📁" };
+}
+
 async function memberViews(
   client: Client,
   guild: Guild,
@@ -129,7 +170,42 @@ async function memberViews(
   return views;
 }
 
-/** Render the panel body (content + preview image + components). */
+function buildConfirmPanel(
+  selectedLabel: string,
+  state: PanelState
+): {
+  content: string;
+  files: AttachmentBuilder[];
+  components: ActionRowBuilder<MessageActionRowComponentBuilder>[];
+} {
+  const verb = state.mode === "warning" ? "warned" : "reminded";
+  const actionNoun = state.mode === "warning" ? "warn" : "remind";
+  const lines = (state.pendingRecent ?? []).map(
+    (p) => `• **${p.label}** — ${verb} by **${p.by}** ${p.when}`
+  );
+  const content = (
+    `⚠️ **Are you sure?** These members were already ${verb} for **${selectedLabel}** recently:\n` +
+    `${lines.join("\n")}\n\n` +
+    `Confirm to ${actionNoun} them again for this category, or cancel.`
+  ).slice(0, 2000);
+
+  const rows = [
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(ENF_FORCE_CONFIRM)
+        .setStyle(state.mode === "warning" ? ButtonStyle.Danger : ButtonStyle.Success)
+        .setLabel(state.mode === "warning" ? "Yes, warn again" : "Yes, remind again")
+        .setEmoji(state.mode === "warning" ? "⚠️" : "🔔"),
+      new ButtonBuilder()
+        .setCustomId(ENF_FORCE_CANCEL)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("Cancel")
+    ),
+  ];
+
+  return { content, files: [], components: rows };
+}
+
 async function buildPanel(
   client: Client,
   guild: Guild,
@@ -140,17 +216,27 @@ async function buildPanel(
   files: AttachmentBuilder[];
   components: ActionRowBuilder<MessageActionRowComponentBuilder>[];
 }> {
+  const selected = await selectedCategoryTitle(clan.guildId, state.categoryKey);
+
+  if (state.pendingRecent?.length) {
+    return buildConfirmPanel(selected.label, state);
+  }
+
   const views = await memberViews(client, guild, clan, state.userIds, state.mode);
   const png = await renderOffThread("enforcementPicker", {
     mode: state.mode,
     communityName: clan.clanName,
     members: views,
     warnRoleConfigured: clan.warningRoleIds.length > 0,
+    categoryLabel: selected.label,
   });
 
   const n = state.userIds.length;
   const modeLabel = state.mode === "warning" ? "Warning" : "Reminder";
-  const header = state.mode === "warning" ? "⚠️ **Activity Warning**" : "🔔 **XP Reminder**";
+  const header =
+    state.mode === "warning"
+      ? `⚠️ **${selected.label}** Warning`
+      : `🔔 **${selected.label}** Reminder`;
   const modeNote =
     state.mode === "warning"
       ? "admin-only · recorded with a dispute ticket #"
@@ -167,36 +253,35 @@ async function buildPanel(
   const cats = await ensureDefaultCategories(clan.guildId);
   const catSelect = new StringSelectMenuBuilder()
     .setCustomId(ENF_CATEGORY)
-    .setPlaceholder(state.mode === "warning" ? "Warning category (required activity)…" : "Category (optional for reminders)…")
-    .addOptions(
-      [
-        ...cats.slice(0, 24).map((c) => ({
-          label: c.name.slice(0, 100),
-          value: c.key,
-          description: (c.description || "Required activity category").slice(0, 100),
-          emoji: c.emoji.length <= 8 ? c.emoji : undefined,
-          default: c.key === state.categoryKey,
-        })),
-        {
-          label: "Custom / Other",
-          value: "custom",
-          description: "Use the note as the reason",
-          emoji: "✏️",
-          default: state.categoryKey === "custom",
-        },
-      ]
-    );
-
+    .setPlaceholder(
+      state.mode === "warning"
+        ? "Warning category (required activity)…"
+        : "Category (optional for reminders)…"
+    )
+    .addOptions([
+      ...cats.slice(0, 24).map((c) => ({
+        label: c.name.slice(0, 100),
+        value: c.key,
+        description: (c.description || "Required activity category").slice(0, 100),
+        emoji: c.emoji.length <= 8 ? c.emoji : undefined,
+        default: c.key === state.categoryKey,
+      })),
+      {
+        label: "Custom / Other",
+        value: "custom",
+        description: "Use the note as the reason",
+        emoji: "✏️",
+        default: state.categoryKey === "custom",
+      },
+    ]);
 
   const cat = cats.find((c) => c.key === state.categoryKey);
-  const catLine =
-    state.mode === "warning"
-      ? cat
-        ? `\n📂 **Category:** ${cat.emoji} ${cat.name}`
-        : state.categoryKey === "custom"
-          ? `\n📂 **Category:** Custom`
-          : ""
+  const catLine = cat
+    ? `\n📂 **Category:** ${cat.emoji} ${cat.name}`
+    : state.categoryKey === "custom"
+      ? `\n📂 **Category:** Custom`
       : "";
+
   const content =
     `${header} — pick members, then **Send**.\n` +
     `**Mode:** ${modeLabel}  ·  _${modeNote}_  ·  **Selected:** ${n}\n` +
@@ -228,9 +313,7 @@ async function buildPanel(
       new ButtonBuilder()
         .setCustomId(ENF_SEND)
         .setStyle(state.mode === "warning" ? ButtonStyle.Danger : ButtonStyle.Success)
-        .setLabel(
-          state.mode === "warning" ? `Send Warning (${n})` : `Send Reminder (${n})`
-        )
+        .setLabel(state.mode === "warning" ? `Send Warning (${n})` : `Send Reminder (${n})`)
         .setEmoji(state.mode === "warning" ? "⚠️" : "🔔")
         .setDisabled(n === 0)
     ),
@@ -242,8 +325,6 @@ async function buildPanel(
     components: rows,
   };
 }
-
-/* ----------------------------------------------------------------- command */
 
 /** /xpwarn — open the unified warning/reminder picker. */
 export async function openEnforcementPicker(interaction: ChatInputCommandInteraction) {
@@ -262,8 +343,6 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
     return;
   }
 
-  // /xpwarn opens on Warning by default (its namesake action); officers can
-  // switch to Reminder in the panel. An explicit `mode:` option wins.
   const requested = (interaction.options.getString("mode") ?? "warning").toLowerCase();
   const mode: Mode = requested === "reminder" ? "reminder" : "warning";
 
@@ -276,6 +355,8 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
     note: null,
     ownerId: interaction.user.id,
     ts: Date.now(),
+    pendingRecent: null,
+    forceUserIds: [],
   };
 
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
@@ -284,40 +365,43 @@ export async function openEnforcementPicker(interaction: ChatInputCommandInterac
   panels.set(message.id, state);
 }
 
-/* ----------------------------------------------------------------- routing */
-
-/** Ownership guard shared by every panel component. */
-function ownsPanel(interaction: ButtonInteraction | UserSelectMenuInteraction | StringSelectMenuInteraction, state: PanelState | null): boolean {
+function ownsPanel(
+  interaction: ButtonInteraction | UserSelectMenuInteraction | StringSelectMenuInteraction,
+  state: PanelState | null
+): boolean {
   return !!state && state.ownerId === interaction.user.id;
 }
 
-/** Native multi-user selection changed → restash and re-render the preview. */
 export async function handleEnforcementSelect(interaction: UserSelectMenuInteraction) {
   if (!interaction.inCachedGuild()) return;
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
-    await interaction.reply({ content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.", flags: 64 });
+    await interaction.reply({
+      content:
+        "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
+      flags: 64,
+    });
     return;
   }
   await interaction.deferUpdate();
   const clan = await getClan(interaction.guildId);
   if (!clan) return;
-  // Drop bots — they're never tracked.
-  state.userIds = interaction.values.filter((id) => !interaction.users.get(id)?.bot).slice(0, MAX_SELECT);
+  state.userIds = interaction.values
+    .filter((id) => !interaction.users.get(id)?.bot)
+    .slice(0, MAX_SELECT);
+  clearForceState(state);
   state.ts = Date.now();
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
   await interaction.editReply({ ...panel, attachments: [] });
 }
 
-/** Panel buttons: mode toggle, note, clear, send. */
-
-/** Activity category changed on the warning/reminder panel. */
 export async function handleEnforcementCategorySelect(interaction: StringSelectMenuInteraction) {
   if (!interaction.inCachedGuild()) return;
   const state = getState(interaction.message.id);
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
+      content:
+        "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
       flags: 64,
     });
     return;
@@ -327,6 +411,7 @@ export async function handleEnforcementCategorySelect(interaction: StringSelectM
   if (!clan) return;
   const key = interaction.values[0];
   if (key) state.categoryKey = key;
+  clearForceState(state);
   state.ts = Date.now();
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
   await interaction.editReply({ ...panel, attachments: [] });
@@ -339,13 +424,13 @@ export async function handleEnforcementButton(interaction: ButtonInteraction) {
 
   if (!ownsPanel(interaction, state) || !state) {
     await interaction.reply({
-      content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
+      content:
+        "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
       flags: 64,
     });
     return;
   }
 
-  // The note button opens a modal, which must be the first ack (no defer).
   if (action === "note") {
     const modal = new ModalBuilder().setCustomId(ENF_NOTE_MODAL).setTitle("Optional note");
     modal.addComponents(
@@ -365,26 +450,48 @@ export async function handleEnforcementButton(interaction: ButtonInteraction) {
 
   if (action === "send") return void (await dispatchSend(interaction, state));
 
+  if (action === "forceConfirm") {
+    state.forceUserIds = (state.pendingRecent ?? []).map((p) => p.userId);
+    state.pendingRecent = null;
+    return void (await dispatchSend(interaction, state));
+  }
+
+  if (action === "forceCancel") {
+    await interaction.deferUpdate();
+    const clan = await getClan(interaction.guildId);
+    if (!clan) return;
+    clearForceState(state);
+    state.ts = Date.now();
+    const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
+    await interaction.editReply({ ...panel, attachments: [] });
+    return;
+  }
+
   await interaction.deferUpdate();
   const clan = await getClan(interaction.guildId);
   if (!clan) return;
 
   if (action === "mode") {
     state.mode = state.mode === "warning" ? "reminder" : "warning";
+    clearForceState(state);
   } else if (action === "clear") {
     state.userIds = [];
+    clearForceState(state);
   }
   state.ts = Date.now();
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
   await interaction.editReply({ ...panel, attachments: [] });
 }
 
-/** Note modal submit → store the note and re-render the panel in place. */
 export async function handleEnforcementNoteModal(interaction: ModalSubmitInteraction) {
   if (!interaction.inCachedGuild() || !interaction.isFromMessage()) return;
   const state = getState(interaction.message.id);
   if (!state || state.ownerId !== interaction.user.id) {
-    await interaction.reply({ content: "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.", flags: 64 });
+    await interaction.reply({
+      content:
+        "This panel session expired or isn't yours. If you opened it, the bot likely refreshed — run `/xpwarn` again.",
+      flags: 64,
+    });
     return;
   }
   await interaction.deferUpdate();
@@ -396,8 +503,6 @@ export async function handleEnforcementNoteModal(interaction: ModalSubmitInterac
   const panel = await buildPanel(interaction.client, interaction.guild!, clan, state);
   await interaction.editReply({ ...panel, attachments: [] });
 }
-
-/* ----------------------------------------------------------------- sending */
 
 async function dispatchSend(interaction: ButtonInteraction<"cached">, state: PanelState) {
   const clan = await getClan(interaction.guildId);
@@ -421,6 +526,53 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
   const moderatorId = interaction.user.id;
   const moderatorUsername = interaction.user.username;
   const customNote = state.note && !containsStaffAccounting(state.note) ? state.note : null;
+  const categoryKey = state.categoryKey === "custom" ? "custom" : state.categoryKey;
+  const selected = await selectedCategoryTitle(clan.guildId, state.categoryKey);
+  const categoryLabel = selected.label;
+  const forceSet = new Set(state.forceUserIds);
+
+  const needsConfirm: PendingRecent[] = [];
+  for (const userId of state.userIds) {
+    if (forceSet.has(userId)) continue;
+    const user = await interaction.client.users.fetch(userId).catch(() => null);
+    if (!user || user.bot) continue;
+
+    if (state.mode === "warning") {
+      const prior = await recentWarning(clan.guildId, userId, undefined, categoryKey);
+      if (prior) {
+        needsConfirm.push({
+          userId,
+          label: await memberLabel(interaction.guild, user),
+          by: prior.issuedByUsername || "an officer",
+          when: discordRelative(prior.issuedAt),
+        });
+      }
+    } else {
+      const prior = await recentReminder(clan, userId, undefined, categoryKey);
+      if (prior) {
+        const by = prior.auto ? "auto" : prior.sentByUsername || "an officer";
+        needsConfirm.push({
+          userId,
+          label: await memberLabel(interaction.guild, user),
+          by,
+          when: discordRelative(prior.createdAt),
+        });
+      }
+    }
+  }
+
+  if (needsConfirm.length) {
+    state.pendingRecent = needsConfirm;
+    state.ts = Date.now();
+    const panel = buildConfirmPanel(categoryLabel, state);
+    await interaction.editReply({
+      content: panel.content,
+      files: [],
+      components: panel.components,
+      attachments: [],
+    });
+    return;
+  }
 
   const results: string[] = [];
   let done = 0;
@@ -432,24 +584,19 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
       skipped++;
       continue;
     }
+    const label = await memberLabel(interaction.guild, user);
     const member = await getMember(clan.guildId, userId);
 
     if (state.mode === "reminder") {
-      // Skip anyone already at/over their goal, or reminded very recently.
       const status = member ? statusOf(clan, member) : "notStarted";
       if (status === "complete" || status === "exempt" || status === "leave") {
-        results.push(`⏭️ ${user.username} — ${STATUS_LABEL[status].toLowerCase()}`);
+        results.push(`⏭️ ${label} — ${STATUS_LABEL[status].toLowerCase()}`);
         skipped++;
         continue;
       }
       const immune = await isImmuneFromEnforcement(interaction.guild, clan, userId, member);
       if (immune.immune) {
-        results.push(`🛡️ ${user.username} — immune (${immune.reason})`);
-        skipped++;
-        continue;
-      }
-      if (await recentReminder(clan, userId)) {
-        results.push(`🔕 ${user.username} — reminded recently`);
+        results.push(`🛡️ ${label} — immune (${immune.reason})`);
         skipped++;
         continue;
       }
@@ -462,19 +609,15 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
         moderatorId,
         moderatorUsername,
         note: customNote,
+        categoryKey,
+        categoryLabel,
       });
-      results.push(`${delivered ? "🔔" : "📭"} ${user.username}`);
+      results.push(`${delivered ? "🔔" : "📭"} ${label}`);
       done++;
     } else {
       const immune = await isImmuneFromEnforcement(interaction.guild, clan, userId, member);
       if (immune.immune) {
-        results.push(`🛡️ ${user.username} — immune (${immune.reason})`);
-        skipped++;
-        continue;
-      }
-      const prior = await recentWarning(clan.guildId, userId);
-      if (prior) {
-        results.push(`🛑 ${user.username} — already warned ${discordRelative(prior.issuedAt)}`);
+        results.push(`🛡️ ${label} — immune (${immune.reason})`);
         skipped++;
         continue;
       }
@@ -484,14 +627,6 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
           ? staffWarningReason(clan, member)
           : `Missed the ${periodAdjective(clan)} ${clan.activityName} goal.`);
       try {
-        const category =
-          state.categoryKey && state.categoryKey !== "custom"
-            ? await getCategory(clan.guildId, state.categoryKey)
-            : null;
-        const categoryLabel =
-          state.categoryKey === "custom"
-            ? "Custom"
-            : categoryActivityLabel(category ?? state.categoryKey);
         const { activeCount } = await issueWarning({
           client: interaction.client,
           clan,
@@ -502,17 +637,17 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
           reason,
           memberReason: customNote
             ? sanitizeMemberReason(customNote)
-            : state.categoryKey && state.categoryKey !== "custom"
+            : categoryKey !== "custom"
               ? activityMissedReason(categoryLabel)
               : memberSafeWarningReason(clan),
-          categoryKey: state.categoryKey === "custom" ? "custom" : state.categoryKey,
+          categoryKey,
           categoryLabel,
         });
-        results.push(`⚠️ ${user.username} — ${activeCount} active`);
+        results.push(`⚠️ ${label} — ${activeCount} active`);
         done++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "failed";
-        results.push(`⏭️ ${user.username} — ${msg}`);
+        results.push(`⏭️ ${label} — ${msg}`);
         skipped++;
       }
     }
@@ -524,10 +659,9 @@ async function dispatchSend(interaction: ButtonInteraction<"cached">, state: Pan
     (skipped ? ` · skipped ${skipped}` : "") +
     `\n${results.join("\n")}`.slice(0, 1800);
 
-  // Reset the selection so the panel is ready for the next batch, and show the
-  // outcome above a refreshed (now-empty) preview.
   state.userIds = [];
   state.note = null;
+  clearForceState(state);
   state.ts = Date.now();
   const panel = await buildPanel(interaction.client, interaction.guild, clan, state);
   await interaction.editReply({
