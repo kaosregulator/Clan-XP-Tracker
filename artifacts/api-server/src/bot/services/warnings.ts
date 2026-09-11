@@ -545,7 +545,7 @@ export async function postWarningAnnouncement(opts: {
     if (!channel?.isTextBased() || !("send" in channel)) return false;
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
-      .setAuthor({ name: `⚠️ ACTIVITY WARNING • ${clan.clanName}` })
+      .setAuthor({ name: `⚠️ WARNING • ${clan.clanName}` })
       .setDescription(memberWarningBody(opts.reason))
       .setTimestamp();
     await channel.send({
