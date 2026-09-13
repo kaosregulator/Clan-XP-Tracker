@@ -11,6 +11,10 @@ import {
   canPlaceServiceOrderAccess,
   staffQuickReplyByKey,
   STAFF_QUICK_REPLIES,
+  serviceOrderChannelName,
+  serviceOrderChannelTopic,
+  customerQuickReplyByKey,
+  CUSTOMER_QUICK_REPLIES,
 } from "./serviceOrderHelpers.js";
 
 describe("serviceOrderHelpers", () => {
@@ -123,5 +127,37 @@ describe("serviceOrderHelpers", () => {
     assert.equal(STAFF_QUICK_REPLIES.length, 10);
     assert.match(staffQuickReplyByKey("qr0") ?? "", /patient/i);
     assert.equal(staffQuickReplyByKey("nope"), null);
+  });
+
+  it("names ticket channels as lvl-up-{name}-{n} (not LV-####)", () => {
+    assert.equal(
+      serviceOrderChannelName({
+        username: "Kaosregulator",
+        displayName: "Kaosregulator",
+        sequence: 1,
+      }),
+      "lvl-up-kaosregulator-1"
+    );
+    assert.equal(
+      serviceOrderChannelTopic({
+        username: "Kaosregulator",
+        displayName: "Kaosregulator",
+        sequence: 1,
+      }),
+      "LVL-Up Kaosregulator-#1"
+    );
+    assert.doesNotMatch(
+      serviceOrderChannelName({
+        username: "someone",
+        sequence: 4,
+      }),
+      /lv-|order-/i
+    );
+  });
+
+  it("resolves customer quick replies", () => {
+    assert.ok(CUSTOMER_QUICK_REPLIES.length >= 3);
+    assert.match(customerQuickReplyByKey("cq0") ?? "", /started/i);
+    assert.equal(customerQuickReplyByKey("nope"), null);
   });
 });

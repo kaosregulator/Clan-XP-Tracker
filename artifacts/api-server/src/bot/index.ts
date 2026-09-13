@@ -6,6 +6,7 @@ import { ensureFonts } from "./canvas/fonts";
 import { initRenderPool } from "./canvas/render-pool";
 import { startScheduler } from "./scheduler";
 import { setCommandCenterClient } from "./services/commandCenter";
+import { setOrderTrackerClient } from "./services/orderTracker";
 import { startScoutAutoSnapshots } from "./services/scout";
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
@@ -148,6 +149,7 @@ export function startBot() {
     // Give the persistent command center a live client so it can edit its
     // message in place when data changes.
     setCommandCenterClient(c);
+    setOrderTrackerClient(c);
     await registerCommands(c);
     startScheduler(c);
     // Background Military Tycoon (and tracked) snapshots for Game Intelligence.

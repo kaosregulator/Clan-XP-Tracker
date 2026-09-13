@@ -512,5 +512,17 @@ export const commands: RESTPostAPIApplicationCommandsJSONBody[] = [
     .addSubcommand((s) =>
       s.setName("setup").setDescription("Show leveling service setup status (admins)")
     )
+    .addSubcommand((s) =>
+      s
+        .setName("tracker")
+        .setDescription("Post the live order tracker panel (admins)")
+        .addChannelOption((o) =>
+          o
+            .setName("channel")
+            .setDescription("Where to post it (default: here)")
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
+    )
     .toJSON(),
 ];

@@ -304,4 +304,12 @@ export const svcUp = (orderId: number) => id(NS.svc, "up", orderId);
 export const svcDown = (orderId: number) => id(NS.svc, "down", orderId);
 export const svcSyncFiles = (orderId: number) => id(NS.svc, "syncFiles", orderId);
 export const svcQuickReply = (orderId: number) => id(NS.svc, "quickReply", orderId);
+/** Customer ticket: request close / cancel (staff still confirms). */
+export const svcRequestClose = (orderId: number) => id(NS.svc, "requestClose", orderId);
+/** Customer ticket: canned check-in replies (cooldown). */
+export const svcCustomerQuickReply = (orderId: number) => id(NS.svc, "customerQuickReply", orderId);
+/** Staff ticket: permanently delete the order channel. */
+export const svcDelete = (orderId: number) => id(NS.svc, "delete", orderId);
+/** Live order tracker panel refresh. */
+export const SVC_TRACKER_REFRESH = id(NS.svc, "trackerRefresh");
 
