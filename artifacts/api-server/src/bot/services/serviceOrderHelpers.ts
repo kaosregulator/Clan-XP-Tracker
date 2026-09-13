@@ -71,14 +71,32 @@ export function formatPublicId(n: number): string {
   return `LV-${String(Math.max(1, n)).padStart(4, "0")}`;
 }
 
-export function serviceOrderChannelName(username: string, publicId: string): string {
-  const stem = username
+/** Discord channel name: lvl-up-{name}-{n} (no LV-#### — that looked like a level). */
+export function serviceOrderChannelName(opts: {
+  username: string;
+  displayName?: string | null;
+  sequence: number;
+}): string {
+  const raw = (opts.displayName?.trim() || opts.username).trim();
+  const stem = raw
     .toLowerCase()
     .replace(/[^a-z0-9-_]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 60);
-  return `order-${stem || "member"}-${publicId.toLowerCase()}`.slice(0, 100);
+  const n = Math.max(1, Math.floor(opts.sequence));
+  return `lvl-up-${stem || "member"}-${n}`.slice(0, 100);
+}
+
+/** Pretty topic / display label: LVL-Up Name-#1 */
+export function serviceOrderChannelTopic(opts: {
+  username: string;
+  displayName?: string | null;
+  sequence: number;
+}): string {
+  const name = (opts.displayName?.trim() || opts.username).trim() || "member";
+  const n = Math.max(1, Math.floor(opts.sequence));
+  return `LVL-Up ${name}-#${n}`;
 }
 
 export function parseAttachmentsJson(raw: string | null | undefined): ServiceOrderAttachment[] {
@@ -249,6 +267,37 @@ export const STAFF_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string; me
       "🚗 Almost parked at the finish line — please be patient just a bit longer. Appreciate you!",
   },
 ];
+
+/** Customer canned updates on their ticket (cooldown enforced in feature handler). */
+export const CUSTOMER_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string; message: string }> = [
+  {
+    key: "cq0",
+    label: "Has my order started?",
+    message: "👋 Checking in — has my order started yet?",
+  },
+  {
+    key: "cq1",
+    label: "Is my order done?",
+    message: "🏁 Checking in — is my order finished / ready?",
+  },
+  {
+    key: "cq2",
+    label: "Any queue update?",
+    message: "📍 Any update on my queue position? Still waiting patiently.",
+  },
+  {
+    key: "cq3",
+    label: "Need a quick status",
+    message: "🔔 Quick status check when you have a moment — thanks!",
+  },
+];
+
+export function customerQuickReplyByKey(key: string): string | null {
+  return CUSTOMER_QUICK_REPLIES.find((r) => r.key === key)?.message ?? null;
+}
+
+/** Cooldown between customer quick replies (ms). */
+export const CUSTOMER_QUICK_REPLY_COOLDOWN_MS = 3 * 60 * 1000;
 
 export function staffQuickReplyByKey(key: string): string | null {
   return STAFF_QUICK_REPLIES.find((r) => r.key === key)?.message ?? null;

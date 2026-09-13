@@ -31,15 +31,26 @@ import {
   queueHeadline,
   ordersAhead,
   SERVICE_ORDER_ACCESS_DENIED,
+  deleteServiceOrderChannel,
   type ServiceOrderAction,
 } from "../services/serviceOrders";
-import { resolveServiceKey, staffQuickReplyByKey } from "../services/serviceOrderHelpers";
+import {
+  resolveServiceKey,
+  staffQuickReplyByKey,
+  customerQuickReplyByKey,
+  CUSTOMER_QUICK_REPLY_COOLDOWN_MS,
+} from "../services/serviceOrderHelpers";
+import {
+  postOrderTracker,
+  refreshOrderTrackerNow,
+} from "../services/orderTracker";
 import { logger } from "../../lib/logger";
 import {
   NS,
   parseId,
   SVC_PLACE,
   SVC_SERVICE_PICK,
+  SVC_TRACKER_REFRESH,
   svcDetailsModal,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
@@ -306,9 +317,29 @@ export async function openLevelingCommand(interaction: ChatInputCommandInteracti
     return;
   }
 
+  if (sub === "tracker") {
+    if (!isAdmin(interaction.member, clan)) {
+      await interaction.editReply({
+        content: "Only admins can post the live order tracker.",
+      });
+      return;
+    }
+    const chosen = interaction.options.getChannel("channel");
+    const channelId = chosen?.id ?? interaction.channelId;
+    const res = await postOrderTracker(clan, channelId);
+    if (!res.ok) {
+      await interaction.editReply({ content: `⚠️ ${res.reason}` });
+      return;
+    }
+    await interaction.editReply({
+      content: `✅ Live order tracker posted in <#${channelId}>. It refreshes when the queue changes.`,
+    });
+    return;
+  }
+
   await interaction.editReply({
     content:
-      "Unknown subcommand. Try **/leveling panel**, **/leveling queue**, **/leveling order**, or **/leveling setup**.",
+      "Unknown subcommand. Try **/leveling panel**, **/leveling queue**, **/leveling order**, **/leveling setup**, or **/leveling tracker**.",
   });
 }
 
@@ -586,6 +617,167 @@ async function runQuickReply(interaction: StringSelectMenuInteraction, orderId: 
   await interaction.editReply({ content: "✅ Quick reply sent in the ticket." });
 }
 
+
+/* ------------------------------------------- customer ticket actions */
+
+const customerQuickReplyCooldown = new Map<string, number>();
+
+async function runRequestClose(interaction: ButtonInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+
+  const order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+  if (order.customerId !== interaction.user.id && !canManageServiceOrders(interaction.member, clan)) {
+    await interaction.editReply({ content: "Only the customer (or staff) can request a close." });
+    return;
+  }
+
+  if (order.channelId) {
+    try {
+      const ch = await interaction.client.channels.fetch(order.channelId);
+      if (ch?.isTextBased() && "send" in ch) {
+        const staffPing = clan.serviceOrderTeamRoleId
+          ? `<@&${clan.serviceOrderTeamRoleId}>`
+          : "Staff";
+        await ch.send({
+          content:
+            `${staffPing} 📩 <@${order.customerId}> requested to **close / cancel** order **${order.publicId}**.\n` +
+            `Staff: use **Close / Cancel** or **Delete** on the ticket controls.`,
+          allowedMentions: {
+            users: [order.customerId],
+            roles: clan.serviceOrderTeamRoleId ? [clan.serviceOrderTeamRoleId] : [],
+          },
+        });
+      }
+    } catch (err) {
+      logger.warn({ err, orderId }, "request close ping failed");
+    }
+  }
+
+  await interaction.editReply({
+    content: "✅ Close requested — staff have been pinged in this ticket.",
+  });
+}
+
+async function runCustomerQuickReply(interaction: StringSelectMenuInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+
+  const order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+  if (order.customerId !== interaction.user.id) {
+    await interaction.editReply({ content: "Only the customer can use these quick replies." });
+    return;
+  }
+
+  const key = `${order.id}:${interaction.user.id}`;
+  const last = customerQuickReplyCooldown.get(key) ?? 0;
+  const now = Date.now();
+  const left = CUSTOMER_QUICK_REPLY_COOLDOWN_MS - (now - last);
+  if (left > 0) {
+    const secs = Math.ceil(left / 1000);
+    await interaction.editReply({
+      content: `⏳ Please wait **${secs}s** before another quick reply (anti-spam).`,
+    });
+    return;
+  }
+
+  const message = customerQuickReplyByKey(interaction.values[0] ?? "");
+  if (!message) {
+    await interaction.editReply({ content: "Unknown quick reply." });
+    return;
+  }
+  if (!order.channelId) {
+    await interaction.editReply({ content: "This order has no ticket channel." });
+    return;
+  }
+
+  try {
+    const ch = await interaction.client.channels.fetch(order.channelId);
+    if (!ch?.isTextBased() || !("send" in ch)) {
+      await interaction.editReply({ content: "Couldn't reach the ticket channel." });
+      return;
+    }
+    const staffPing = clan.serviceOrderTeamRoleId ? `<@&${clan.serviceOrderTeamRoleId}>` : "Staff";
+    await ch.send({
+      content: `${staffPing} <@${order.customerId}> ${message}`,
+      allowedMentions: {
+        users: [order.customerId],
+        roles: clan.serviceOrderTeamRoleId ? [clan.serviceOrderTeamRoleId] : [],
+      },
+    });
+  } catch (err) {
+    logger.warn({ err, orderId }, "customer quick reply failed");
+    await interaction.editReply({ content: "Failed to post your quick reply." });
+    return;
+  }
+
+  customerQuickReplyCooldown.set(key, now);
+  await interaction.editReply({ content: "✅ Sent — staff will see it in this ticket." });
+}
+
+async function runDeleteChannel(interaction: ButtonInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+  if (!canManageServiceOrders(interaction.member, clan)) {
+    await interaction.editReply({
+      content: "Only leveling staff / officers can delete order channels.",
+    });
+    return;
+  }
+
+  const res = await deleteServiceOrderChannel({
+    client: interaction.client,
+    guild: interaction.guild,
+    clan,
+    orderId,
+    actorId: interaction.user.id,
+    actorUsername: interaction.user.username,
+  });
+  if (!res.ok) {
+    await interaction.editReply({ content: `⚠️ ${res.error}` });
+    return;
+  }
+  await interaction.editReply({
+    content: res.deleted
+      ? "✅ Order channel deleted."
+      : "✅ Order closed — channel was already gone.",
+  });
+}
+
+async function runTrackerRefresh(interaction: ButtonInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferUpdate();
+  const clan = await getClan(interaction.guildId);
+  if (!clan) return;
+  await refreshOrderTrackerNow(clan.guildId);
+}
+
 export async function handleServiceOrderButton(interaction: ButtonInteraction) {
   if (!interaction.inCachedGuild()) return;
   if (parseId(interaction.customId).ns !== NS.svc) return;
@@ -597,6 +789,11 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
     return;
   }
 
+  if (action === "trackerRefresh" || interaction.customId === SVC_TRACKER_REFRESH) {
+    await runTrackerRefresh(interaction);
+    return;
+  }
+
   const orderId = Number(arg);
   if (!orderId) {
     await interaction.reply({ content: "Invalid order reference.", flags: 64 });
@@ -605,6 +802,16 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
 
   if (action === "syncFiles") {
     await runSyncFiles(interaction, orderId);
+    return;
+  }
+
+  if (action === "requestClose") {
+    await runRequestClose(interaction, orderId);
+    return;
+  }
+
+  if (action === "delete") {
+    await runDeleteChannel(interaction, orderId);
     return;
   }
 
@@ -633,6 +840,16 @@ export async function handleServiceOrderSelect(interaction: StringSelectMenuInte
       return;
     }
     await runQuickReply(interaction, orderId);
+    return;
+  }
+
+  if (action === "customerQuickReply") {
+    const orderId = Number(arg);
+    if (!orderId) {
+      await interaction.reply({ content: "Invalid order reference.", flags: 64 });
+      return;
+    }
+    await runCustomerQuickReply(interaction, orderId);
     return;
   }
 

@@ -53,6 +53,8 @@ import {
   SERVICE_ORDER_ACCESS_DENIED,
   SERVICE_ORDER_PATIENCE_NOTICE,
   STAFF_QUICK_REPLIES,
+  CUSTOMER_QUICK_REPLIES,
+  serviceOrderChannelTopic,
 } from "./serviceOrderHelpers";
 import {
   svcClaim,
@@ -66,8 +68,12 @@ import {
   svcDown,
   svcSyncFiles,
   svcQuickReply,
+  svcRequestClose,
+  svcCustomerQuickReply,
+  svcDelete,
   SVC_PLACE,
 } from "../ui/ids";
+import { scheduleOrderTrackerRefresh } from "./orderTracker";
 
 export {
   SERVICE_CATALOG,
@@ -286,10 +292,18 @@ export async function placeServiceOrder(
     }
 
     channel = await input.guild.channels.create({
-      name: serviceOrderChannelName(input.customer.username, publicId),
+      name: serviceOrderChannelName({
+        username: input.customer.username,
+        displayName: input.customerDisplayName,
+        sequence: seq,
+      }),
       type: ChannelType.GuildText,
       parent: parent.id,
-      topic: `${publicId} · ${catalog.label} · ${input.customer.username}`,
+      topic: `${serviceOrderChannelTopic({
+        username: input.customer.username,
+        displayName: input.customerDisplayName,
+        sequence: seq,
+      })} · ${catalog.label} · ${publicId}`,
       permissionOverwrites: buildDisputeOverwrites({
         guildId: input.guild.id,
         memberId: input.customer.id,
@@ -315,7 +329,8 @@ export async function placeServiceOrder(
     .returning();
   const row = order ?? { ...created, channelId: channel.id };
 
-  const card = await buildOrderPayload(input.client, input.clan, row);
+  const ticketCard = await buildOrderPayload(input.client, input.clan, row, "ticket");
+  const boardCard = await buildOrderPayload(input.client, input.clan, row, "board");
   const staffPing = serviceTeamRoleIds(input.clan)
     .map((r) => `<@&${r}>`)
     .join(" ");
@@ -331,9 +346,9 @@ export async function placeServiceOrder(
       ]
         .filter(Boolean)
         .join("\n"),
-      embeds: card.embeds,
-      files: card.files,
-      components: card.components,
+      embeds: ticketCard.embeds,
+      files: ticketCard.files,
+      components: ticketCard.components,
       allowedMentions: {
         users: [input.customer.id],
         roles: serviceTeamRoleIds(input.clan),
@@ -354,9 +369,9 @@ export async function placeServiceOrder(
     if (board?.isTextBased()) {
       const boardMsg = await board.send({
         content: `🆕 **${row.publicId}** · ${catalog.label} · <@${input.customer.id}> · Queue #${row.queuePosition ?? "?"}`,
-        embeds: card.embeds,
-        files: card.files,
-        components: card.components,
+        embeds: boardCard.embeds,
+        files: boardCard.files,
+        components: boardCard.components,
       });
       await db
         .update(serviceOrdersTable)
@@ -414,6 +429,7 @@ export async function placeServiceOrder(
       .setTimestamp()
   );
 
+  scheduleOrderTrackerRefresh(input.clan.guildId);
   const fresh = (await getServiceOrder(input.clan.guildId, row.id)) ?? row;
   return { ok: true, order: fresh, channelId: channel.id };
 }
@@ -449,6 +465,8 @@ export async function applyServiceOrderAction(opts: {
 
   const beforePos = order.queuePosition;
   const beforeStatus = order.status;
+  const priorActive = await listActiveServiceOrders(opts.clan.guildId);
+  const priorPositions = new Map(priorActive.map((o) => [o.id, o.queuePosition]));
 
   if (opts.action === "up" || opts.action === "down") {
     const active = await listActiveServiceOrders(opts.clan.guildId);
@@ -531,7 +549,7 @@ export async function applyServiceOrderAction(opts: {
       : "🔔 Queue update";
     const body = statusChanged
       ? customerBodyForAction(updated, opts.action, opts.note)
-      : `You're now **#${updated.queuePosition ?? "—"}** in the queue (${ordersAhead(updated.queuePosition)} ahead).`;
+      : queueShiftBody(beforePos, updated.queuePosition);
     await notifyCustomer(opts.client, opts.clan, updated, {
       title,
       body,
@@ -540,6 +558,7 @@ export async function applyServiceOrderAction(opts: {
     });
   }
 
+  // Only ping others when their position actually moved (avoids repeating the same #).
   if (
     isTerminalStatus(updated.status) ||
     opts.action === "queue" ||
@@ -549,15 +568,19 @@ export async function applyServiceOrderAction(opts: {
     const after = await listActiveServiceOrders(opts.clan.guildId);
     for (const o of after) {
       if (o.id === order.id) continue;
+      const prev = priorPositions.get(o.id);
+      if (prev === o.queuePosition) continue;
       await notifyCustomer(opts.client, opts.clan, o, {
         title: "🔔 Queue update",
-        body: `You're now **#${o.queuePosition ?? "—"}** in the queue (${ordersAhead(o.queuePosition)} ahead).`,
+        body: queueShiftBody(prev ?? null, o.queuePosition),
         queueShift: true,
       });
+      await refreshOrderMessages(opts.client, opts.clan, o);
     }
   }
 
   await refreshOrderMessages(opts.client, opts.clan, updated);
+  scheduleOrderTrackerRefresh(opts.clan.guildId);
 
   await logAction(opts.clan.guildId, {
     action: `service_order_${opts.action}`,
@@ -649,6 +672,30 @@ export async function syncOrderAttachments(opts: {
 
 /* -------------------------------------------------------------- messaging */
 
+function queueShiftBody(
+  fromPos: number | null | undefined,
+  toPos: number | null | undefined
+): string {
+  const from = fromPos != null ? `#${fromPos}` : "—";
+  const to = toPos != null ? `#${toPos}` : "—";
+  if (from === to) {
+    return `You're **${to}** in the queue (${ordersAhead(toPos)} ahead).`;
+  }
+  return `Queue moved **${from} → ${to}** (${ordersAhead(toPos)} ahead).`;
+}
+
+async function resolveCustomerAvatar(
+  client: Client,
+  clan: Clan,
+  order: ServiceOrder
+): Promise<string | null> {
+  const member = await getMember(clan.guildId, order.customerId);
+  const discordUser = await client.users.fetch(order.customerId).catch(() => null);
+  const discordAvatar =
+    discordUser?.displayAvatarURL({ size: 128, extension: "png" }) ?? member?.avatarUrl ?? null;
+  return member?.robloxAvatarUrl || discordAvatar;
+}
+
 async function notifyCustomer(
   client: Client,
   clan: Clan,
@@ -659,13 +706,40 @@ async function notifyCustomer(
   if (!opts.force && !opts.queueShift && !clan.serviceOrderDmCustomer) return;
   if (!clan.serviceOrderDmCustomer && !opts.force) return;
 
-  const line = `${opts.title}\n${opts.body}${
-    order.channelId ? `\nTicket: <#${order.channelId}>` : ""
-  }`;
+  const avatar = await resolveCustomerAvatar(client, clan, order);
+  const embed = new EmbedBuilder()
+    .setColor(STATUS_COLOR[(order.status as ServiceOrderStatus)] ?? 0x3498db)
+    .setAuthor({
+      name: order.customerDisplayName || order.customerUsername,
+      iconURL: avatar ?? undefined,
+    })
+    .setTitle(opts.title.slice(0, 256))
+    .setDescription(opts.body.slice(0, 2000))
+    .addFields(
+      {
+        name: "Queue",
+        value:
+          order.queuePosition != null
+            ? `#${order.queuePosition}`
+            : "—",
+        inline: true,
+      },
+      {
+        name: "Order",
+        value: order.publicId,
+        inline: true,
+      }
+    )
+    .setFooter({ text: "Leveling service" })
+    .setTimestamp();
+
+  if (order.channelId) {
+    embed.addFields({ name: "Ticket", value: `<#${order.channelId}>`, inline: true });
+  }
 
   try {
     const user = await client.users.fetch(order.customerId);
-    await user.send({ content: line.slice(0, 1900) });
+    await user.send({ embeds: [embed] });
   } catch {
     /* DMs closed */
   }
@@ -674,7 +748,11 @@ async function notifyCustomer(
     try {
       const ch = await client.channels.fetch(order.channelId);
       if (ch?.isTextBased() && ch.isSendable()) {
-        await ch.send({ content: `<@${order.customerId}> ${line}`.slice(0, 1900) });
+        await ch.send({
+          content: `<@${order.customerId}>`,
+          embeds: [embed],
+          allowedMentions: { users: [order.customerId] },
+        });
       }
     } catch {
       /* ignore */
@@ -715,10 +793,61 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
   ];
 }
 
+function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  return [
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(svcRequestClose(orderId))
+        .setLabel("Request Close")
+        .setEmoji("📩")
+        .setStyle(ButtonStyle.Secondary)
+    ),
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(svcCustomerQuickReply(orderId))
+        .setPlaceholder("Quick reply to staff…")
+        .addOptions(
+          CUSTOMER_QUICK_REPLIES.map((r) => ({
+            label: r.label.slice(0, 100),
+            value: r.key,
+            description: r.message.slice(0, 100),
+          }))
+        )
+    ),
+  ];
+}
+
+function ticketStaffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  return [
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(svcCancel(orderId))
+        .setLabel("Close / Cancel")
+        .setEmoji("🚫")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(svcDelete(orderId))
+        .setLabel("Delete")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger)
+    ),
+  ];
+}
+
+function componentsForAudience(
+  orderId: number,
+  audience: "ticket" | "board"
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  if (audience === "board") return staffRows(orderId);
+  return [...ticketCustomerRows(orderId), ...ticketStaffRows(orderId)];
+}
+
+
 export async function buildOrderPayload(
   client: Client,
   clan: Clan,
-  order: ServiceOrder
+  order: ServiceOrder,
+  audience: "ticket" | "board" = "board"
 ): Promise<{
   embeds: EmbedBuilder[];
   files?: AttachmentBuilder[];
@@ -796,7 +925,7 @@ export async function buildOrderPayload(
   return {
     embeds: [embed],
     files,
-    components: isTerminalStatus(status) ? [] : staffRows(order.id),
+    components: isTerminalStatus(status) ? [] : componentsForAudience(order.id, audience),
   };
 }
 
@@ -805,16 +934,20 @@ export async function refreshOrderMessages(
   clan: Clan,
   order: ServiceOrder
 ): Promise<void> {
-  const payload = await buildOrderPayload(client, clan, order);
   const content = `${STATUS_EMOJI[order.status as ServiceOrderStatus] ?? ""} **${order.publicId}** · ${queueHeadline(order)}`;
 
-  const edit = async (channelId: string | null, messageId: string | null) => {
+  const edit = async (
+    channelId: string | null,
+    messageId: string | null,
+    audience: "ticket" | "board"
+  ) => {
     if (!channelId || !messageId) return;
     try {
       const ch = await client.channels.fetch(channelId);
       if (!ch?.isTextBased()) return;
       const msg = await ch.messages.fetch(messageId).catch(() => null);
       if (!msg) return;
+      const payload = await buildOrderPayload(client, clan, order, audience);
       const editPayload: MessageEditOptions = {
         content,
         embeds: payload.embeds,
@@ -827,8 +960,59 @@ export async function refreshOrderMessages(
     }
   };
 
-  await edit(order.channelId, order.ticketMessageId);
-  await edit(order.boardChannelId, order.boardMessageId);
+  await edit(order.channelId, order.ticketMessageId, "ticket");
+  await edit(order.boardChannelId, order.boardMessageId, "board");
+}
+
+/** Staff: cancel if still open, then delete the private ticket channel. */
+export async function deleteServiceOrderChannel(opts: {
+  client: Client;
+  guild: Guild;
+  clan: Clan;
+  orderId: number;
+  actorId: string;
+  actorUsername: string;
+}): Promise<{ ok: true; deleted: boolean } | { ok: false; error: string }> {
+  const order = await getServiceOrder(opts.clan.guildId, opts.orderId);
+  if (!order) return { ok: false, error: "Order not found." };
+  if (!order.channelId) return { ok: false, error: "This order has no ticket channel left." };
+
+  if (!isTerminalStatus(order.status)) {
+    const cancelled = await applyServiceOrderAction({
+      client: opts.client,
+      guild: opts.guild,
+      clan: opts.clan,
+      orderId: order.id,
+      action: "cancel",
+      actorId: opts.actorId,
+      actorUsername: opts.actorUsername,
+      note: "Channel deleted by staff",
+    });
+    if (!cancelled.ok) return cancelled;
+  }
+
+  let deleted = false;
+  try {
+    const ch = await opts.guild.channels.fetch(order.channelId).catch(() => null);
+    if (ch) {
+      await ch.delete(`Service order ${order.publicId} deleted by ${opts.actorUsername}`);
+      deleted = true;
+    }
+  } catch (err) {
+    logger.error({ err, channelId: order.channelId }, "Failed to delete service-order channel");
+    return {
+      ok: false,
+      error: "Discord refused to delete the channel. Check Manage Channels permission.",
+    };
+  }
+
+  await db
+    .update(serviceOrdersTable)
+    .set({ channelId: null, ticketMessageId: null })
+    .where(eq(serviceOrdersTable.id, order.id));
+
+  scheduleOrderTrackerRefresh(opts.clan.guildId);
+  return { ok: true, deleted };
 }
 
 export async function ensureServiceOrderCategory(

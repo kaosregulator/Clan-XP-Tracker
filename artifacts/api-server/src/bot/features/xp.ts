@@ -115,13 +115,13 @@ function destinationLabel(destination: string | null): string {
 export async function handleXpCommand(interaction: ChatInputCommandInteraction) {
   if (!interaction.inCachedGuild()) return;
   // Everyday actions are exposed both as `/xp <sub>` and as plain top-level
-  // commands (/xpremind, /calendar, /entry, /missing). For the aliases there is
+  // commands (/xpwarn, /calendar, /entry, /missing). For the aliases there is
   // no subcommand — the command name *is* the action. (Reminders/warnings for
-  // many members now live in the unified /xpreminder picker.)
+  // many members now live in the unified /xpwarner picker.)
   const isAlias = interaction.commandName !== "xp";
   const group = isAlias ? null : interaction.options.getSubcommandGroup(false);
   const sub = isAlias
-    ? interaction.commandName === "xpremind"
+    ? false /* /xpwarn retired — use /xpwarn */
       ? "remind"
       : interaction.commandName
     : interaction.options.getSubcommand();
@@ -266,8 +266,8 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
         });
         return;
       }
-      // /xpreminder adds a note + destination (channel / dm / both), mirroring
-      // /xpwarn. Plain /xpremind and /xp remind leave both unset.
+      // /xpwarner adds a note + destination (channel / dm / both), mirroring
+      // /xpwarn. Plain /xpwarn and /xp remind leave both unset.
       const note = interaction.options.getString("message")?.trim() || null;
       const destination = interaction.options.getString("destination");
       const { delivered } = await sendReminder({
@@ -291,7 +291,7 @@ export async function handleXpCommand(interaction: ChatInputCommandInteraction) 
     case "warn": {
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
-          content: "Only admins can issue warnings. Officers can send reminders with **/xpremind**.",
+          content: "Only admins can issue warnings. Officers can send reminders with **/xpwarn**.",
         });
         return;
       }
@@ -485,7 +485,7 @@ async function handleRoleAction(
       if (!isAdmin(interaction.member, clan)) {
         await interaction.editReply({
           content:
-            "Only admins can issue warnings. Officers can send reminders with **/xp role remind** or **/xpremind**.",
+            "Only admins can issue warnings. Officers can send reminders with **/xp role remind** or **/xpwarn**.",
         });
         return;
       }

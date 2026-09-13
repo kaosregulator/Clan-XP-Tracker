@@ -90,13 +90,13 @@ export async function routeInteraction(interaction: Interaction): Promise<void> 
         case "setup":
           return void (await openSetup(interaction));
         case "xp":
-        // Plain top-level aliases for the everyday actions — same handler.
-        case "xpremind":
+        // Everyday top-level aliases — same handler as /xp <sub>.
         case "entry":
         case "calendar":
         case "missing":
           return void (await handleXpCommand(interaction));
-        // Unified reminder/warning picker (consolidates the old /xpwarn).
+        // Official enforcement picker. /xpwarn is registered; /xpreminder is a
+        // silent alias for older clients that still have it cached.
         case "xpreminder":
         case "xpwarn":
           return void (await openEnforcementPicker(interaction));
