@@ -5,11 +5,14 @@ import {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  LabelBuilder,
+  FileUploadBuilder,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type StringSelectMenuInteraction,
   type ModalSubmitInteraction,
   type MessageActionRowComponentBuilder,
+  type Attachment,
 } from "discord.js";
 import type { Clan, ServiceOrder, ServiceOrderStatus } from "@workspace/db";
 import { getClan, isAdmin, isOfficer } from "../services/config";
@@ -39,6 +42,8 @@ import {
   staffQuickReplyByKey,
   customerQuickReplyByKey,
   CUSTOMER_QUICK_REPLY_COOLDOWN_MS,
+  formatServiceOrderDetails,
+  SERVICE_ORDER_TAGS,
 } from "../services/serviceOrderHelpers";
 import {
   postOrderTracker,
@@ -49,6 +54,7 @@ import {
   NS,
   parseId,
   SVC_PLACE,
+  SVC_PLACE_FORM,
   SVC_SERVICE_PICK,
   SVC_TRACKER_REFRESH,
   svcDetailsModal,
@@ -377,27 +383,82 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
     return;
   }
 
-  const options = Object.entries(SERVICE_CATALOG).map(([key, meta]) => ({
+  const serviceOptions = Object.entries(SERVICE_CATALOG).map(([key, meta]) => ({
     label: meta.label.slice(0, 100),
     description: meta.blurb.slice(0, 100),
     value: key,
     emoji: meta.emoji,
   }));
 
-  await interaction.reply({
-    content: "What do you need? Pick a service:",
-    components: [
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+  const modal = new ModalBuilder()
+    .setCustomId(SVC_PLACE_FORM)
+    .setTitle("Place Service Order");
+
+  modal.addLabelComponents(
+    new LabelBuilder()
+      .setLabel("1. Choose Service (required)")
+      .setStringSelectMenuComponent(
         new StringSelectMenuBuilder()
-          .setCustomId(SVC_SERVICE_PICK)
+          .setCustomId("service")
           .setPlaceholder("Choose a service…")
-          .addOptions(options)
+          .addOptions(serviceOptions)
       ),
-    ],
-    flags: 64,
-  });
+    new LabelBuilder()
+      .setLabel("2. What do you want leveled? (required)")
+      .setDescription("Example: M1 Abrams, F-22 Raptor, Helicopter…")
+      .setTextInputComponent(
+        new TextInputBuilder()
+          .setCustomId("vehicle")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMinLength(2)
+          .setMaxLength(200)
+          .setPlaceholder("Enter vehicle, item, or anything…")
+      ),
+    new LabelBuilder()
+      .setLabel("3. Levels (required)")
+      .setDescription("Current level → target level")
+      .setTextInputComponent(
+        new TextInputBuilder()
+          .setCustomId("levels")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMinLength(3)
+          .setMaxLength(40)
+          .setPlaceholder("e.g. 1 → 50")
+      ),
+    new LabelBuilder()
+      .setLabel("4. Tags (select all that apply)")
+      .setStringSelectMenuComponent(
+        new StringSelectMenuBuilder()
+          .setCustomId("tags")
+          .setPlaceholder("Vehicle · XP · Urgent · Grinding · Other")
+          .setMinValues(0)
+          .setMaxValues(Math.min(5, SERVICE_ORDER_TAGS.length))
+          .addOptions(
+            SERVICE_ORDER_TAGS.map((t) => ({
+              label: t.label,
+              value: t.value,
+              emoji: t.emoji,
+            }))
+          )
+      ),
+    new LabelBuilder()
+      .setLabel("5. Add Image (screenshot)")
+      .setDescription("Upload a screenshot of your vehicle, current level, or anything helpful.")
+      .setFileUploadComponent(
+        new FileUploadBuilder()
+          .setCustomId("image")
+          .setRequired(false)
+          .setMinValues(0)
+          .setMaxValues(5)
+      )
+  );
+
+  await interaction.showModal(modal);
 }
 
+/** Legacy path: service pick → free-text details modal (old panel messages). */
 async function openDetailsModal(interaction: StringSelectMenuInteraction) {
   if (!interaction.inCachedGuild()) return;
 
@@ -436,6 +497,108 @@ async function openDetailsModal(interaction: StringSelectMenuInteraction) {
     )
   );
   await interaction.showModal(modal);
+}
+
+function parseLevelsField(raw: string): { current: number; target: number } | null {
+  const m = raw.trim().match(/(\d+)\s*(?:→|->|to|-|–)\s*(\d+)/i);
+  if (!m) return null;
+  const current = Number(m[1]);
+  const target = Number(m[2]);
+  if (!Number.isFinite(current) || !Number.isFinite(target)) return null;
+  if (current < 0 || target < 0 || target < current) return null;
+  return { current, target };
+}
+
+async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+
+  const serviceValues = interaction.fields.getStringSelectValues("service");
+  const serviceKey = resolveServiceKey(serviceValues[0] ?? "other");
+  const catalog = SERVICE_CATALOG[serviceKey];
+  const vehicle = interaction.fields.getTextInputValue("vehicle").trim();
+  const levelsRaw = interaction.fields.getTextInputValue("levels").trim();
+  const levels = parseLevelsField(levelsRaw);
+  if (!vehicle) {
+    await interaction.editReply({ content: "Please enter what you want leveled." });
+    return;
+  }
+  if (!levels) {
+    await interaction.editReply({
+      content: "Levels must look like **1 → 50** (current → target).",
+    });
+    return;
+  }
+
+  let tags: string[] = [];
+  try {
+    tags = [...interaction.fields.getStringSelectValues("tags")];
+  } catch {
+    tags = [];
+  }
+
+  const details = formatServiceOrderDetails({
+    serviceLabel: catalog.label,
+    vehicleText: vehicle,
+    currentLevel: levels.current,
+    targetLevel: levels.target,
+    tags,
+  });
+
+  let attachments: { url: string; name: string; contentType: string | null; size: number }[] = [];
+  try {
+    const uploaded = interaction.fields.getUploadedFiles("image", false);
+    if (uploaded) {
+      const list: Attachment[] = Array.isArray(uploaded)
+        ? uploaded
+        : [...uploaded.values()];
+      attachments = list.map((a) => ({
+        url: a.url,
+        name: a.name || "upload.png",
+        contentType: a.contentType ?? null,
+        size: a.size ?? 0,
+      }));
+    }
+  } catch {
+    attachments = [];
+  }
+
+  const res = await placeServiceOrder({
+    client: interaction.client,
+    guild: interaction.guild,
+    clan,
+    customer: interaction.user,
+    customerDisplayName:
+      interaction.member?.displayName ?? interaction.user.displayName,
+    serviceKey,
+    details,
+    attachments,
+  });
+
+  if (!res.ok) {
+    if (res.error === SERVICE_ORDER_ACCESS_DENIED) {
+      await interaction.editReply({ content: res.error });
+      return;
+    }
+    await interaction.editReply({ content: `⚠️ ${res.error}` });
+    return;
+  }
+
+  const pos = res.order.queuePosition ?? 1;
+  const ahead = ordersAhead(pos);
+  await interaction.editReply({
+    content:
+      `✅ Order **${res.order.publicId}** placed.\n` +
+      `Queue position **#${pos}**` +
+      (ahead === 0 ? " — you're next." : ` (${ahead} ahead).`) +
+      `\nPrivate ticket: <#${res.channelId}> — your order card is ready there.`,
+  });
 }
 
 async function submitPlaceOrder(interaction: ModalSubmitInteraction) {
@@ -482,6 +645,7 @@ async function submitPlaceOrder(interaction: ModalSubmitInteraction) {
       `\nPrivate ticket: <#${res.channelId}> — drop screenshots there.`,
   });
 }
+
 
 /* ----------------------------------------------------------- staff buttons */
 
@@ -622,7 +786,7 @@ async function runQuickReply(interaction: StringSelectMenuInteraction, orderId: 
 
 const customerQuickReplyCooldown = new Map<string, number>();
 
-async function runRequestClose(interaction: ButtonInteraction, orderId: number) {
+async function runRequestDelete(interaction: ButtonInteraction, orderId: number) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
 
@@ -638,7 +802,7 @@ async function runRequestClose(interaction: ButtonInteraction, orderId: number) 
     return;
   }
   if (order.customerId !== interaction.user.id && !canManageServiceOrders(interaction.member, clan)) {
-    await interaction.editReply({ content: "Only the customer (or staff) can request a close." });
+    await interaction.editReply({ content: "Only the customer (or staff) can request a delete." });
     return;
   }
 
@@ -651,8 +815,8 @@ async function runRequestClose(interaction: ButtonInteraction, orderId: number) 
           : "Staff";
         await ch.send({
           content:
-            `${staffPing} 📩 <@${order.customerId}> requested to **close / cancel** order **${order.publicId}**.\n` +
-            `Staff: use **Close / Cancel** or **Delete** on the ticket controls.`,
+            `${staffPing} 🗑️ <@${order.customerId}> requested to **delete** order **${order.publicId}**.\n` +
+            `Staff: use **Delete** on the orders board to remove this ticket.`,
           allowedMentions: {
             users: [order.customerId],
             roles: clan.serviceOrderTeamRoleId ? [clan.serviceOrderTeamRoleId] : [],
@@ -660,14 +824,61 @@ async function runRequestClose(interaction: ButtonInteraction, orderId: number) 
         });
       }
     } catch (err) {
-      logger.warn({ err, orderId }, "request close ping failed");
+      logger.warn({ err, orderId }, "request delete ping failed");
     }
   }
 
   await interaction.editReply({
-    content: "✅ Close requested — staff have been pinged in this ticket.",
+    content: "✅ Delete requested — staff have been pinged. Your order card stays until staff deletes the channel.",
   });
 }
+
+/** Legacy alias for older ticket buttons. */
+async function runRequestClose(interaction: ButtonInteraction, orderId: number) {
+  await runRequestDelete(interaction, orderId);
+}
+
+async function runCustomerCancel(interaction: ButtonInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+
+  const order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+  if (order.customerId !== interaction.user.id) {
+    await interaction.editReply({ content: "Only the customer can cancel this order." });
+    return;
+  }
+
+  const res = await applyServiceOrderAction({
+    client: interaction.client,
+    guild: interaction.guild,
+    clan,
+    orderId,
+    action: "cancel",
+    actorId: interaction.user.id,
+    actorUsername: interaction.user.username,
+    note: "Cancelled by customer",
+  });
+
+  if (!res.ok) {
+    await interaction.editReply({ content: `⚠️ ${res.error}` });
+    return;
+  }
+
+  await interaction.editReply({
+    content: `🚫 Order **${res.order.publicId}** cancelled. Staff can still delete this channel from the orders board.`,
+  });
+}
+
 
 async function runCustomerQuickReply(interaction: StringSelectMenuInteraction, orderId: number) {
   if (!interaction.inCachedGuild()) return;
@@ -805,8 +1016,13 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
     return;
   }
 
-  if (action === "requestClose") {
-    await runRequestClose(interaction, orderId);
+  if (action === "requestClose" || action === "requestDelete") {
+    await runRequestDelete(interaction, orderId);
+    return;
+  }
+
+  if (action === "customerCancel") {
+    await runCustomerCancel(interaction, orderId);
     return;
   }
 
@@ -860,6 +1076,11 @@ export async function handleServiceOrderModal(interaction: ModalSubmitInteractio
   if (!interaction.inCachedGuild()) return;
   const { ns, action } = parseId(interaction.customId);
   if (ns !== NS.svc) return;
+
+  if (action === "placeForm" || interaction.customId === SVC_PLACE_FORM) {
+    await submitPlaceOrderForm(interaction);
+    return;
+  }
 
   if (action === "details") {
     await submitPlaceOrder(interaction);

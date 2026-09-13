@@ -66,6 +66,7 @@ import {
   renderMarketItemCard,
 } from "./cards/market/marketCards";
 import { renderServiceOrderCard } from "./cards/serviceOrderCard";
+import { renderPlaceOrderFormCard } from "./cards/placeOrderFormCard";
 import { renderOrderTrackerCard } from "./cards/orderTrackerCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
@@ -180,6 +181,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderMarketItemCard(p as any);
     case "serviceOrderCard":
       return renderServiceOrderCard(p as any);
+    case "placeOrderFormCard":
+      return renderPlaceOrderFormCard(p as any);
     case "orderTrackerCard":
       return renderOrderTrackerCard(p as any);
     default:

@@ -15,6 +15,9 @@ import {
   serviceOrderChannelTopic,
   customerQuickReplyByKey,
   CUSTOMER_QUICK_REPLIES,
+  formatServiceOrderDetails,
+  parseServiceOrderDetails,
+  queuePlaceMessage,
 } from "./serviceOrderHelpers.js";
 
 describe("serviceOrderHelpers", () => {
@@ -124,8 +127,10 @@ describe("serviceOrderHelpers", () => {
   });
 
   it("resolves staff quick replies", () => {
-    assert.equal(STAFF_QUICK_REPLIES.length, 10);
-    assert.match(staffQuickReplyByKey("qr0") ?? "", /patient/i);
+    assert.ok(STAFF_QUICK_REPLIES.length >= 6);
+    assert.match(staffQuickReplyByKey("greet") ?? "", /thanks for requesting/i);
+    assert.match(staffQuickReplyByKey("brb") ?? "", /be right with you/i);
+    assert.ok(staffQuickReplyByKey("greet")!.includes("Thanks for requesting"));
     assert.equal(staffQuickReplyByKey("nope"), null);
   });
 
@@ -159,5 +164,28 @@ describe("serviceOrderHelpers", () => {
     assert.ok(CUSTOMER_QUICK_REPLIES.length >= 3);
     assert.match(customerQuickReplyByKey("cq0") ?? "", /started/i);
     assert.equal(customerQuickReplyByKey("nope"), null);
+  });
+  it("formats and parses structured service order details", () => {
+    const raw = formatServiceOrderDetails({
+      serviceLabel: "Vehicle Leveling",
+      vehicleText: "M1 Abrams, F-22",
+      currentLevel: 1,
+      targetLevel: 50,
+      tags: ["Vehicle", "Urgent"],
+    });
+    assert.match(raw, /Vehicle Leveling/);
+    assert.match(raw, /M1 Abrams/);
+    assert.match(raw, /1 → 50/);
+    const parsed = parseServiceOrderDetails(raw);
+    assert.equal(parsed.vehicleCount, 2);
+    assert.equal(parsed.currentLevel, 1);
+    assert.equal(parsed.targetLevel, 50);
+    assert.deepEqual(parsed.tags, ["Vehicle", "Urgent"]);
+  });
+
+  it("builds a queue place message", () => {
+    assert.match(queuePlaceMessage(1, 2), /#1/);
+    assert.match(queuePlaceMessage(3, 1), /#3/);
+    assert.match(queuePlaceMessage(3, 1), /1 vehicle/);
   });
 });
