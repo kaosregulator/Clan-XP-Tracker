@@ -43,7 +43,7 @@ import {
   customerQuickReplyByKey,
   CUSTOMER_QUICK_REPLY_COOLDOWN_MS,
   formatServiceOrderDetails,
-  SERVICE_ORDER_TAGS,
+  parseTagsField,
 } from "../services/serviceOrderHelpers";
 import {
   postOrderTracker,
@@ -416,8 +416,8 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
           .setPlaceholder("Enter vehicle, item, or anything…")
       ),
     new LabelBuilder()
-      .setLabel("3. Levels (required)")
-      .setDescription("Current level → target level")
+      .setLabel("3. Current → Target level (required)")
+      .setDescription("Type any levels — not limited to 1–50. Example format only: 12 → 80")
       .setTextInputComponent(
         new TextInputBuilder()
           .setCustomId("levels")
@@ -425,23 +425,18 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
           .setRequired(true)
           .setMinLength(3)
           .setMaxLength(40)
-          .setPlaceholder("e.g. 1 → 50")
+          .setPlaceholder("e.g. 12 → 80")
       ),
     new LabelBuilder()
-      .setLabel("4. Tags (select all that apply)")
-      .setStringSelectMenuComponent(
-        new StringSelectMenuBuilder()
+      .setLabel("4. Tags (optional)")
+      .setDescription("Any labels you want — comma separated. Example: Vehicle, XP, Urgent")
+      .setTextInputComponent(
+        new TextInputBuilder()
           .setCustomId("tags")
-          .setPlaceholder("Vehicle · XP · Urgent · Grinding · Other")
-          .setMinValues(0)
-          .setMaxValues(Math.min(5, SERVICE_ORDER_TAGS.length))
-          .addOptions(
-            SERVICE_ORDER_TAGS.map((t) => ({
-              label: t.label,
-              value: t.value,
-              emoji: t.emoji,
-            }))
-          )
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(120)
+          .setPlaceholder("e.g. Vehicle, XP, Urgent — or leave blank")
       ),
     new LabelBuilder()
       .setLabel("5. Add Image (screenshot)")
@@ -531,14 +526,14 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
   }
   if (!levels) {
     await interaction.editReply({
-      content: "Levels must look like **1 → 50** (current → target).",
+      content: "Levels must look like **12 → 80** (current → target). Any numbers work.",
     });
     return;
   }
 
   let tags: string[] = [];
   try {
-    tags = [...interaction.fields.getStringSelectValues("tags")];
+    tags = parseTagsField(interaction.fields.getTextInputValue("tags"));
   } catch {
     tags = [];
   }

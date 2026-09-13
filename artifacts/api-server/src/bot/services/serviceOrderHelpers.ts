@@ -286,7 +286,19 @@ export const CUSTOMER_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string;
   },
 ];
 
-/** Place-order form tags (mock step 5). */
+/** Example tag words for placeholders only — customers type their own tags. */
+export const SERVICE_ORDER_TAG_EXAMPLES = ["Vehicle", "XP", "Urgent", "Grinding", "Other"] as const;
+
+/** Split free-text tags (comma / pipe / slash separated). */
+export function parseTagsField(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .split(/[,|/]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+/** @deprecated Use free-text tags via parseTagsField — kept for older panels. */
 export const SERVICE_ORDER_TAGS: ReadonlyArray<{ value: string; label: string; emoji: string }> = [
   { value: "Vehicle", label: "Vehicle", emoji: "🚗" },
   { value: "XP", label: "XP", emoji: "📊" },

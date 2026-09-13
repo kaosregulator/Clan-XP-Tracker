@@ -18,6 +18,7 @@ import {
   formatServiceOrderDetails,
   parseServiceOrderDetails,
   queuePlaceMessage,
+  parseTagsField,
 } from "./serviceOrderHelpers.js";
 
 describe("serviceOrderHelpers", () => {
@@ -187,5 +188,14 @@ describe("serviceOrderHelpers", () => {
     assert.match(queuePlaceMessage(1, 2), /#1/);
     assert.match(queuePlaceMessage(3, 1), /#3/);
     assert.match(queuePlaceMessage(3, 1), /1 vehicle/);
+  });
+
+  it("parses free-text tags without a fixed list", () => {
+    assert.deepEqual(parseTagsField("Vehicle, XP, custom-tag"), [
+      "Vehicle",
+      "XP",
+      "custom-tag",
+    ]);
+    assert.deepEqual(parseTagsField("  "), []);
   });
 });

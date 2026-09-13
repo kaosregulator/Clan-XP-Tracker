@@ -728,9 +728,13 @@ async function notifyCustomer(
   order: ServiceOrder,
   opts: { title: string; body: string; force?: boolean; queueShift?: boolean }
 ): Promise<void> {
-  if (opts.queueShift && !clan.serviceOrderDmQueue) return;
-  if (!opts.force && !opts.queueShift && !clan.serviceOrderDmCustomer) return;
-  if (!clan.serviceOrderDmCustomer && !opts.force) return;
+  // Queue-shift pings are independent of the general customer-DM toggle.
+  // They still @mention in the ticket so the member gets a true Discord ping.
+  if (opts.queueShift) {
+    if (!clan.serviceOrderDmQueue) return;
+  } else if (!opts.force && !clan.serviceOrderDmCustomer) {
+    return;
+  }
 
   const avatar = await resolveCustomerAvatar(client, clan, order);
   const embed = new EmbedBuilder()
@@ -939,19 +943,25 @@ let files: AttachmentBuilder[] | undefined;
         inline: false,
       },
       {
-        name: "Vehicles",
-        value:
-          parsed.vehicleCount > 0
-            ? `${parsed.vehicleCount} — ${parsed.vehicleText.slice(0, 80)}`
-            : "_none listed_",
+        name: "Vehicle name",
+        value: parsed.vehicleText
+          ? parsed.vehicleText.slice(0, 200)
+          : "_none listed_",
+        inline: false,
+      },
+      {
+        name: "Current level",
+        value: parsed.currentLevel != null ? String(parsed.currentLevel) : "—",
         inline: true,
       },
       {
-        name: "Levels",
-        value:
-          parsed.currentLevel != null && parsed.targetLevel != null
-            ? `${parsed.currentLevel} → ${parsed.targetLevel}`
-            : "—",
+        name: "Target level",
+        value: parsed.targetLevel != null ? String(parsed.targetLevel) : "—",
+        inline: true,
+      },
+      {
+        name: "Tags",
+        value: parsed.tags.length ? parsed.tags.join(", ") : "_none_",
         inline: true,
       },
       {

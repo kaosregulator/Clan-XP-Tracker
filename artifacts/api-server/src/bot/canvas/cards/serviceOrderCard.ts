@@ -1,7 +1,6 @@
 /**
- * Service-order card — Amazon-style tracking snapshot for the leveling queue.
- * Prefer linked Roblox avatar; fall back to Discord.
- * Shows queue place, vehicles, level range, and order details.
+ * Service-order card — live tracking snapshot for ticket + orders board.
+ * Clear labeled fields: vehicle name, current level, target level, tags, queue.
  */
 import {
   createSurface,
@@ -50,7 +49,7 @@ const TONE: Record<ServiceOrderCardView["statusTone"], { bg: string; fg: string 
 
 export async function renderServiceOrderCard(view: ServiceOrderCardView): Promise<Buffer> {
   const W = 980;
-  const H = 620;
+  const H = 700;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
@@ -108,33 +107,25 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     });
   }
 
-  const levelRange =
-    view.currentLevel != null && view.targetLevel != null
-      ? `${view.currentLevel} → ${view.targetLevel}`
-      : "—";
-  const vehicles =
-    view.vehicleCount != null && view.vehicleCount > 0
-      ? String(view.vehicleCount)
-      : view.vehicleText
-        ? "1+"
-        : "—";
-
+  const tileY = view.placeMessage ? 240 : 190;
   const tiles: [string, string][] = [
     ["Queue", view.queuePosition != null ? `#${view.queuePosition}` : "—"],
-    ["Vehicles", vehicles],
-    ["Levels", levelRange],
+    [
+      "Ahead",
+      view.ordersAhead != null ? String(view.ordersAhead) : "—",
+    ],
     ["Files", String(view.attachmentCount)],
+    ["Staff", view.staffName ?? "Unclaimed"],
   ];
   let tx = 56;
-  const tileY = view.placeMessage ? 240 : 190;
   for (const [label, value] of tiles) {
-    card(ctx, tx, tileY, 200, 88, { radius: 14, fill: PALETTE.bg1 });
-    text(ctx, label.toUpperCase(), tx + 18, tileY + 20, {
+    card(ctx, tx, tileY, 200, 78, { radius: 14, fill: PALETTE.bg1 });
+    text(ctx, label.toUpperCase(), tx + 18, tileY + 16, {
       size: 12,
       weight: "bold",
       color: PALETTE.muted,
     });
-    text(ctx, value, tx + 18, tileY + 52, {
+    text(ctx, value, tx + 18, tileY + 44, {
       size: 22,
       weight: "bold",
       color: PALETTE.text,
@@ -143,20 +134,79 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     tx += 214;
   }
 
-  let infoY = tileY + 110;
+  // Clear labeled order facts — vehicle name, current/target level, tags
+  let infoY = tileY + 100;
+  const vehicleName =
+    (view.vehicleText && view.vehicleText.trim()) ||
+    (view.vehicleCount != null && view.vehicleCount > 0
+      ? `${view.vehicleCount} vehicle(s)`
+      : "—");
+
+  card(ctx, 56, infoY, W - 112, 150, { radius: 14, fill: PALETTE.bg1 });
+
+  text(ctx, "VEHICLE NAME", 74, infoY + 16, {
+    size: 12,
+    weight: "bold",
+    color: PALETTE.muted,
+  });
+  text(ctx, vehicleName, 74, infoY + 40, {
+    size: 20,
+    weight: "bold",
+    color: PALETTE.text,
+    maxWidth: W - 160,
+  });
+
+  text(ctx, "CURRENT LEVEL", 74, infoY + 78, {
+    size: 12,
+    weight: "bold",
+    color: PALETTE.muted,
+  });
+  text(
+    ctx,
+    view.currentLevel != null ? String(view.currentLevel) : "—",
+    74,
+    infoY + 102,
+    { size: 22, weight: "bold", color: PALETTE.text }
+  );
+
+  text(ctx, "TARGET LEVEL", 320, infoY + 78, {
+    size: 12,
+    weight: "bold",
+    color: PALETTE.muted,
+  });
+  text(
+    ctx,
+    view.targetLevel != null ? String(view.targetLevel) : "—",
+    320,
+    infoY + 102,
+    { size: 22, weight: "bold", color: PALETTE.text }
+  );
+
+  text(ctx, "TAGS", 560, infoY + 78, {
+    size: 12,
+    weight: "bold",
+    color: PALETTE.muted,
+  });
   if (view.tags && view.tags.length > 0) {
-    let tagX = 56;
-    for (const tag of view.tags.slice(0, 6)) {
+    let tagX = 560;
+    for (const tag of view.tags.slice(0, 4)) {
       tagX +=
-        pill(ctx, tag, tagX, infoY, {
-          bg: "rgba(52,152,219,0.12)",
+        pill(ctx, tag, tagX, infoY + 100, {
+          bg: "rgba(52,152,219,0.14)",
           color: "#1a6fa5",
           size: 13,
           height: 28,
         }) + 8;
     }
-    infoY += 40;
+  } else {
+    text(ctx, "—", 560, infoY + 102, {
+      size: 20,
+      weight: "bold",
+      color: PALETTE.text,
+    });
   }
+
+  infoY += 170;
 
   text(ctx, "IMPORTANT INFORMATION", 56, infoY, {
     size: 12,
@@ -164,7 +214,9 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     color: PALETTE.muted,
   });
   ctx.font = "17px sans-serif";
-  const lines = wrapText(ctx, view.details || "—", W - 140, 5);
+  // Prefer notes-only body when structured fields already shown above
+  const detailBody = stripStructuredDetailLines(view.details);
+  const lines = wrapText(ctx, detailBody || "—", W - 140, 4);
   let ly = infoY + 28;
   for (const line of lines) {
     text(ctx, line, 56, ly, { size: 17, color: PALETTE.soft, maxWidth: W - 140 });
@@ -177,10 +229,25 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     color: PALETTE.muted,
     maxWidth: W - 280,
   });
-  text(ctx, "Service tracking", W - 220, H - 64, {
+  text(ctx, "Live service tracking", W - 250, H - 64, {
     size: 14,
     color: PALETTE.muted,
   });
 
   return toPng(rc.canvas);
+}
+
+function stripStructuredDetailLines(details: string): string {
+  return details
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(
+      (l) =>
+        l.length > 0 &&
+        !/^Service:/i.test(l) &&
+        !/^Vehicle(?:\(s\)|s)?:/i.test(l) &&
+        !/^Levels?:/i.test(l) &&
+        !/^Tags?:/i.test(l)
+    )
+    .join("\n");
 }

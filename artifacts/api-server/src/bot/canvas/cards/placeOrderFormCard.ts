@@ -1,6 +1,5 @@
 /**
- * Place Service Order form preview — matches the mock flow the members see
- * when they open the leveling panel (service, vehicle, levels, tags, image).
+ * Place Service Order form preview — matches the live modal (free-text levels & tags).
  */
 import {
   createSurface,
@@ -27,13 +26,12 @@ export async function renderPlaceOrderFormCard(
 
   card(ctx, 24, 24, W - 48, H - 48, { radius: 20 });
 
-  // Header
   text(ctx, "🛠️  Place Service Order", 52, 56, {
     size: 28,
     weight: "bold",
     color: PALETTE.text,
   });
-  text(ctx, "Tell us what you need and we'll take care of the rest.", 52, 92, {
+  text(ctx, "Tell us what you need — any vehicle, any levels, any tags.", 52, 92, {
     size: 15,
     color: PALETTE.soft,
   });
@@ -65,65 +63,25 @@ export async function renderPlaceOrderFormCard(
     "Enter vehicle, item, or anything…",
     "Example: M1 Abrams, F-22 Raptor, Helicopter, etc."
   );
-
-  text(ctx, "3. Current Level (required)", 52, 330, {
-    size: 13,
-    weight: "bold",
-    color: PALETTE.muted,
-  });
-  text(ctx, "4. Target Level (required)", 52, 480, {
-    size: 13,
-    weight: "bold",
-    color: PALETTE.muted,
-  });
-  card(ctx, 52, 348, 390, 48, { radius: 12, fill: PALETTE.bg1 });
-  text(ctx, "📊  Level 1", 72, 364, { size: 16, color: PALETTE.text });
-  card(ctx, 478, 348, 390, 48, { radius: 12, fill: PALETTE.bg1 });
-  text(ctx, "🎯  Level 50", 498, 364, { size: 16, color: PALETTE.text });
-
-  text(ctx, "5. Add Tags (select all that apply)", 52, 430, {
-    size: 13,
-    weight: "bold",
-    color: PALETTE.muted,
-  });
-  let tx = 52;
-  const tags: [string, boolean][] = [
-    ["🛠️ Vehicle", true],
-    ["📊 XP", false],
-    ["❗ Urgent", false],
-    ["⛏️ Grinding", false],
-    ["⋯ Other", false],
-  ];
-  for (const [label, on] of tags) {
-    const w = pill(ctx, label, tx, 456, {
-      bg: on ? "rgba(63,81,224,0.18)" : "rgba(20,22,31,0.06)",
-      color: on ? PALETTE.blurple : PALETTE.soft,
-      size: 14,
-      height: 34,
-    });
-    tx += w + 12;
-  }
-
-  text(ctx, "6. Add Image (screenshot)", 52, 520, {
-    size: 13,
-    weight: "bold",
-    color: PALETTE.muted,
-  });
-  card(ctx, 52, 542, W - 104, 90, { radius: 14, fill: PALETTE.bg1 });
-  text(ctx, "📷  Click to attach an image", 72, 572, {
-    size: 16,
-    weight: "bold",
-    color: PALETTE.text,
-  });
-  text(
-    ctx,
-    "Upload a screenshot of your vehicle, current level, or anything helpful.",
-    72,
-    600,
-    { size: 13, color: PALETTE.muted, maxWidth: W - 160 }
+  field(
+    "3. Current → Target level (required)",
+    330,
+    "e.g. 12 → 80",
+    "Any levels work — 1–50 was only an example."
+  );
+  field(
+    "4. Tags (optional)",
+    440,
+    "e.g. Vehicle, XP, Urgent — or your own words",
+    "Type any tags. Nothing is locked to a fixed list."
+  );
+  field(
+    "5. Add Image (screenshot)",
+    550,
+    "📷  Click to attach an image",
+    "Upload a screenshot of your vehicle, current level, or anything helpful."
   );
 
-  // Fake action row
   card(ctx, 52, 650, 140, 40, { radius: 10, fill: PALETTE.cardAlt });
   text(ctx, "Cancel", 95, 662, { size: 15, color: PALETTE.soft, align: "center" });
   card(ctx, W - 320, 650, 244, 40, { radius: 10, fill: "rgba(46,204,113,0.2)" });
