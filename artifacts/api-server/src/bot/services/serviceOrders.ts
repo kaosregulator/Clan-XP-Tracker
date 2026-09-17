@@ -55,6 +55,8 @@ import {
   STAFF_QUICK_REPLIES,
   CUSTOMER_QUICK_REPLIES,
   serviceOrderChannelTopic,
+  parseServiceOrderDetails,
+  queuePlaceMessage,
 } from "./serviceOrderHelpers";
 import {
   svcClaim,
@@ -68,6 +70,8 @@ import {
   svcDown,
   svcSyncFiles,
   svcQuickReply,
+  svcCustomerCancel,
+  svcRequestDelete,
   svcRequestClose,
   svcCustomerQuickReply,
   svcDelete,
@@ -219,6 +223,8 @@ export interface PlaceServiceOrderInput {
   customerDisplayName: string;
   serviceKey: ServiceKey;
   details: string;
+  /** Screenshots from the place-order modal file upload. */
+  attachments?: ServiceOrderAttachment[];
 }
 
 export async function placeServiceOrder(
@@ -268,6 +274,10 @@ export async function placeServiceOrder(
       serviceKey: input.serviceKey,
       serviceLabel: catalog.label,
       details,
+      attachmentsJson: input.attachments?.length
+        ? serializeAttachments(input.attachments)
+        : null,
+      attachmentCount: input.attachments?.length ?? 0,
       status: "queued",
       queuePosition,
       customerId: input.customer.id,
@@ -363,7 +373,23 @@ export async function placeServiceOrder(
   }
 
   try {
-    const board = await input.guild.channels
+    
+  // Re-post modal uploads into the ticket so staff can see them immediately.
+  if (input.attachments?.length) {
+    try {
+      await channel.send({
+        content: `📎 **${input.attachments.length}** file(s) attached with this order:`,
+        files: input.attachments.slice(0, 10).map((a) => ({
+          attachment: a.url,
+          name: a.name || "upload.png",
+        })),
+      });
+    } catch (err) {
+      logger.warn({ err, channelId: channel.id }, "Service order attachment repost failed");
+    }
+  }
+
+  const board = await input.guild.channels
       .fetch(input.clan.serviceOrderChannelId!)
       .catch(() => null);
     if (board?.isTextBased()) {
@@ -702,9 +728,13 @@ async function notifyCustomer(
   order: ServiceOrder,
   opts: { title: string; body: string; force?: boolean; queueShift?: boolean }
 ): Promise<void> {
-  if (opts.queueShift && !clan.serviceOrderDmQueue) return;
-  if (!opts.force && !opts.queueShift && !clan.serviceOrderDmCustomer) return;
-  if (!clan.serviceOrderDmCustomer && !opts.force) return;
+  // Queue-shift pings are independent of the general customer-DM toggle.
+  // They still @mention in the ticket so the member gets a true Discord ping.
+  if (opts.queueShift) {
+    if (!clan.serviceOrderDmQueue) return;
+  } else if (!opts.force && !clan.serviceOrderDmCustomer) {
+    return;
+  }
 
   const avatar = await resolveCustomerAvatar(client, clan, order);
   const embed = new EmbedBuilder()
@@ -776,12 +806,13 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder().setCustomId(svcReject(orderId)).setLabel("Reject").setEmoji("❌").setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(svcCancel(orderId)).setLabel("Cancel").setEmoji("🚫").setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId(svcCancel(orderId)).setLabel("Cancel").setEmoji("🚫").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(svcDelete(orderId)).setLabel("Delete").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(svcQuickReply(orderId))
-        .setPlaceholder("Staff quick reply…")
+        .setPlaceholder("Staff quick reply (labeled — don't type)…")
         .addOptions(
           STAFF_QUICK_REPLIES.map((r) => ({
             label: r.label.slice(0, 100),
@@ -796,16 +827,9 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
 function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(svcRequestClose(orderId))
-        .setLabel("Request Close")
-        .setEmoji("📩")
-        .setStyle(ButtonStyle.Secondary)
-    ),
-    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(svcCustomerQuickReply(orderId))
-        .setPlaceholder("Quick reply to staff…")
+        .setPlaceholder("Quick message to staff…")
         .addOptions(
           CUSTOMER_QUICK_REPLIES.map((r) => ({
             label: r.label.slice(0, 100),
@@ -814,32 +838,29 @@ function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowC
           }))
         )
     ),
-  ];
-}
-
-function ticketStaffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-  return [
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(svcCancel(orderId))
-        .setLabel("Close / Cancel")
+        .setCustomId(svcCustomerCancel(orderId))
+        .setLabel("Cancel Order")
         .setEmoji("🚫")
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
-        .setCustomId(svcDelete(orderId))
-        .setLabel("Delete")
+        .setCustomId(svcRequestDelete(orderId))
+        .setLabel("Request to Delete")
         .setEmoji("🗑️")
-        .setStyle(ButtonStyle.Danger)
+        .setStyle(ButtonStyle.Secondary)
     ),
   ];
 }
+
 
 function componentsForAudience(
   orderId: number,
   audience: "ticket" | "board"
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
   if (audience === "board") return staffRows(orderId);
-  return [...ticketCustomerRows(orderId), ...ticketStaffRows(orderId)];
+  // Ticket canvas: customer-only controls (never staff board buttons).
+  return ticketCustomerRows(orderId);
 }
 
 
@@ -860,7 +881,10 @@ export async function buildOrderPayload(
   const avatarUrl = member?.robloxAvatarUrl || discordAvatar;
 
   const status = order.status as ServiceOrderStatus;
-  let files: AttachmentBuilder[] | undefined;
+  
+  const parsed = parseServiceOrderDetails(order.details);
+  const placeMessage = queuePlaceMessage(order.queuePosition, parsed.vehicleCount);
+let files: AttachmentBuilder[] | undefined;
   try {
     const png = await renderOffThread("serviceOrderCard", {
       communityName: clan.clanName,
@@ -876,6 +900,12 @@ export async function buildOrderPayload(
       ordersAhead: isTerminalStatus(status) ? null : ordersAhead(order.queuePosition),
       attachmentCount: order.attachmentCount,
       staffName: order.staffUsername,
+      placeMessage,
+      vehicleCount: parsed.vehicleCount,
+      vehicleText: parsed.vehicleText || null,
+      currentLevel: parsed.currentLevel,
+      targetLevel: parsed.targetLevel,
+      tags: parsed.tags,
       orderedAt: order.createdAt.toLocaleString("en-US", {
         month: "short",
         day: "numeric",
@@ -907,7 +937,37 @@ export async function buildOrderPayload(
         value: order.staffId ? `<@${order.staffId}>` : "_unclaimed_",
         inline: true,
       },
-      { name: "Important information", value: order.details.slice(0, 1024) },
+      {
+        name: "Your place",
+        value: placeMessage,
+        inline: false,
+      },
+      {
+        name: "Vehicle name",
+        value: parsed.vehicleText
+          ? parsed.vehicleText.slice(0, 200)
+          : "_none listed_",
+        inline: false,
+      },
+      {
+        name: "Current level",
+        value: parsed.currentLevel != null ? String(parsed.currentLevel) : "—",
+        inline: true,
+      },
+      {
+        name: "Target level",
+        value: parsed.targetLevel != null ? String(parsed.targetLevel) : "—",
+        inline: true,
+      },
+      {
+        name: "Tags",
+        value: parsed.tags.length ? parsed.tags.join(", ") : "_none_",
+        inline: true,
+      },
+      {
+        name: "Important information",
+        value: order.details.slice(0, 1024),
+      },
       {
         name: "Attachments",
         value: order.attachmentCount
@@ -1058,9 +1118,9 @@ export function serviceOrderPanelPayload(): MessageCreateOptions {
         .setDescription(
           "Need a **Military Tycoon** vehicle leveled or traded?\n\n" +
             "1. Press **Place Service Order**\n" +
-            "2. Tell us what you need + important details\n" +
-            "3. Get an order ID + queue position\n" +
-            "4. Drop screenshots in your private ticket channel\n\n" +
+            "2. Pick service, vehicle, levels, tags, and attach a screenshot\n" +
+            "3. Get a private ticket with your queue card\n" +
+            "4. Use **Cancel Order** / **Request to Delete** / quick messages in your ticket\n\n" +
             `${SERVICE_ORDER_PATIENCE_NOTICE}\n\n` +
             "_No external websites — everything stays in Discord._"
         ),

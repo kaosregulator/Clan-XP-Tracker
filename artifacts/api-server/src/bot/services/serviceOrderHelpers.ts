@@ -210,65 +210,59 @@ export function canPlaceServiceOrderAccess(opts: {
   return false;
 }
 
-/** Staff canned replies on order cards (value = key). */
+/**
+ * Staff canned replies on the **orders board** only.
+ * Labels are explicit so staff can tap without typing during first contact.
+ */
 export const STAFF_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string; message: string }> = [
   {
-    key: "qr0",
-    label: "Almost ready — please be patient",
+    key: "greet",
+    label: "Greeting: Thanks for requesting",
     message:
-      "🛠️ Almost ready — please be patient a little longer! We're wrapping your order up now.",
+      "👋 Thanks for requesting a ticket — we've got your order. A staff member will claim it shortly. Please stay patient in queue.",
   },
   {
-    key: "qr1",
-    label: "Working on it — hang tight",
+    key: "brb",
+    label: "Greeting: Be right with you",
+    message: "⏱️ Be right with you — reviewing your order details now.",
+  },
+  {
+    key: "claimed",
+    label: "Greeting: Claimed & starting",
+    message:
+      "🛠️ Your order has been claimed. We're starting work — hang tight and we'll update you here.",
+  },
+  {
+    key: "needinfo",
+    label: "Ask: Need more info",
+    message:
+      "📝 We need a bit more info to continue — please reply with vehicle name(s), current level, and target level if anything is missing.",
+  },
+  {
+    key: "queue",
+    label: "Update: Still in queue",
+    message:
+      "📋 You're still in queue. We'll ping you as soon as a staff member is free. Thanks for your patience!",
+  },
+  {
+    key: "almost",
+    label: "Update: Almost done",
+    message: "✨ Almost done — wrapping up your order now. Thanks for waiting!",
+  },
+  {
+    key: "working",
+    label: "Update: Working on it",
     message: "🔧 We're working on it! Hang tight — no need to ping, we'll update you here.",
   },
   {
-    key: "qr2",
-    label: "Queue is moving — thanks",
-    message: "📈 The queue is moving — thanks for your patience. You're still on our radar.",
-  },
-  {
-    key: "qr3",
-    label: "In good hands — sit tight",
-    message: "🙌 Your order is in good hands. Sit tight and we'll ping you when there's news.",
-  },
-  {
-    key: "qr4",
-    label: "Nearly there",
-    message: "🏁 Nearly there! Just finishing a few details — please be patient.",
-  },
-  {
-    key: "qr5",
-    label: "Staff on it — don't spam ping",
+    key: "patience",
+    label: "Update: Please be patient",
     message:
       "👀 Staff are on it — please don't ping repeatedly. We'll post here as soon as there's an update.",
   },
-  {
-    key: "qr6",
-    label: "Progress happening — patience is XP",
-    message: "✨ Progress is happening. Patience is XP — thanks for waiting with us.",
-  },
-  {
-    key: "qr7",
-    label: "Still cooking — wait for update",
-    message: "🍳 Still cooking… please wait for the next update in this ticket.",
-  },
-  {
-    key: "qr8",
-    label: "We see you — stay patient",
-    message:
-      "🫡 We see you! Service is underway — please stay patient and keep an eye on this channel.",
-  },
-  {
-    key: "qr9",
-    label: "Almost at the finish line",
-    message:
-      "🚗 Almost parked at the finish line — please be patient just a bit longer. Appreciate you!",
-  },
 ];
 
-/** Customer canned updates on their ticket (cooldown enforced in feature handler). */
+/** Customer quick messages on the ticket canvas (cooldown enforced in feature handler). */
 export const CUSTOMER_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string; message: string }> = [
   {
     key: "cq0",
@@ -292,6 +286,27 @@ export const CUSTOMER_QUICK_REPLIES: ReadonlyArray<{ key: string; label: string;
   },
 ];
 
+/** Example tag words for placeholders only — customers type their own tags. */
+export const SERVICE_ORDER_TAG_EXAMPLES = ["Vehicle", "XP", "Urgent", "Grinding", "Other"] as const;
+
+/** Split free-text tags (comma / pipe / slash separated). */
+export function parseTagsField(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .split(/[,|/]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+/** @deprecated Use free-text tags via parseTagsField — kept for older panels. */
+export const SERVICE_ORDER_TAGS: ReadonlyArray<{ value: string; label: string; emoji: string }> = [
+  { value: "Vehicle", label: "Vehicle", emoji: "🚗" },
+  { value: "XP", label: "XP", emoji: "📊" },
+  { value: "Urgent", label: "Urgent", emoji: "❗" },
+  { value: "Grinding", label: "Grinding", emoji: "⛏️" },
+  { value: "Other", label: "Other", emoji: "⋯" },
+];
+
 export function customerQuickReplyByKey(key: string): string | null {
   return CUSTOMER_QUICK_REPLIES.find((r) => r.key === key)?.message ?? null;
 }
@@ -301,6 +316,107 @@ export const CUSTOMER_QUICK_REPLY_COOLDOWN_MS = 3 * 60 * 1000;
 
 export function staffQuickReplyByKey(key: string): string | null {
   return STAFF_QUICK_REPLIES.find((r) => r.key === key)?.message ?? null;
+}
+
+export type ParsedServiceOrderDetails = {
+  serviceLabel: string;
+  vehicleText: string;
+  vehicleCount: number;
+  currentLevel: number | null;
+  targetLevel: number | null;
+  tags: string[];
+  notes: string;
+  raw: string;
+};
+
+const DETAIL_SERVICE = /^Service:\s*(.+)$/im;
+const DETAIL_VEHICLE = /^Vehicle(?:\(s\)|s)?:\s*(.+)$/im;
+const DETAIL_LEVELS = /^Levels?:\s*(\d+)\s*(?:→|->|to)\s*(\d+)/im;
+const DETAIL_TAGS = /^Tags?:\s*(.+)$/im;
+
+export function parseServiceOrderDetails(details: string | null | undefined): ParsedServiceOrderDetails {
+  const raw = String(details ?? "").trim();
+  const serviceMatch = raw.match(DETAIL_SERVICE);
+  const vehicleMatch = raw.match(DETAIL_VEHICLE);
+  const levelsMatch = raw.match(DETAIL_LEVELS);
+  const tagsMatch = raw.match(DETAIL_TAGS);
+
+  const vehicleText = (vehicleMatch?.[1] ?? "").trim();
+  const vehicleParts = vehicleText
+    ? vehicleText.split(/[,|/]+/).map((p) => p.trim()).filter(Boolean)
+    : [];
+  const vehicleCount = vehicleParts.length > 0 ? vehicleParts.length : vehicleText ? 1 : 0;
+
+  const tags = tagsMatch?.[1]
+    ? tagsMatch[1]
+        .split(/[,|]+/)
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
+
+  const notes = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        !DETAIL_SERVICE.test(line) &&
+        !DETAIL_VEHICLE.test(line) &&
+        !DETAIL_LEVELS.test(line) &&
+        !DETAIL_TAGS.test(line)
+    )
+    .join("\n");
+
+  return {
+    serviceLabel: (serviceMatch?.[1] ?? "").trim() || "Service order",
+    vehicleText,
+    vehicleCount,
+    currentLevel: levelsMatch ? Number(levelsMatch[1]) : null,
+    targetLevel: levelsMatch ? Number(levelsMatch[2]) : null,
+    tags,
+    notes,
+    raw,
+  };
+}
+
+export function formatServiceOrderDetails(input: {
+  serviceLabel: string;
+  vehicleText: string;
+  currentLevel: number;
+  targetLevel: number;
+  tags: string[];
+  notes?: string;
+}): string {
+  const lines = [
+    `Service: ${input.serviceLabel}`,
+    `Vehicle(s): ${input.vehicleText}`,
+    `Levels: ${input.currentLevel} → ${input.targetLevel}`,
+  ];
+  if (input.tags.length > 0) {
+    lines.push(`Tags: ${input.tags.join(", ")}`);
+  }
+  if (input.notes?.trim()) {
+    lines.push("", input.notes.trim());
+  }
+  return lines.join("\n");
+}
+
+/** Friendly queue/place line for the customer ticket canvas. */
+export function queuePlaceMessage(position: number | null | undefined, vehicleCount: number): string {
+  const pos = typeof position === "number" && position > 0 ? position : null;
+  const vehicles =
+    vehicleCount <= 0
+      ? "No vehicles listed yet"
+      : vehicleCount === 1
+        ? "1 vehicle"
+        : `${vehicleCount} vehicles`;
+  if (!pos) {
+    return `Your order is on file · ${vehicles}`;
+  }
+  if (pos === 1) {
+    return `You're #1 in queue — next up · ${vehicles}`;
+  }
+  return `You're #${pos} in queue · ${vehicles}`;
 }
 
 /** Clear patient reminder for customers (panel + ticket). */
