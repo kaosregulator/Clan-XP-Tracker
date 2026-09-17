@@ -53,6 +53,7 @@ import {
   SETUP_LEVELING_CHANNEL,
   SETUP_LEVELING_CATEGORY,
   SETUP_LEVELING_TEAM_ROLE,
+  SETUP_LEVELING_REVIEW_CHANNEL,
   SETUP_LEVELING_CREATE_CATEGORY,
   SETUP_LEVELING_TOGGLE,
   SETUP_LEVELING_POST_PANEL,
@@ -483,6 +484,7 @@ function levelingPayload(clan: Clan): BaseMessageOptions {
             `Enabled: **${clan.serviceOrdersEnabled ? "yes" : "no"}**\n` +
             `Orders board: ${clan.serviceOrderChannelId ? `<#${clan.serviceOrderChannelId}>` : "_not set_"}\n` +
             `Ticket category: ${clan.serviceOrderCategoryId ? `<#${clan.serviceOrderCategoryId}>` : "_not set_"}\n` +
+            `Reviews channel: ${clan.serviceOrderReviewChannelId ? `<#${clan.serviceOrderReviewChannelId}>` : "_not set_"}\n` +
             `Team role: ${
               clan.serviceOrderTeamRoleId
                 ? `<@&${clan.serviceOrderTeamRoleId}>`
@@ -519,6 +521,17 @@ function levelingPayload(clan: Clan): BaseMessageOptions {
           .setMinValues(0)
           .setMaxValues(1)
           .setDefaultChannels(clan.serviceOrderCategoryId ? [clan.serviceOrderCategoryId] : [])
+      ),
+      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId(SETUP_LEVELING_REVIEW_CHANNEL)
+          .setPlaceholder("Public reviews channel…")
+          .setChannelTypes(ChannelType.GuildText)
+          .setMinValues(0)
+          .setMaxValues(1)
+          .setDefaultChannels(
+            clan.serviceOrderReviewChannelId ? [clan.serviceOrderReviewChannelId] : []
+          )
       ),
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new RoleSelectMenuBuilder()
@@ -1443,6 +1456,13 @@ export async function handleSetupSelect(
       const refreshed = (await getClan(clan.guildId)) ?? clan;
       return void (await interaction.editReply(
         levelingPayload({ ...refreshed, serviceOrderCategoryId: channelId })
+      ));
+    }
+    if (action === "levelingReviewChannel") {
+      await updateClan(clan.guildId, { serviceOrderReviewChannelId: channelId });
+      const refreshed = (await getClan(clan.guildId)) ?? clan;
+      return void (await interaction.editReply(
+        levelingPayload({ ...refreshed, serviceOrderReviewChannelId: channelId })
       ));
     }
     const map: Record<string, keyof typeof import("@workspace/db").clansTable.$inferInsert> = {

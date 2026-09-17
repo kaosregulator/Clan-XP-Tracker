@@ -32,7 +32,7 @@ import {
 import { getMember, updateClan, isOfficer } from "./config";
 import { buildDisputeOverwrites, disputeStaffRoleIds } from "./disputeHelpers";
 import { createNotification } from "./notifications";
-import { logAction, sendLog } from "./logging";
+import { staffLog } from "./logging";
 import { logger } from "../../lib/logger";
 import { renderOffThread } from "../canvas/render-pool";
 import {
@@ -57,6 +57,9 @@ import {
   serviceOrderChannelTopic,
   parseServiceOrderDetails,
   queuePlaceMessage,
+  isImageAttachment,
+  SERVICE_ORDER_MIN_PHOTOS,
+  SERVICE_ORDER_MAX_PHOTOS,
 } from "./serviceOrderHelpers";
 import {
   svcClaim,
@@ -75,9 +78,11 @@ import {
   svcRequestClose,
   svcCustomerQuickReply,
   svcDelete,
+  svcTranscript,
   SVC_PLACE,
 } from "../ui/ids";
 import { scheduleOrderTrackerRefresh } from "./orderTracker";
+import { promptServiceOrderReview } from "./serviceOrderReviews";
 
 export {
   SERVICE_CATALOG,
@@ -246,6 +251,16 @@ export async function placeServiceOrder(
     return { ok: false, error: "Important information is too long (max 1800 characters)." };
   }
 
+  const photos = (input.attachments ?? [])
+    .filter((a) => isImageAttachment(a))
+    .slice(0, SERVICE_ORDER_MAX_PHOTOS);
+  if (photos.length < SERVICE_ORDER_MIN_PHOTOS) {
+    return {
+      ok: false,
+      error: `Please upload at least ${SERVICE_ORDER_MIN_PHOTOS} photo (max ${SERVICE_ORDER_MAX_PHOTOS}).`,
+    };
+  }
+
   const existing = await findOpenOrderForCustomer(input.clan.guildId, input.customer.id);
   if (existing) {
     const where = existing.channelId ? ` — see <#${existing.channelId}>` : "";
@@ -274,10 +289,8 @@ export async function placeServiceOrder(
       serviceKey: input.serviceKey,
       serviceLabel: catalog.label,
       details,
-      attachmentsJson: input.attachments?.length
-        ? serializeAttachments(input.attachments)
-        : null,
-      attachmentCount: input.attachments?.length ?? 0,
+      attachmentsJson: serializeAttachments(photos),
+      attachmentCount: photos.length,
       status: "queued",
       queuePosition,
       customerId: input.customer.id,
@@ -373,23 +386,22 @@ export async function placeServiceOrder(
   }
 
   try {
-    
-  // Re-post modal uploads into the ticket so staff can see them immediately.
-  if (input.attachments?.length) {
-    try {
-      await channel.send({
-        content: `📎 **${input.attachments.length}** file(s) attached with this order:`,
-        files: input.attachments.slice(0, 10).map((a) => ({
-          attachment: a.url,
-          name: a.name || "upload.png",
-        })),
-      });
-    } catch (err) {
-      logger.warn({ err, channelId: channel.id }, "Service order attachment repost failed");
+    // Re-post modal uploads into the ticket so staff can see them immediately.
+    if (photos.length) {
+      try {
+        await channel.send({
+          content: `📎 **${photos.length}** photo(s) attached with this order (part of the ticket):`,
+          files: photos.slice(0, SERVICE_ORDER_MAX_PHOTOS).map((a) => ({
+            attachment: a.url,
+            name: a.name || "upload.png",
+          })),
+        });
+      } catch (err) {
+        logger.warn({ err, channelId: channel.id }, "Service order attachment repost failed");
+      }
     }
-  }
 
-  const board = await input.guild.channels
+    const board = await input.guild.channels
       .fetch(input.clan.serviceOrderChannelId!)
       .catch(() => null);
     if (board?.isTextBased()) {
@@ -420,40 +432,38 @@ export async function placeServiceOrder(
     createdByUsername: input.customer.username,
   });
 
-  await logAction(input.clan.guildId, {
+  await staffLog({
+    client: input.client,
+    clan: input.clan,
     action: "service_order_placed",
+    title: `🛠️ Service order · ${row.publicId}`,
+    description: `<@${input.customer.id}> placed a **${catalog.label}** order.`,
+    color: STATUS_COLOR.queued,
+    actorId: input.customer.id,
+    actorUsername: input.customer.username,
     targetUserId: input.customer.id,
     targetUsername: input.customer.username,
-    moderatorId: input.customer.id,
-    moderatorUsername: input.customer.username,
-    details: {
+    fields: [
+      { name: "Channel", value: `<#${channel.id}>`, inline: true },
+      { name: "Queue", value: `#${row.queuePosition ?? 1}`, inline: true },
+      { name: "Photos", value: String(photos.length), inline: true },
+      { name: "Details", value: details.slice(0, 1024) },
+    ],
+    auditDetails: {
       orderId: row.id,
       publicId: row.publicId,
       serviceKey: input.serviceKey,
       channelId: channel.id,
+      photoCount: photos.length,
     },
   });
 
   await notifyCustomer(input.client, input.clan, row, {
-    title: `${STATUS_EMOJI.received} Order received`,
+    title: `${STATUS_EMOJI.queued} Order received`,
     body: `**${row.publicId}** is in the queue at position **#${row.queuePosition ?? 1}**.\nTicket: <#${channel.id}>`,
     force: true,
   });
 
-  await sendLog(
-    input.client,
-    input.clan,
-    new EmbedBuilder()
-      .setColor(STATUS_COLOR.queued)
-      .setTitle(`🛠️ Service order · ${row.publicId}`)
-      .setDescription(`<@${input.customer.id}> placed a **${catalog.label}** order.`)
-      .addFields(
-        { name: "Channel", value: `<#${channel.id}>`, inline: true },
-        { name: "Queue", value: `#${row.queuePosition ?? 1}`, inline: true },
-        { name: "Details", value: details.slice(0, 1024) }
-      )
-      .setTimestamp()
-  );
 
   scheduleOrderTrackerRefresh(input.clan.guildId);
   const fresh = (await getServiceOrder(input.clan.guildId, row.id)) ?? row;
@@ -608,19 +618,65 @@ export async function applyServiceOrderAction(opts: {
   await refreshOrderMessages(opts.client, opts.clan, updated);
   scheduleOrderTrackerRefresh(opts.clan.guildId);
 
-  await logAction(opts.clan.guildId, {
+  const actionColors: Record<string, number> = {
+    claim: 0x9b59b6,
+    start: 0xe67e22,
+    hold: 0x95a5a6,
+    complete: 0x2ecc71,
+    reject: 0xe74c3c,
+    cancel: 0x7f8c8d,
+    queue: 0x3498db,
+    up: 0x5865f2,
+    down: 0x5865f2,
+  };
+
+  await staffLog({
+    client: opts.client,
+    clan: opts.clan,
     action: `service_order_${opts.action}`,
+    title: `${STATUS_EMOJI[updated.status as ServiceOrderStatus] ?? "🛠️"} Order ${opts.action} · ${updated.publicId}`,
+    description: `<@${opts.actorId}> used **${opts.action}** on <@${updated.customerId}>'s order.`,
+    color: actionColors[opts.action] ?? 0x5865f2,
+    actorId: opts.actorId,
+    actorUsername: opts.actorUsername,
     targetUserId: updated.customerId,
     targetUsername: updated.customerUsername,
-    moderatorId: opts.actorId,
-    moderatorUsername: opts.actorUsername,
-    details: {
+    fields: [
+      {
+        name: "Status",
+        value: `${STATUS_LABEL[updated.status as ServiceOrderStatus] ?? updated.status}`,
+        inline: true,
+      },
+      {
+        name: "Queue",
+        value: updated.queuePosition != null ? `#${updated.queuePosition}` : "—",
+        inline: true,
+      },
+      {
+        name: "Ticket",
+        value: updated.channelId ? `<#${updated.channelId}>` : "_none_",
+        inline: true,
+      },
+      ...(opts.note ? [{ name: "Note", value: opts.note.slice(0, 1024) }] : []),
+    ],
+    auditDetails: {
       orderId: updated.id,
       publicId: updated.publicId,
       status: updated.status,
       queuePosition: updated.queuePosition,
+      note: opts.note ?? null,
     },
   });
+
+  if (opts.action === "complete" && updated.status === "completed") {
+    await promptServiceOrderReview({
+      client: opts.client,
+      clan: opts.clan,
+      order: updated,
+    }).catch((err) =>
+      logger.warn({ err, orderId: updated.id }, "service order review prompt failed")
+    );
+  }
 
   return { ok: true, order: updated };
 }
@@ -807,7 +863,8 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder().setCustomId(svcReject(orderId)).setLabel("Reject").setEmoji("❌").setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId(svcCancel(orderId)).setLabel("Cancel").setEmoji("🚫").setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(svcDelete(orderId)).setLabel("Delete").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId(svcTranscript(orderId)).setLabel("Transcript").setEmoji("📜").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(svcDelete(orderId)).setLabel("Delete Order").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
@@ -820,6 +877,24 @@ function staffRows(orderId: number): ActionRowBuilder<MessageActionRowComponentB
             description: r.message.slice(0, 100),
           }))
         )
+    ),
+  ];
+}
+
+/** After complete/cancel: keep Delete Order + Transcript so staff can clean up. */
+function staffTerminalRows(orderId: number): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  return [
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(svcTranscript(orderId))
+        .setLabel("Transcript")
+        .setEmoji("📜")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(svcDelete(orderId))
+        .setLabel("Delete Order")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Danger)
     ),
   ];
 }
@@ -856,10 +931,16 @@ function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowC
 
 function componentsForAudience(
   orderId: number,
-  audience: "ticket" | "board"
+  audience: "ticket" | "board",
+  status: string
 ): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-  if (audience === "board") return staffRows(orderId);
-  // Ticket canvas: customer-only controls (never staff board buttons).
+  if (audience === "board") {
+    if (isTerminalStatus(status)) return staffTerminalRows(orderId);
+    return staffRows(orderId);
+  }
+  // Ticket canvas: customer-only controls while open; after terminal, no buttons
+  // (staff clean up from the orders board: Transcript / Delete Order).
+  if (isTerminalStatus(status)) return [];
   return ticketCustomerRows(orderId);
 }
 
@@ -884,7 +965,11 @@ export async function buildOrderPayload(
   
   const parsed = parseServiceOrderDetails(order.details);
   const placeMessage = queuePlaceMessage(order.queuePosition, parsed.vehicleCount);
-let files: AttachmentBuilder[] | undefined;
+  const photoUrls = parseAttachmentsJson(order.attachmentsJson)
+    .filter((a) => isImageAttachment(a))
+    .slice(0, SERVICE_ORDER_MAX_PHOTOS)
+    .map((a) => a.url);
+  let files: AttachmentBuilder[] | undefined;
   try {
     const png = await renderOffThread("serviceOrderCard", {
       communityName: clan.clanName,
@@ -906,6 +991,7 @@ let files: AttachmentBuilder[] | undefined;
       currentLevel: parsed.currentLevel,
       targetLevel: parsed.targetLevel,
       tags: parsed.tags,
+      photoUrls,
       orderedAt: order.createdAt.toLocaleString("en-US", {
         month: "short",
         day: "numeric",
@@ -971,8 +1057,8 @@ let files: AttachmentBuilder[] | undefined;
       {
         name: "Attachments",
         value: order.attachmentCount
-          ? `${order.attachmentCount} file(s) — use **Sync Files** after uploads`
-          : "_Drop screenshots in the ticket channel_",
+          ? `📷 **${order.attachmentCount}** photo(s) on this ticket`
+          : "_No photos yet_",
         inline: true,
       }
     )
@@ -985,7 +1071,7 @@ let files: AttachmentBuilder[] | undefined;
   return {
     embeds: [embed],
     files,
-    components: isTerminalStatus(status) ? [] : componentsForAudience(order.id, audience),
+    components: componentsForAudience(order.id, audience, status),
   };
 }
 
@@ -1024,7 +1110,7 @@ export async function refreshOrderMessages(
   await edit(order.boardChannelId, order.boardMessageId, "board");
 }
 
-/** Staff: cancel if still open, then delete the private ticket channel. */
+/** Staff: cancel if still open, then delete the private ticket channel (order history kept). */
 export async function deleteServiceOrderChannel(opts: {
   client: Client;
   guild: Guild;
@@ -1036,6 +1122,16 @@ export async function deleteServiceOrderChannel(opts: {
   const order = await getServiceOrder(opts.clan.guildId, opts.orderId);
   if (!order) return { ok: false, error: "Order not found." };
   if (!order.channelId) return { ok: false, error: "This order has no ticket channel left." };
+
+  // Capture transcript before deleting so nothing is lost.
+  const transcriptRes = await captureServiceOrderTranscript({
+    client: opts.client,
+    guild: opts.guild,
+    clan: opts.clan,
+    order,
+    actorId: opts.actorId,
+    actorUsername: opts.actorUsername,
+  }).catch(() => null);
 
   if (!isTerminalStatus(order.status)) {
     const cancelled = await applyServiceOrderAction({
@@ -1071,8 +1167,166 @@ export async function deleteServiceOrderChannel(opts: {
     .set({ channelId: null, ticketMessageId: null })
     .where(eq(serviceOrdersTable.id, order.id));
 
+  await staffLog({
+    client: opts.client,
+    clan: opts.clan,
+    action: "service_order_channel_deleted",
+    title: `🗑️ Delete Order · ${order.publicId}`,
+    description: `<@${opts.actorId}> deleted the ticket channel for <@${order.customerId}>. Order history was kept.`,
+    color: 0xe74c3c,
+    actorId: opts.actorId,
+    actorUsername: opts.actorUsername,
+    targetUserId: order.customerId,
+    targetUsername: order.customerUsername,
+    fields: [
+      { name: "Transcript", value: transcriptRes?.ok ? "Saved to log" : "Not captured", inline: true },
+      { name: "Status", value: order.status, inline: true },
+    ],
+    auditDetails: {
+      orderId: order.id,
+      publicId: order.publicId,
+      priorChannelId: order.channelId,
+      transcriptPosted: !!transcriptRes?.ok,
+    },
+  });
+
+  // Refresh board card (channel gone; Delete Order button still useful context).
+  const fresh = await getServiceOrder(opts.clan.guildId, order.id);
+  if (fresh) await refreshOrderMessages(opts.client, opts.clan, fresh);
+
   scheduleOrderTrackerRefresh(opts.clan.guildId);
   return { ok: true, deleted };
+}
+
+/** Capture ticket messages and post a .txt transcript to the staff log channel. */
+export async function captureServiceOrderTranscript(opts: {
+  client: Client;
+  guild: Guild;
+  clan: Clan;
+  order: ServiceOrder;
+  actorId: string;
+  actorUsername: string;
+}): Promise<{ ok: true; messageCount: number } | { ok: false; error: string }> {
+  if (!opts.order.channelId) {
+    return { ok: false, error: "This order has no ticket channel." };
+  }
+  const channel = await opts.guild.channels.fetch(opts.order.channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) {
+    return { ok: false, error: "Couldn't read the ticket channel." };
+  }
+
+  const collected: {
+    timestampIso: string;
+    authorTag: string;
+    authorId: string;
+    content: string;
+    attachments: { name: string; url: string; contentType: string | null; size: number }[];
+  }[] = [];
+
+  let before: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const batch = await channel.messages
+      .fetch({ limit: 100, ...(before ? { before } : {}) })
+      .catch(() => null);
+    if (!batch || batch.size === 0) break;
+    for (const msg of batch.values()) {
+      collected.push({
+        timestampIso: msg.createdAt.toISOString(),
+        authorTag: msg.author.tag,
+        authorId: msg.author.id,
+        content: msg.content || "",
+        attachments: [...msg.attachments.values()].map((a) => ({
+          name: a.name,
+          url: a.url,
+          contentType: a.contentType,
+          size: a.size,
+        })),
+      });
+    }
+    before = batch.last()?.id;
+    if (batch.size < 100) break;
+  }
+
+  collected.sort((a, b) => a.timestampIso.localeCompare(b.timestampIso));
+
+  const lines = [
+    "════════════════════════════════════════",
+    ` LEVELING ORDER TRANSCRIPT  ${opts.order.publicId}`,
+    "════════════════════════════════════════",
+    `Generated:     ${new Date().toISOString()}`,
+    `Guild:         ${opts.clan.guildId}`,
+    `Customer:      ${opts.order.customerUsername} (${opts.order.customerId})`,
+    `Service:       ${opts.order.serviceLabel}`,
+    `Status:        ${opts.order.status}`,
+    `Staff:         ${opts.order.staffUsername ?? "unclaimed"}`,
+    `Captured by:   ${opts.actorUsername} (${opts.actorId})`,
+    `Channel:       ${opts.order.channelId}`,
+    "",
+    "--- Order details ---",
+    opts.order.details || "(none)",
+    "",
+    "--- Channel conversation ---",
+  ];
+  if (!collected.length) {
+    lines.push("(no messages captured)");
+  } else {
+    for (const line of collected) {
+      lines.push(`[${line.timestampIso}] ${line.authorTag} (${line.authorId}):`);
+      lines.push(line.content.trim() ? line.content : "(no text)");
+      for (const a of line.attachments) {
+        lines.push(
+          `  📎 ${a.name} | ${a.contentType ?? "unknown"} | ${a.size} bytes | ${a.url}`
+        );
+      }
+      lines.push("");
+    }
+  }
+  lines.push("════════════════════════════════════════");
+  lines.push(" Staff-only transcript — order history kept in DB.");
+  lines.push("════════════════════════════════════════");
+
+  const file = new AttachmentBuilder(Buffer.from(lines.join("\n"), "utf8"), {
+    name: `${opts.order.publicId}-transcript.txt`,
+  });
+
+  const posted = await staffLog({
+    client: opts.client,
+    clan: opts.clan,
+    action: "service_order_transcript",
+    title: `📜 Transcript · ${opts.order.publicId}`,
+    description: `<@${opts.actorId}> saved a transcript for <@${opts.order.customerId}>'s leveling ticket.`,
+    color: 0x5865f2,
+    actorId: opts.actorId,
+    actorUsername: opts.actorUsername,
+    targetUserId: opts.order.customerId,
+    targetUsername: opts.order.customerUsername,
+    fields: [
+      { name: "Messages", value: String(collected.length), inline: true },
+      { name: "Status", value: opts.order.status, inline: true },
+      {
+        name: "Ticket",
+        value: opts.order.channelId ? `<#${opts.order.channelId}>` : "_gone_",
+        inline: true,
+      },
+    ],
+    files: [file],
+    auditDetails: {
+      orderId: opts.order.id,
+      publicId: opts.order.publicId,
+      messageCount: collected.length,
+    },
+  });
+
+  if (!posted && !opts.clan.logChannelId) {
+    return {
+      ok: false,
+      error: "No log channel configured. Set one in **/setup → Channels**.",
+    };
+  }
+  if (!posted) {
+    return { ok: false, error: "Could not post the transcript to the log channel." };
+  }
+  return { ok: true, messageCount: collected.length };
 }
 
 export async function ensureServiceOrderCategory(
@@ -1118,8 +1372,8 @@ export function serviceOrderPanelPayload(): MessageCreateOptions {
         .setDescription(
           "Need a **Military Tycoon** vehicle leveled or traded?\n\n" +
             "1. Press **Place Service Order**\n" +
-            "2. Pick service, vehicle, levels, tags, and attach a screenshot\n" +
-            "3. Get a private ticket with your queue card\n" +
+            "2. Pick service, vehicle, levels, tags, and attach **1–5 photos** (required)\n" +
+            "3. Get a private ticket with your queue card + photos\n" +
             "4. Use **Cancel Order** / **Request to Delete** / quick messages in your ticket\n\n" +
             `${SERVICE_ORDER_PATIENCE_NOTICE}\n\n` +
             "_No external websites — everything stays in Discord._"

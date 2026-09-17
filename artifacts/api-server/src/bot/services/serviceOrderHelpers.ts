@@ -27,7 +27,7 @@ export const SERVICE_CATALOG: Record<
 };
 
 export const STATUS_LABEL: Record<ServiceOrderStatus, string> = {
-  received: "Received",
+  received: "Awaiting Photos",
   queued: "In Queue",
   claimed: "Staff Assigned",
   in_progress: "In Progress",
@@ -38,7 +38,7 @@ export const STATUS_LABEL: Record<ServiceOrderStatus, string> = {
 };
 
 export const STATUS_EMOJI: Record<ServiceOrderStatus, string> = {
-  received: "🟡",
+  received: "📸",
   queued: "🔵",
   claimed: "🟣",
   in_progress: "🟠",
@@ -423,3 +423,21 @@ export function queuePlaceMessage(position: number | null | undefined, vehicleCo
 export const SERVICE_ORDER_PATIENCE_NOTICE =
   "**Please be patient.** Staff work the queue in order. Don't spam-ping — updates land in your ticket.";
 
+/** Required photo uploads when placing / finishing an order. */
+export const SERVICE_ORDER_MAX_PHOTOS = 5;
+export const SERVICE_ORDER_MIN_PHOTOS = 1;
+
+export function isImageAttachment(opts: {
+  contentType?: string | null;
+  name?: string | null;
+}): boolean {
+  const ct = (opts.contentType ?? "").toLowerCase();
+  if (ct.startsWith("image/")) return true;
+  const name = (opts.name ?? "").toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+}
+
+export function starBar(n: number, max = 5): string {
+  const filled = Math.max(0, Math.min(max, Math.round(n)));
+  return "★".repeat(filled) + "☆".repeat(max - filled);
+}

@@ -18,3 +18,4 @@ export * from "./member_notes";
 export * from "./connect_sessions";
 export * from "./sessions";
 export * from "./service_orders";
+export * from "./service_order_reviews";

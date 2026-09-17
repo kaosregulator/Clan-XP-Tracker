@@ -154,6 +154,7 @@ export const SETUP_LEVELING = id(NS.setup, "leveling");
 export const SETUP_LEVELING_CHANNEL = id(NS.setup, "levelingChannel");
 export const SETUP_LEVELING_CATEGORY = id(NS.setup, "levelingCategory");
 export const SETUP_LEVELING_TEAM_ROLE = id(NS.setup, "levelingTeamRole");
+export const SETUP_LEVELING_REVIEW_CHANNEL = id(NS.setup, "levelingReviewChannel");
 export const SETUP_LEVELING_CREATE_CATEGORY = id(NS.setup, "levelingCreateCategory");
 export const SETUP_LEVELING_TOGGLE = id(NS.setup, "levelingToggle");
 export const SETUP_LEVELING_POST_PANEL = id(NS.setup, "levelingPostPanel");
@@ -315,8 +316,22 @@ export const svcRequestDelete = (orderId: number) => id(NS.svc, "requestDelete",
 export const svcRequestClose = (orderId: number) => id(NS.svc, "requestClose", orderId);
 /** Customer ticket: canned check-in replies (cooldown). */
 export const svcCustomerQuickReply = (orderId: number) => id(NS.svc, "customerQuickReply", orderId);
-/** Staff ticket: permanently delete the order channel. */
+/** Staff ticket: permanently delete the order channel (history kept). */
 export const svcDelete = (orderId: number) => id(NS.svc, "delete", orderId);
+/** Staff: capture + post a transcript of the ticket to the log channel. */
+export const svcTranscript = (orderId: number) => id(NS.svc, "transcript", orderId);
 /** Live order tracker panel refresh. */
 export const SVC_TRACKER_REFRESH = id(NS.svc, "trackerRefresh");
+
+/* Post-completion leveling review (customer-facing). Arg = order id. */
+export const svcReviewStart = (orderId: number) => id(NS.svc, "reviewStart", orderId);
+export const svcReviewSpeed = (orderId: number, stars: number) =>
+  id(NS.svc, "reviewSpeed", `${orderId}-${stars}`);
+export const svcReviewQuality = (orderId: number, stars: number) =>
+  id(NS.svc, "reviewQuality", `${orderId}-${stars}`);
+export const svcReviewRecommend = (orderId: number, yes: 0 | 1) =>
+  id(NS.svc, "reviewRecommend", `${orderId}-${yes}`);
+export const svcReviewPhotos = (orderId: number) => id(NS.svc, "reviewPhotos", orderId);
+export const svcReviewSkipPhotos = (orderId: number) => id(NS.svc, "reviewSkipPhotos", orderId);
+export const svcReviewCommentModal = (orderId: number) => id(NS.svc, "reviewComment", orderId);
 
