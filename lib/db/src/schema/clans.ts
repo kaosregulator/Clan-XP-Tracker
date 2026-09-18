@@ -211,6 +211,11 @@ export const clansTable = pgTable("clans", {
   serviceOrderTeamRoleId: text("service_order_team_role_id"),
   /** Public channel where completed-order review cards are posted. */
   serviceOrderReviewChannelId: text("service_order_review_channel_id"),
+  /**
+   * Optional JSON override for the service catalog (services, pricing tiers,
+   * add-ons, currency). Null → built-in Military Tycoon vehicle defaults.
+   */
+  serviceCatalogJson: text("service_catalog_json"),
   /** DM the customer on material status / queue changes. */
   serviceOrderDmCustomer: boolean("service_order_dm_customer").notNull().default(true),
   /** Notify the customer when only their queue position changes. */

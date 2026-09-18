@@ -53,7 +53,26 @@ import {
   SERVICE_ORDER_MAX_PHOTOS,
   SERVICE_ORDER_MIN_PHOTOS,
   parseCurrentAndTargetLevels,
+  parseLevelInput,
 } from "../services/serviceOrderHelpers";
+import {
+  buildOrderTags,
+  calculateServiceQuote,
+  findCatalogService,
+  formatQuoteAmount,
+  getServiceCatalog,
+  speedAddonLabel,
+  type SpeedAddonKey,
+  type ServiceOrderMeta,
+} from "../services/serviceCatalog";
+import {
+  buildWizardPayload,
+  clearPlaceDraft,
+  ensurePlaceDraft,
+  formatQuoteSummary,
+  getPlaceDraft,
+  savePlaceDraft,
+} from "../services/placeOrderWizard";
 import {
   postOrderTracker,
   refreshOrderTrackerNow,
@@ -66,6 +85,9 @@ import {
   SVC_PLACE_FORM,
   SVC_SERVICE_PICK,
   SVC_TRACKER_REFRESH,
+  SVC_WIZ_CANCEL,
+  SVC_WIZ_CONTINUE,
+  SVC_WIZ_SERVICE,
   svcDetailsModal,
 } from "../ui/ids";
 import { notConfiguredMessage } from "./xp";
@@ -278,7 +300,7 @@ export async function openLevelingCommand(interaction: ChatInputCommandInteracti
       });
       return;
     }
-    const payload = serviceOrderPanelPayload();
+    const payload = serviceOrderPanelPayload(clan);
     await channel.send(payload);
     await interaction.editReply({
       content: "✅ Leveling Service panel posted in this channel.",
@@ -360,26 +382,28 @@ export async function openLevelingCommand(interaction: ChatInputCommandInteracti
 
 /* -------------------------------------------------------- place-order UX */
 
-async function beginPlaceOrder(interaction: ButtonInteraction) {
-  if (!interaction.inCachedGuild()) return;
+async function assertCanBeginPlace(
+  interaction: ButtonInteraction | StringSelectMenuInteraction
+): Promise<Clan | null> {
+  if (!interaction.inCachedGuild()) return null;
   const clan = await getClan(interaction.guildId);
   if (!clan) {
     await interaction.reply({
       ...notConfiguredMessage(isOfficer(interaction.member, null)),
       flags: 64,
     });
-    return;
+    return null;
   }
 
   const ready = serviceOrdersReady(clan);
   if (!ready.ok) {
     await interaction.reply({ content: `⚠️ ${ready.error}`, flags: 64 });
-    return;
+    return null;
   }
 
   if (!canPlaceServiceOrder(interaction.member, interaction.user.id, clan)) {
     await interaction.reply({ content: SERVICE_ORDER_ACCESS_DENIED, flags: 64 });
-    return;
+    return null;
   }
 
   const existing = await findOpenOrderForCustomer(clan.guildId, interaction.user.id);
@@ -389,32 +413,154 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
       content: `You already have an open order (**${existing.publicId}**)${where}.`,
       flags: 64,
     });
+    return null;
+  }
+  return clan;
+}
+
+async function beginPlaceOrder(interaction: ButtonInteraction) {
+  const clan = await assertCanBeginPlace(interaction);
+  if (!clan) return;
+
+  const catalog = getServiceCatalog(clan);
+  const draft = ensurePlaceDraft(clan.guildId, interaction.user.id, catalog);
+  const payload = buildWizardPayload(clan, draft);
+
+  await interaction.reply({
+    ...payload,
+    flags: 64,
+  });
+}
+
+async function refreshWizard(
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  clan: Clan
+) {
+  const catalog = getServiceCatalog(clan);
+  const draft = ensurePlaceDraft(clan.guildId, interaction.user.id, catalog);
+  const payload = buildWizardPayload(clan, draft);
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply(payload);
+  } else {
+    await interaction.update(payload);
+  }
+}
+
+async function handleWizardServicePick(interaction: StringSelectMenuInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.reply({
+      ...notConfiguredMessage(isOfficer(interaction.member, null)),
+      flags: 64,
+    });
+    return;
+  }
+  if (!canPlaceServiceOrder(interaction.member, interaction.user.id, clan)) {
+    await interaction.reply({ content: SERVICE_ORDER_ACCESS_DENIED, flags: 64 });
     return;
   }
 
-  const serviceOptions = Object.entries(SERVICE_CATALOG).map(([key, meta]) => ({
-    label: meta.label.slice(0, 100),
-    description: meta.blurb.slice(0, 100),
-    value: key,
-    emoji: meta.emoji,
-  }));
+  const catalog = getServiceCatalog(clan);
+  const draft = ensurePlaceDraft(clan.guildId, interaction.user.id, catalog);
+  const picked = interaction.values[0] ?? draft.serviceKey;
+  const known = findCatalogService(catalog, picked);
+  draft.serviceKey = known?.key ?? resolveServiceKey(picked);
+  // Reset custom target when switching to a non-level service.
+  const svc = findCatalogService(catalog, draft.serviceKey);
+  if (svc && svc.usesLevels === false) draft.customTarget = false;
+  savePlaceDraft(draft);
+  await refreshWizard(interaction, clan);
+}
+
+async function handleWizardSpeed(interaction: ButtonInteraction, speedRaw: string) {
+  if (!interaction.inCachedGuild()) return;
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.reply({
+      ...notConfiguredMessage(isOfficer(interaction.member, null)),
+      flags: 64,
+    });
+    return;
+  }
+  const catalog = getServiceCatalog(clan);
+  const draft = ensurePlaceDraft(clan.guildId, interaction.user.id, catalog);
+  const allowed = new Set(
+    catalog.addons.filter((a) => a.group === "speed").map((a) => a.key)
+  );
+  if (allowed.has(speedRaw)) {
+    draft.speedKey = speedRaw as SpeedAddonKey;
+    savePlaceDraft(draft);
+  }
+  await refreshWizard(interaction, clan);
+}
+
+async function handleWizardCustom(interaction: ButtonInteraction, on: boolean) {
+  if (!interaction.inCachedGuild()) return;
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.reply({
+      ...notConfiguredMessage(isOfficer(interaction.member, null)),
+      flags: 64,
+    });
+    return;
+  }
+  const catalog = getServiceCatalog(clan);
+  const draft = ensurePlaceDraft(clan.guildId, interaction.user.id, catalog);
+  draft.customTarget = on;
+  savePlaceDraft(draft);
+  await refreshWizard(interaction, clan);
+}
+
+async function handleWizardCancel(interaction: ButtonInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  clearPlaceDraft(interaction.guildId, interaction.user.id);
+  await interaction.update({
+    content: "❌ Order cancelled — press **Place Service Order** anytime to start again.",
+    embeds: [],
+    components: [],
+  });
+}
+
+async function handleWizardContinue(interaction: ButtonInteraction) {
+  if (!interaction.inCachedGuild()) return;
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.reply({
+      ...notConfiguredMessage(isOfficer(interaction.member, null)),
+      flags: 64,
+    });
+    return;
+  }
+  if (!canPlaceServiceOrder(interaction.member, interaction.user.id, clan)) {
+    await interaction.reply({ content: SERVICE_ORDER_ACCESS_DENIED, flags: 64 });
+    return;
+  }
+
+  const catalog = getServiceCatalog(clan);
+  const draft = getPlaceDraft(clan.guildId, interaction.user.id);
+  if (!draft) {
+    await interaction.reply({
+      content: "⏱️ Wizard expired — press **Place Service Order** again.",
+      flags: 64,
+    });
+    return;
+  }
+
+  const service =
+    findCatalogService(catalog, draft.serviceKey) ?? catalog.services[0]!;
+  const usesLevels = service.usesLevels !== false;
+  const noun = catalog.itemNoun;
+  const nounCap = noun.charAt(0).toUpperCase() + noun.slice(1);
 
   const modal = new ModalBuilder()
     .setCustomId(SVC_PLACE_FORM)
-    .setTitle("Place Service Order");
+    .setTitle(`${service.emoji} ${service.label}`.slice(0, 45));
 
-  modal.addLabelComponents(
+  const labels: LabelBuilder[] = [
     new LabelBuilder()
-      .setLabel("1. Choose Service (required)")
-      .setStringSelectMenuComponent(
-        new StringSelectMenuBuilder()
-          .setCustomId("service")
-          .setPlaceholder("Choose a service…")
-          .addOptions(serviceOptions)
-      ),
-    new LabelBuilder()
-      .setLabel("2. What do you want leveled? (required)")
-      .setDescription("Example: M1 Abrams, F-22 Raptor, Helicopter…")
+      .setLabel(`1. ${nounCap} name (required)`)
+      .setDescription(`What should we work on? Example: M1 Abrams, F-22…`)
       .setTextInputComponent(
         new TextInputBuilder()
           .setCustomId("vehicle")
@@ -422,35 +568,77 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
           .setRequired(true)
           .setMinLength(2)
           .setMaxLength(200)
-          .setPlaceholder("Enter vehicle, item, or anything…")
+          .setPlaceholder(`Enter ${noun} name…`)
       ),
+  ];
+
+  if (usesLevels) {
+    labels.push(
+      new LabelBuilder()
+        .setLabel("2. Current level (required)")
+        .setDescription("Just a number — e.g. 1, 12, 80.")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("currentLevel")
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMinLength(1)
+            .setMaxLength(7)
+            .setPlaceholder("e.g. 12")
+        )
+    );
+    if (draft.customTarget) {
+      labels.push(
+        new LabelBuilder()
+          .setLabel("3. Target level (required)")
+          .setDescription(`Custom target (not max ${catalog.maxLevel}). Must be ≥ current.`)
+          .setTextInputComponent(
+            new TextInputBuilder()
+              .setCustomId("targetLevel")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMinLength(1)
+              .setMaxLength(7)
+              .setPlaceholder("e.g. 80")
+          )
+      );
+    } else {
+      labels.push(
+        new LabelBuilder()
+          .setLabel(`3. Target (max ${catalog.maxLevel} or number)`)
+          .setDescription(`Type "maxed" for max ${catalog.maxLevel}, or a number ≥ current.`)
+          .setTextInputComponent(
+            new TextInputBuilder()
+              .setCustomId("targetLevel")
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+              .setMinLength(1)
+              .setMaxLength(7)
+              .setPlaceholder("maxed")
+              .setValue("maxed")
+          )
+      );
+    }
+  } else {
+    labels.push(
+      new LabelBuilder()
+        .setLabel("2. Extra notes (optional)")
+        .setDescription("Trade details, preferences, anything staff should know.")
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId("notes")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false)
+            .setMaxLength(500)
+            .setPlaceholder("Optional notes…")
+        )
+    );
+  }
+
+  labels.push(
     new LabelBuilder()
-      .setLabel("3. Current level (required)")
-      .setDescription("Just a number — e.g. 1, 12, 80. No ranges.")
-      .setTextInputComponent(
-        new TextInputBuilder()
-          .setCustomId("currentLevel")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setMinLength(1)
-          .setMaxLength(7)
-          .setPlaceholder("e.g. 12")
-      ),
-    new LabelBuilder()
-      .setLabel("4. Target level (required)")
-      .setDescription('Number you want, or type "maxed". Must be ≥ current.')
-      .setTextInputComponent(
-        new TextInputBuilder()
-          .setCustomId("targetLevel")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setMinLength(1)
-          .setMaxLength(7)
-          .setPlaceholder('e.g. 80 or maxed')
-      ),
-    new LabelBuilder()
-      .setLabel("5. Add photos (required, max 5)")
-      .setDescription("Upload 1–5 screenshots from your device (before/current state). Required.")
+      .setLabel(`${usesLevels ? "4" : "3"}. Add photos (required, max 5)`)
+      .setDescription("Upload 1–5 screenshots from your device. Required.")
       .setFileUploadComponent(
         new FileUploadBuilder()
           .setCustomId("image")
@@ -460,6 +648,8 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
       )
   );
 
+  // Discord modal: max 5 Label components
+  modal.addLabelComponents(...labels.slice(0, 5));
   await interaction.showModal(modal);
 }
 
@@ -515,6 +705,10 @@ function parseLevelsField(raw: string): { current: number; target: number } | nu
   return { current, target };
 }
 
+function isSpeedKey(v: string): v is SpeedAddonKey {
+  return v === "regular" || v === "rushed" || v === "priority_now";
+}
+
 async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
@@ -525,52 +719,103 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
     return;
   }
 
-  const serviceValues = interaction.fields.getStringSelectValues("service");
-  const serviceKey = resolveServiceKey(serviceValues[0] ?? "other");
-  const catalog = SERVICE_CATALOG[serviceKey];
+  const catalog = getServiceCatalog(clan);
+  const draft = getPlaceDraft(clan.guildId, interaction.user.id);
+
+  // Prefer wizard draft; fall back to modal select (older all-in-one modal).
+  let serviceKey = draft?.serviceKey ?? "vehicle_leveling";
+  let speedKey: SpeedAddonKey = draft?.speedKey ?? "regular";
+  let preferCustom = draft?.customTarget ?? false;
+
+  try {
+    const serviceValues = interaction.fields.getStringSelectValues("service");
+    if (serviceValues[0]) serviceKey = resolveServiceKey(serviceValues[0]);
+  } catch {
+    /* wizard path — no service select in modal */
+  }
+
+  const service =
+    findCatalogService(catalog, serviceKey) ??
+    findCatalogService(catalog, resolveServiceKey(serviceKey)) ??
+    catalog.services[0]!;
+  serviceKey = service.key;
+  if (!isSpeedKey(speedKey)) speedKey = "regular";
+
   const vehicle = interaction.fields.getTextInputValue("vehicle").trim();
   if (!vehicle) {
-    await interaction.editReply({ content: "Please enter what you want leveled." });
+    await interaction.editReply({
+      content: `Please enter the ${catalog.itemNoun} name.`,
+    });
     return;
   }
 
-  // Prefer the new separate current/target boxes; fall back to legacy combined field.
-  let currentLevel: number;
-  let targetLevel: number | null;
-  let targetMaxed = false;
+  let notes = "";
   try {
-    const currentRaw = interaction.fields.getTextInputValue("currentLevel");
-    const targetRaw = interaction.fields.getTextInputValue("targetLevel");
-    const parsed = parseCurrentAndTargetLevels(currentRaw, targetRaw);
-    if (!parsed) {
-      await interaction.editReply({
-        content:
-          "Enter **simple numbers** only (e.g. current `12`, target `80`). " +
-          'Target can also be **maxed**. No leading zeros, max 7 digits. Target must be ≥ current.',
-      });
-      return;
-    }
-    currentLevel = parsed.current;
-    targetLevel = parsed.target;
-    targetMaxed = parsed.targetMaxed;
+    notes = interaction.fields.getTextInputValue("notes").trim();
   } catch {
-    // Older modal still posting a combined "levels" field.
-    let levelsRaw = "";
+    notes = "";
+  }
+
+  const usesLevels = service.usesLevels !== false;
+  let currentLevel: number | null = null;
+  let targetLevel: number | null = null;
+  let targetMaxed = !preferCustom;
+
+  if (usesLevels) {
     try {
-      levelsRaw = interaction.fields.getTextInputValue("levels").trim();
+      const currentRaw = interaction.fields.getTextInputValue("currentLevel");
+      const targetRaw = interaction.fields.getTextInputValue("targetLevel");
+      if (preferCustom) {
+        const cur = parseLevelInput(currentRaw);
+        const tgt = parseLevelInput(targetRaw);
+        if (typeof cur !== "number" || typeof tgt !== "number" || tgt < cur) {
+          await interaction.editReply({
+            content:
+              "Enter **simple numbers** for current and custom target (target ≥ current). No leading zeros.",
+          });
+          return;
+        }
+        currentLevel = cur;
+        targetLevel = tgt;
+        targetMaxed = false;
+        if (tgt >= catalog.maxLevel) {
+          targetMaxed = true;
+          targetLevel = null;
+        }
+      } else {
+        const parsed = parseCurrentAndTargetLevels(currentRaw, targetRaw);
+        if (!parsed) {
+          await interaction.editReply({
+            content:
+              "Enter **simple numbers** only (e.g. current `12`, target `80`). " +
+              'Target can also be **maxed**. No leading zeros. Target must be ≥ current.',
+          });
+          return;
+        }
+        currentLevel = parsed.current;
+        targetLevel = parsed.target;
+        targetMaxed = parsed.targetMaxed;
+      }
     } catch {
-      levelsRaw = "";
+      // Older modal still posting a combined "levels" field.
+      let levelsRaw = "";
+      try {
+        levelsRaw = interaction.fields.getTextInputValue("levels").trim();
+      } catch {
+        levelsRaw = "";
+      }
+      const legacy = parseLevelsField(levelsRaw);
+      if (!legacy) {
+        await interaction.editReply({
+          content:
+            "Enter **current level** and **target level** as simple numbers (or target **maxed**).",
+        });
+        return;
+      }
+      currentLevel = legacy.current;
+      targetLevel = legacy.target;
+      targetMaxed = false;
     }
-    const legacy = parseLevelsField(levelsRaw);
-    if (!legacy) {
-      await interaction.editReply({
-        content:
-          "Enter **current level** and **target level** as simple numbers (or target **maxed**).",
-      });
-      return;
-    }
-    currentLevel = legacy.current;
-    targetLevel = legacy.target;
   }
 
   let tags: string[] = [];
@@ -580,14 +825,64 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
     tags = [];
   }
 
+  const quote =
+    usesLevels &&
+    service.usesPricing !== false &&
+    currentLevel != null
+      ? calculateServiceQuote({
+          catalog,
+          serviceKey,
+          currentLevel,
+          targetMaxed,
+          targetLevel,
+          speedKey,
+        })
+      : null;
+
+  const autoTags = buildOrderTags({
+    catalog,
+    serviceKey,
+    serviceLabel: service.label,
+    speedKey,
+    targetMaxed,
+    targetLevel,
+    quote,
+  });
+  const allTags = [...autoTags, ...tags.filter((t) => !autoTags.includes(t))].slice(0, 8);
+
+  const speedLabel = speedAddonLabel(catalog, speedKey);
+  const quoteLine = quote ? formatQuoteSummary(catalog, quote.total) : null;
+  const itemLabel = `${catalog.itemNoun.charAt(0).toUpperCase()}${catalog.itemNoun.slice(1)}(s)`;
+
   const details = formatServiceOrderDetails({
-    serviceLabel: catalog.label,
+    serviceLabel: service.label,
+    itemLabel,
     vehicleText: vehicle,
     currentLevel,
     targetLevel,
     targetMaxed,
-    tags,
+    speedLabel,
+    quoteLine,
+    tags: allTags,
+    notes,
   });
+
+  const orderMeta: ServiceOrderMeta = {
+    catalogBrand: catalog.brandName,
+    itemNoun: catalog.itemNoun,
+    itemName: vehicle,
+    currentLevel,
+    targetLevel,
+    targetMaxed,
+    speedKey,
+    speedLabel,
+    tags: allTags,
+    quoteTotal: quote?.total ?? null,
+    quoteCurrency: quote?.currencyLabel ?? null,
+    quoteCurrencyEmoji: quote?.currencyEmoji ?? null,
+    quoteLines: quote?.lines,
+    estimate: quote?.estimate ?? false,
+  };
 
   let attachments: { url: string; name: string; contentType: string | null; size: number }[] = [];
   try {
@@ -627,7 +922,10 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
     serviceKey,
     details,
     attachments,
+    orderMeta,
   });
+
+  clearPlaceDraft(clan.guildId, interaction.user.id);
 
   if (!res.ok) {
     if (res.error === SERVICE_ORDER_ACCESS_DENIED) {
@@ -640,11 +938,19 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
 
   const pos = res.order.queuePosition ?? 1;
   const ahead = ordersAhead(pos);
+  const quoteBit = quote
+    ? `\n💎 Estimated quote: **${formatQuoteAmount(catalog, quote.total)}** (staff confirms).`
+    : "";
   await interaction.editReply({
     content:
       `✅ Order **${res.order.publicId}** placed with **${attachments.length}** photo(s).\n` +
-      `Queue position **#${pos}**` +
+      `${service.emoji} ${service.label} · ${speedLabel}` +
+      (usesLevels && currentLevel != null
+        ? ` · Lv ${currentLevel}→${targetMaxed ? "maxed" : targetLevel}`
+        : "") +
+      `\nQueue position **#${pos}**` +
       (ahead === 0 ? " — you're next." : ` (${ahead} ahead).`) +
+      quoteBit +
       `\nPrivate ticket: <#${res.channelId}> — photos are on your order card.`,
   });
 }
@@ -1097,6 +1403,26 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
     return;
   }
 
+  if (action === "wizCancel" || interaction.customId === SVC_WIZ_CANCEL) {
+    await handleWizardCancel(interaction);
+    return;
+  }
+
+  if (action === "wizContinue" || interaction.customId === SVC_WIZ_CONTINUE) {
+    await handleWizardContinue(interaction);
+    return;
+  }
+
+  if (action === "wizSpeed") {
+    await handleWizardSpeed(interaction, String(arg ?? "regular"));
+    return;
+  }
+
+  if (action === "wizCustom") {
+    await handleWizardCustom(interaction, String(arg ?? "0") === "1");
+    return;
+  }
+
   if (action === "trackerRefresh" || interaction.customId === SVC_TRACKER_REFRESH) {
     await runTrackerRefresh(interaction);
     return;
@@ -1148,6 +1474,11 @@ export async function handleServiceOrderSelect(interaction: StringSelectMenuInte
 
   if (action === "servicePick" || interaction.customId === SVC_SERVICE_PICK) {
     await openDetailsModal(interaction);
+    return;
+  }
+
+  if (action === "wizService" || interaction.customId === SVC_WIZ_SERVICE) {
+    await handleWizardServicePick(interaction);
     return;
   }
 

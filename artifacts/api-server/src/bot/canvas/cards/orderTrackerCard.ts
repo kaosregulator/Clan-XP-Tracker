@@ -23,6 +23,9 @@ export interface OrderTrackerRow {
   statusLabel: string;
   statusTone: "queue" | "active" | "hold" | "done" | "bad";
   avatarUrl: string | null;
+  /** e.g. "M1 Abrams · Lv 12→100 · ⚡ Rushed" */
+  summaryLine?: string | null;
+  tags?: string[] | null;
 }
 
 export interface OrderTrackerCardView {
@@ -43,7 +46,7 @@ const TONE: Record<OrderTrackerRow["statusTone"], { bg: string; fg: string }> = 
 export async function renderOrderTrackerCard(view: OrderTrackerCardView): Promise<Buffer> {
   const rows = view.rows.slice(0, 8);
   const W = 980;
-  const rowH = 72;
+  const rowH = 88;
   const H = 200 + Math.max(rows.length, 1) * (rowH + 12);
   const rc = createSurface(W, H);
   const { ctx } = rc;
@@ -81,26 +84,46 @@ export async function renderOrderTrackerCard(view: OrderTrackerCardView): Promis
   } else {
     for (const row of rows) {
       card(ctx, 56, y, W - 112, rowH, { radius: 14, fill: PALETTE.bg1 });
-      text(ctx, `#${row.queuePosition}`, 72, y + 28, {
+      text(ctx, `#${row.queuePosition}`, 72, y + 30, {
         size: 26,
         weight: "bold",
         color: PALETTE.blurple,
       });
       const avatar = await fetchAvatar(row.avatarUrl);
-      drawAvatar(ctx, avatar, 150, y + 12, 48, row.customerName[0] ?? "?", PALETTE.blurpleSoft);
-      text(ctx, row.customerName, 214, y + 22, {
+      drawAvatar(ctx, avatar, 150, y + 20, 48, row.customerName[0] ?? "?", PALETTE.blurpleSoft);
+      text(ctx, row.customerName, 214, y + 16, {
         size: 18,
         weight: "bold",
         color: PALETTE.text,
         maxWidth: 360,
       });
-      text(ctx, `${row.publicId} · ${row.serviceLabel}`, 214, y + 46, {
-        size: 14,
-        color: PALETTE.muted,
-        maxWidth: 400,
-      });
+      text(
+        ctx,
+        row.summaryLine?.trim() ||
+          `${row.publicId} · ${row.serviceLabel}`,
+        214,
+        y + 42,
+        {
+          size: 14,
+          color: PALETTE.muted,
+          maxWidth: 520,
+        }
+      );
+      if (row.tags && row.tags.length) {
+        let tagX = 214;
+        for (const tag of row.tags.slice(0, 3)) {
+          tagX +=
+            pill(ctx, tag, tagX, y + 60, {
+              bg: "rgba(63,81,224,0.12)",
+              color: PALETTE.blurple,
+              size: 11,
+              height: 22,
+            }) + 6;
+          if (tagX > W - 300) break;
+        }
+      }
       const tone = TONE[row.statusTone];
-      pill(ctx, row.statusLabel, W - 280, y + 22, {
+      pill(ctx, row.statusLabel, W - 280, y + 28, {
         bg: tone.bg,
         color: tone.fg,
         size: 14,

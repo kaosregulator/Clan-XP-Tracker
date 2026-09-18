@@ -85,6 +85,7 @@ const STATEMENTS = [
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_blacklist_user_ids text[] NOT NULL DEFAULT '{}'`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_blacklist_role_ids text[] NOT NULL DEFAULT '{}'`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_review_channel_id text`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_catalog_json text`,
   `CREATE TABLE IF NOT EXISTS service_orders (
       id serial PRIMARY KEY,
       guild_id text NOT NULL,
@@ -105,6 +106,7 @@ const STATEMENTS = [
       ticket_message_id text,
       attachments_json text,
       attachment_count integer NOT NULL DEFAULT 0,
+      order_meta_json text,
       status_note text,
       claimed_at timestamptz,
       started_at timestamptz,
@@ -116,6 +118,7 @@ const STATEMENTS = [
     )`,
   `ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS review_prompted_at timestamptz`,
   `ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS review_submitted_at timestamptz`,
+  `ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS order_meta_json text`,
   `CREATE UNIQUE INDEX IF NOT EXISTS service_orders_guild_public_uidx
      ON service_orders (guild_id, public_id)`,
   `CREATE INDEX IF NOT EXISTS service_orders_guild_status_idx

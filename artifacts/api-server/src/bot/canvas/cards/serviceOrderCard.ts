@@ -35,9 +35,13 @@ export interface ServiceOrderCardView {
   placeMessage?: string | null;
   vehicleCount?: number | null;
   vehicleText?: string | null;
+  /** e.g. "vehicle" / "character" — drives labeled fields. */
+  itemNoun?: string | null;
   currentLevel?: number | null;
   targetLevel?: number | null;
   targetMaxed?: boolean;
+  speedLabel?: string | null;
+  quoteLine?: string | null;
   tags?: string[] | null;
   /** Order photos shown as a visible strip on the card. */
   photoUrls?: string[] | null;
@@ -81,12 +85,30 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
       size: 15,
       height: 32,
     }) + 12;
-  pill(ctx, view.serviceLabel, px, 132, {
-    bg: "rgba(63,81,224,0.12)",
-    color: PALETTE.blurple,
-    size: 15,
-    height: 32,
-  });
+  px +=
+    pill(ctx, view.serviceLabel, px, 132, {
+      bg: "rgba(63,81,224,0.12)",
+      color: PALETTE.blurple,
+      size: 15,
+      height: 32,
+    }) + 12;
+  if (view.speedLabel) {
+    px +=
+      pill(ctx, view.speedLabel, px, 132, {
+        bg: "rgba(230,126,34,0.16)",
+        color: "#a85b12",
+        size: 14,
+        height: 32,
+      }) + 12;
+  }
+  if (view.quoteLine) {
+    pill(ctx, view.quoteLine, px, 132, {
+      bg: "rgba(46,204,113,0.14)",
+      color: "#1e7a45",
+      size: 14,
+      height: 32,
+    });
+  }
 
   const avatar = await fetchAvatar(view.avatarUrl);
   drawAvatar(ctx, avatar, W - 170, 56, 96, view.customerName[0] ?? "?", PALETTE.blurpleSoft);
@@ -139,17 +161,18 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     tx += 214;
   }
 
-  // Clear labeled order facts — vehicle name, current/target level, tags
+  // Clear labeled order facts — item name, current/target level, tags
   let infoY = tileY + 100;
+  const noun = (view.itemNoun || "item").toUpperCase();
   const vehicleName =
     (view.vehicleText && view.vehicleText.trim()) ||
     (view.vehicleCount != null && view.vehicleCount > 0
-      ? `${view.vehicleCount} vehicle(s)`
+      ? `${view.vehicleCount} ${view.itemNoun || "item"}(s)`
       : "—");
 
   card(ctx, 56, infoY, W - 112, 150, { radius: 14, fill: PALETTE.bg1 });
 
-  text(ctx, "VEHICLE NAME", 74, infoY + 16, {
+  text(ctx, `${noun} NAME`, 74, infoY + 16, {
     size: 12,
     weight: "bold",
     color: PALETTE.muted,
@@ -174,7 +197,7 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     { size: 22, weight: "bold", color: PALETTE.text }
   );
 
-  text(ctx, "TARGET LEVEL", 320, infoY + 78, {
+  text(ctx, "TARGET LEVEL", 280, infoY + 78, {
     size: 12,
     weight: "bold",
     color: PALETTE.muted,
@@ -186,29 +209,31 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
       : view.targetLevel != null
         ? String(view.targetLevel)
         : "—",
-    320,
+    280,
     infoY + 102,
     { size: 22, weight: "bold", color: PALETTE.text }
   );
 
-  text(ctx, "TAGS", 560, infoY + 78, {
+  text(ctx, "TAGS", 480, infoY + 78, {
     size: 12,
     weight: "bold",
     color: PALETTE.muted,
   });
   if (view.tags && view.tags.length > 0) {
-    let tagX = 560;
+    let tagX = 480;
     for (const tag of view.tags.slice(0, 4)) {
-      tagX +=
+      const next =
         pill(ctx, tag, tagX, infoY + 100, {
           bg: "rgba(52,152,219,0.14)",
           color: "#1a6fa5",
-          size: 13,
+          size: 12,
           height: 28,
         }) + 8;
+      tagX += next;
+      if (tagX > W - 140) break;
     }
   } else {
-    text(ctx, "—", 560, infoY + 102, {
+    text(ctx, "—", 480, infoY + 102, {
       size: 20,
       weight: "bold",
       color: PALETTE.text,
@@ -319,7 +344,10 @@ function stripStructuredDetailLines(details: string): string {
         l.length > 0 &&
         !/^Service:/i.test(l) &&
         !/^Vehicle(?:\(s\)|s)?:/i.test(l) &&
+        !/^Item(?:\(s\)|s)?:/i.test(l) &&
         !/^Levels?:/i.test(l) &&
+        !/^Priority:/i.test(l) &&
+        !/^Quote:/i.test(l) &&
         !/^Tags?:/i.test(l)
     )
     .join("\n");

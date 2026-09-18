@@ -29,8 +29,10 @@ import {
   STATUS_EMOJI,
   STATUS_LABEL,
   ordersAhead,
+  parseServiceOrderDetails,
   statusTone,
 } from "./serviceOrderHelpers";
+import { parseOrderMeta } from "./serviceCatalog";
 import { renderOffThread } from "../canvas/render-pool";
 import { SVC_TRACKER_REFRESH } from "../ui/ids";
 import { logger } from "../../lib/logger";
@@ -41,6 +43,33 @@ let trackerClient: Client | null = null;
 
 export function setOrderTrackerClient(client: Client): void {
   trackerClient = client;
+}
+
+function orderSummaryBits(order: ServiceOrder): {
+  summaryLine: string;
+  tags: string[];
+} {
+  const meta = parseOrderMeta(order.orderMetaJson);
+  const parsed = parseServiceOrderDetails(order.details);
+  const item = meta?.itemName ?? parsed.vehicleText;
+  const cur =
+    meta?.currentLevel !== undefined ? meta.currentLevel : parsed.currentLevel;
+  const tgtMaxed =
+    meta?.targetMaxed !== undefined ? meta.targetMaxed : parsed.targetMaxed;
+  const tgt =
+    meta?.targetLevel !== undefined ? meta.targetLevel : parsed.targetLevel;
+  const levelPart =
+    cur != null
+      ? `Lv ${cur}→${tgtMaxed ? "max" : tgt != null ? tgt : "?"}`
+      : null;
+  const summaryLine = [order.publicId, order.serviceLabel, item || null, levelPart]
+    .filter(Boolean)
+    .join(" · ");
+  const tags = [
+    ...(meta?.tags ?? []),
+    ...parsed.tags.filter((t) => !(meta?.tags ?? []).includes(t)),
+  ].slice(0, 4);
+  return { summaryLine, tags };
 }
 
 export async function getOrderTracker(guildId: string): Promise<{
@@ -87,6 +116,7 @@ export async function buildOrderTrackerPayload(
   const rowViews = [];
   for (const order of active.slice(0, 8)) {
     const status = order.status as ServiceOrderStatus;
+    const bits = orderSummaryBits(order);
     rowViews.push({
       queuePosition: order.queuePosition ?? 0,
       publicId: order.publicId,
@@ -95,6 +125,8 @@ export async function buildOrderTrackerPayload(
       statusLabel: `${STATUS_EMOJI[status] ?? ""} ${STATUS_LABEL[status] ?? status}`.trim(),
       statusTone: statusTone(status),
       avatarUrl: await avatarForOrder(client, order),
+      summaryLine: bits.summaryLine,
+      tags: bits.tags,
     });
   }
 
@@ -136,6 +168,7 @@ export async function buildOrderTrackerPayload(
   for (const order of active.slice(0, 9)) {
     const status = order.status as ServiceOrderStatus;
     const avatar = await avatarForOrder(client, order);
+    const bits = orderSummaryBits(order);
     const mini = new EmbedBuilder()
       .setColor(STATUS_COLOR[status] ?? 0x3498db)
       .setAuthor({
@@ -144,7 +177,8 @@ export async function buildOrderTrackerPayload(
       })
       .setDescription(
         [
-          `**${order.publicId}** · ${order.serviceLabel}`,
+          bits.summaryLine,
+          bits.tags.length ? bits.tags.join(" · ") : null,
           `${STATUS_EMOJI[status] ?? ""} ${STATUS_LABEL[status] ?? status}`,
           order.queuePosition != null
             ? `${ordersAhead(order.queuePosition)} ahead`
@@ -152,7 +186,7 @@ export async function buildOrderTrackerPayload(
           order.channelId ? `Ticket: <#${order.channelId}>` : null,
         ]
           .filter(Boolean)
-          .join(" · ")
+          .join("\n")
       );
     embeds.push(mini);
   }

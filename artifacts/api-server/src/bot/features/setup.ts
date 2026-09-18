@@ -33,6 +33,7 @@ import {
   serviceOrderPanelPayload,
   serviceTeamRoleIds,
 } from "../services/serviceOrders";
+import { getServiceCatalog } from "../services/serviceCatalog";
 import {
   SETUP_GOAL,
   SETUP_GOAL_MODAL,
@@ -478,10 +479,11 @@ function levelingPayload(clan: Clan): BaseMessageOptions {
         .setColor(0x3f51e0)
         .setTitle("🛠️ Leveling Service")
         .setDescription(
-          "Amazon-style vehicle leveling / trading queue for Military Tycoon.\n\n" +
-            "Customers press **Place Service Order**, fill a short form, then drop screenshots in a private ticket.\n" +
-            "Staff claim, reorder, and complete jobs from the order card.\n\n" +
+          "Configurable leveling / service-order queue (Military Tycoon vehicle defaults; other games via catalog JSON).\n\n" +
+            "Customers press **Place Service Order**, pick service + priority, fill details + photos, then get a private ticket.\n" +
+            "Staff claim, reorder, and complete jobs from the order card / live tracker.\n\n" +
             `Enabled: **${clan.serviceOrdersEnabled ? "yes" : "no"}**\n` +
+            `Catalog: **${getServiceCatalog(clan).brandName}** (${getServiceCatalog(clan).services.length} services)\n` +
             `Orders board: ${clan.serviceOrderChannelId ? `<#${clan.serviceOrderChannelId}>` : "_not set_"}\n` +
             `Ticket category: ${clan.serviceOrderCategoryId ? `<#${clan.serviceOrderCategoryId}>` : "_not set_"}\n` +
             `Reviews channel: ${clan.serviceOrderReviewChannelId ? `<#${clan.serviceOrderReviewChannelId}>` : "_not set_"}\n` +
@@ -1225,7 +1227,7 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
           components: [],
         }));
       }
-      await channel.send(serviceOrderPanelPayload());
+      await channel.send(serviceOrderPanelPayload(clan));
       await interaction.editReply({
         ...levelingPayload(clan),
         content: "✅ Order panel posted in this channel.",

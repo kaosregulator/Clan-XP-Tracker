@@ -12,17 +12,17 @@ export const SERVICE_CATALOG: Record<
   vehicle_leveling: {
     label: "Vehicle Leveling",
     emoji: "🛠️",
-    blurb: "Military Tycoon vehicle leveling",
+    blurb: "Level a vehicle toward max (or a custom target)",
   },
   vehicle_trading: {
     label: "Vehicle Trading",
     emoji: "🚗",
-    blurb: "Military Tycoon vehicle trading help",
+    blurb: "Help trading or swapping vehicles",
   },
   other: {
     label: "Other Service",
     emoji: "📋",
-    blurb: "Another Military Tycoon service",
+    blurb: "Something else — describe it in the form",
   },
 };
 
@@ -163,11 +163,13 @@ export function statusTone(
 
 export function resolveServiceKey(raw: string): ServiceKey {
   const n = raw.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (n === "vehicle_trading" || n.includes("trad")) return "vehicle_trading";
-  if (n === "vehicle_leveling" || n.includes("level") || n.includes("vehicle")) {
+  if (n === "vehicle_leveling" || n === "vehicle_trading" || n === "other") {
+    return n;
+  }
+  if (n.includes("trad")) return "vehicle_trading";
+  if (n.includes("level") || n.includes("vehicle")) {
     return "vehicle_leveling";
   }
-  if (n === "other") return "other";
   return "other";
 }
 
@@ -326,24 +328,32 @@ export type ParsedServiceOrderDetails = {
   targetLevel: number | null;
   /** True when customer asked to go to max / maxed. */
   targetMaxed: boolean;
+  speedLabel: string | null;
+  quoteLine: string | null;
   tags: string[];
   notes: string;
   raw: string;
 };
 
 const DETAIL_SERVICE = /^Service:\s*(.+)$/im;
+const DETAIL_ITEM = /^Item(?:\(s\)|s)?:\s*(.+)$/im;
 const DETAIL_VEHICLE = /^Vehicle(?:\(s\)|s)?:\s*(.+)$/im;
 const DETAIL_LEVELS = /^Levels?:\s*(\d+)\s*(?:→|->|to)\s*(\d+|maxed|max)\b/im;
+const DETAIL_SPEED = /^Priority:\s*(.+)$/im;
+const DETAIL_QUOTE = /^Quote:\s*(.+)$/im;
 const DETAIL_TAGS = /^Tags?:\s*(.+)$/im;
 
 export function parseServiceOrderDetails(details: string | null | undefined): ParsedServiceOrderDetails {
   const raw = String(details ?? "").trim();
   const serviceMatch = raw.match(DETAIL_SERVICE);
   const vehicleMatch = raw.match(DETAIL_VEHICLE);
+  const itemMatch = raw.match(DETAIL_ITEM);
   const levelsMatch = raw.match(DETAIL_LEVELS);
+  const speedMatch = raw.match(DETAIL_SPEED);
+  const quoteMatch = raw.match(DETAIL_QUOTE);
   const tagsMatch = raw.match(DETAIL_TAGS);
 
-  const vehicleText = (vehicleMatch?.[1] ?? "").trim();
+  const vehicleText = (vehicleMatch?.[1] ?? itemMatch?.[1] ?? "").trim();
   const vehicleParts = vehicleText
     ? vehicleText.split(/[,|/]+/).map((p) => p.trim()).filter(Boolean)
     : [];
@@ -363,8 +373,11 @@ export function parseServiceOrderDetails(details: string | null | undefined): Pa
       (line) =>
         line.length > 0 &&
         !DETAIL_SERVICE.test(line) &&
-        !DETAIL_VEHICLE.test(line) &&
+        !/^Vehicle(?:\(s\)|s)?:/i.test(line) &&
+        !DETAIL_ITEM.test(line) &&
         !DETAIL_LEVELS.test(line) &&
+        !DETAIL_SPEED.test(line) &&
+        !DETAIL_QUOTE.test(line) &&
         !DETAIL_TAGS.test(line)
     )
     .join("\n");
@@ -383,6 +396,8 @@ export function parseServiceOrderDetails(details: string | null | undefined): Pa
     currentLevel: levelsMatch ? Number(levelsMatch[1]) : null,
     targetLevel,
     targetMaxed,
+    speedLabel: (speedMatch?.[1] ?? "").trim() || null,
+    quoteLine: (quoteMatch?.[1] ?? "").trim() || null,
     tags,
     notes,
     raw,
@@ -391,24 +406,29 @@ export function parseServiceOrderDetails(details: string | null | undefined): Pa
 
 export function formatServiceOrderDetails(input: {
   serviceLabel: string;
+  /** Prefer itemNoun-aware label from caller ("Vehicle(s)" / "Item(s)"). */
+  itemLabel?: string;
   vehicleText: string;
-  currentLevel: number;
-  /** Omit / null when targetMaxed is true. */
+  currentLevel?: number | null;
   targetLevel?: number | null;
   targetMaxed?: boolean;
+  speedLabel?: string | null;
+  quoteLine?: string | null;
   tags?: string[];
   notes?: string;
 }): string {
-  const targetLabel = input.targetMaxed
-    ? "maxed"
-    : input.targetLevel != null
-      ? String(input.targetLevel)
-      : "maxed";
-  const lines = [
-    `Service: ${input.serviceLabel}`,
-    `Vehicle(s): ${input.vehicleText}`,
-    `Levels: ${input.currentLevel} → ${targetLabel}`,
-  ];
+  const itemLabel = input.itemLabel ?? "Item(s)";
+  const lines = [`Service: ${input.serviceLabel}`, `${itemLabel}: ${input.vehicleText}`];
+  if (input.currentLevel != null) {
+    const targetLabel = input.targetMaxed
+      ? "maxed"
+      : input.targetLevel != null
+        ? String(input.targetLevel)
+        : "maxed";
+    lines.push(`Levels: ${input.currentLevel} → ${targetLabel}`);
+  }
+  if (input.speedLabel) lines.push(`Priority: ${input.speedLabel}`);
+  if (input.quoteLine) lines.push(`Quote: ${input.quoteLine}`);
   if (input.tags && input.tags.length > 0) {
     lines.push(`Tags: ${input.tags.join(", ")}`);
   }
