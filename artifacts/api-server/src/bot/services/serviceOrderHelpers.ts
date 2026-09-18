@@ -324,6 +324,8 @@ export type ParsedServiceOrderDetails = {
   vehicleCount: number;
   currentLevel: number | null;
   targetLevel: number | null;
+  /** True when customer asked to go to max / maxed. */
+  targetMaxed: boolean;
   tags: string[];
   notes: string;
   raw: string;
@@ -331,7 +333,7 @@ export type ParsedServiceOrderDetails = {
 
 const DETAIL_SERVICE = /^Service:\s*(.+)$/im;
 const DETAIL_VEHICLE = /^Vehicle(?:\(s\)|s)?:\s*(.+)$/im;
-const DETAIL_LEVELS = /^Levels?:\s*(\d+)\s*(?:→|->|to)\s*(\d+)/im;
+const DETAIL_LEVELS = /^Levels?:\s*(\d+)\s*(?:→|->|to)\s*(\d+|maxed|max)\b/im;
 const DETAIL_TAGS = /^Tags?:\s*(.+)$/im;
 
 export function parseServiceOrderDetails(details: string | null | undefined): ParsedServiceOrderDetails {
@@ -367,12 +369,20 @@ export function parseServiceOrderDetails(details: string | null | undefined): Pa
     )
     .join("\n");
 
+  const targetRaw = levelsMatch?.[2]?.toLowerCase() ?? "";
+  const targetMaxed = targetRaw === "max" || targetRaw === "maxed";
+  const targetLevel =
+    levelsMatch && !targetMaxed && Number.isFinite(Number(levelsMatch[2]))
+      ? Number(levelsMatch[2])
+      : null;
+
   return {
     serviceLabel: (serviceMatch?.[1] ?? "").trim() || "Service order",
     vehicleText,
     vehicleCount,
     currentLevel: levelsMatch ? Number(levelsMatch[1]) : null,
-    targetLevel: levelsMatch ? Number(levelsMatch[2]) : null,
+    targetLevel,
+    targetMaxed,
     tags,
     notes,
     raw,
@@ -383,16 +393,23 @@ export function formatServiceOrderDetails(input: {
   serviceLabel: string;
   vehicleText: string;
   currentLevel: number;
-  targetLevel: number;
-  tags: string[];
+  /** Omit / null when targetMaxed is true. */
+  targetLevel?: number | null;
+  targetMaxed?: boolean;
+  tags?: string[];
   notes?: string;
 }): string {
+  const targetLabel = input.targetMaxed
+    ? "maxed"
+    : input.targetLevel != null
+      ? String(input.targetLevel)
+      : "maxed";
   const lines = [
     `Service: ${input.serviceLabel}`,
     `Vehicle(s): ${input.vehicleText}`,
-    `Levels: ${input.currentLevel} → ${input.targetLevel}`,
+    `Levels: ${input.currentLevel} → ${targetLabel}`,
   ];
-  if (input.tags.length > 0) {
+  if (input.tags && input.tags.length > 0) {
     lines.push(`Tags: ${input.tags.join(", ")}`);
   }
   if (input.notes?.trim()) {
@@ -440,4 +457,39 @@ export function isImageAttachment(opts: {
 export function starBar(n: number, max = 5): string {
   const filled = Math.max(0, Math.min(max, Math.round(n)));
   return "★".repeat(filled) + "☆".repeat(max - filled);
+}
+
+/** Hard ceiling so users can't spam absurd values (still effectively "any level"). */
+export const SERVICE_ORDER_LEVEL_CAP = 9_999_999;
+
+/**
+ * Parse a single level box: plain integer 1…cap, or "max" / "maxed" for target.
+ * Rejects leading zeros (00001), empty, decimals, and non-numeric junk.
+ */
+export function parseLevelInput(
+  raw: string,
+  opts?: { allowMaxed?: boolean }
+): number | "maxed" | null {
+  const t = raw.trim().toLowerCase();
+  if (!t) return null;
+  if (opts?.allowMaxed && (t === "max" || t === "maxed")) return "maxed";
+  // Digits only, 1–7 chars — blocks 00000 / 1e9 / spaces / symbols.
+  if (!/^[1-9]\d{0,6}$/.test(t)) return null;
+  const n = Number(t);
+  if (!Number.isInteger(n) || n < 1 || n > SERVICE_ORDER_LEVEL_CAP) return null;
+  return n;
+}
+
+/** Validate current + target boxes together. */
+export function parseCurrentAndTargetLevels(
+  currentRaw: string,
+  targetRaw: string
+): { current: number; target: number | null; targetMaxed: boolean } | null {
+  const current = parseLevelInput(currentRaw);
+  if (typeof current !== "number") return null;
+  const target = parseLevelInput(targetRaw, { allowMaxed: true });
+  if (target == null) return null;
+  if (target === "maxed") return { current, target: null, targetMaxed: true };
+  if (target < current) return null;
+  return { current, target, targetMaxed: false };
 }

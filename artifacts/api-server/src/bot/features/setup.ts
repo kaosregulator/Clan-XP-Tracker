@@ -541,26 +541,28 @@ function levelingPayload(clan: Clan): BaseMessageOptions {
           .setMaxValues(1)
           .setDefaultRoles(clan.serviceOrderTeamRoleId ? [clan.serviceOrderTeamRoleId] : [])
       ),
+      // Discord allows max 5 action rows — keep Back on this same row.
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(SETUP_LEVELING_TOGGLE)
-          .setLabel(clan.serviceOrdersEnabled ? "Disable service" : "Enable service")
+          .setLabel(clan.serviceOrdersEnabled ? "Disable" : "Enable")
           .setStyle(clan.serviceOrdersEnabled ? ButtonStyle.Danger : ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(SETUP_LEVELING_CREATE_CATEGORY)
-          .setLabel("Create LEVELING ORDERS category")
+          .setLabel("Create category")
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(SETUP_LEVELING_POST_PANEL)
-          .setLabel("Post order panel here")
+          .setLabel("Post panel")
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(SETUP_LEVELING_ACCESS)
-          .setLabel("Access Control")
-          .setStyle(ButtonStyle.Primary)
-      ),
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(SETUP_BACK).setLabel("← Back").setStyle(ButtonStyle.Secondary)
+          .setLabel("Access")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(SETUP_BACK)
+          .setLabel("← Back")
+          .setStyle(ButtonStyle.Secondary)
       ),
     ],
   };
@@ -1137,8 +1139,19 @@ export async function handleSetupButton(interaction: ButtonInteraction) {
       return void (await interaction.editReply(periodPayload(clan)));
     case "disputes":
       return void (await interaction.editReply(disputesPayload(clan)));
-    case "leveling":
-      return void (await interaction.editReply(levelingPayload(clan)));
+    case "leveling": {
+      try {
+        return void (await interaction.editReply(levelingPayload(clan)));
+      } catch (err) {
+        // Surface Discord component limits / permission errors instead of silent fail.
+        return void (await interaction.followUp({
+          content:
+            "⚠️ Couldn't open **Leveling Service** setup. " +
+            "Try again — if it keeps failing, re-open **/setup**.",
+          flags: 64,
+        }).catch(() => undefined));
+      }
+    }
     case "levelingAccess":
       return void (await interaction.editReply(levelingAccessPayload(clan)));
     case "levelingClearWl": {

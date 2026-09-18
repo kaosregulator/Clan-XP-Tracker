@@ -1,5 +1,6 @@
 /**
- * Place Service Order form preview — matches the live modal (free-text levels & tags).
+ * Place Service Order form preview — matches the live modal
+ * (separate current/target numbers + required photos).
  */
 import {
   createSurface,
@@ -31,7 +32,7 @@ export async function renderPlaceOrderFormCard(
     weight: "bold",
     color: PALETTE.text,
   });
-  text(ctx, "Tell us what you need — any vehicle, any levels, any tags.", 52, 92, {
+  text(ctx, "Simple numbers for levels — no hardcoded ranges.", 52, 92, {
     size: 15,
     color: PALETTE.soft,
   });
@@ -42,7 +43,7 @@ export async function renderPlaceOrderFormCard(
     size: 12,
     height: 28,
   });
-  text(ctx, "No external websites", W - 300, 92, {
+  text(ctx, (view.communityName || "CLAN").toUpperCase(), W - 300, 92, {
     size: 12,
     color: PALETTE.muted,
   });
@@ -59,46 +60,38 @@ export async function renderPlaceOrderFormCard(
   field("1. Choose Service (required)", 120, "🛠️  Vehicle Leveling");
   field(
     "2. What do you want leveled? (required)",
-    220,
+    210,
     "Enter vehicle, item, or anything…",
-    "Example: M1 Abrams, F-22 Raptor, Helicopter, etc."
+    "Example: M1 Abrams, F-22 Raptor, Helicopter…"
   );
   field(
-    "3. Current → Target level (required)",
-    330,
-    "e.g. 12 → 80",
-    "Any levels work — 1–50 was only an example."
+    "3. Current level (required)",
+    310,
+    "e.g. 12",
+    "Just a number — 1 and up. No ranges."
   );
   field(
-    "4. Tags (optional)",
-    440,
-    "e.g. Vehicle, XP, Urgent — or your own words",
-    "Type any tags. Nothing is locked to a fixed list."
+    "4. Target level (required)",
+    410,
+    'e.g. 80 or "maxed"',
+    "Number you want, or type maxed. Must be ≥ current."
   );
   field(
-    "5. Add Image (screenshot)",
-    550,
-    "📷  Click to attach an image",
-    "Upload a screenshot of your vehicle, current level, or anything helpful."
+    "5. Add photos (required, max 5)",
+    510,
+    "📷  Upload 1–5 screenshots from your device",
+    "Before / current state photos are required."
   );
 
-  card(ctx, 52, 650, 140, 40, { radius: 10, fill: PALETTE.cardAlt });
-  text(ctx, "Cancel", 95, 662, { size: 15, color: PALETTE.soft, align: "center" });
-  card(ctx, W - 320, 650, 244, 40, { radius: 10, fill: "rgba(46,204,113,0.2)" });
-  text(ctx, "✓  Submit Service Order", W - 198, 662, {
+  card(ctx, 52, 620, 140, 40, { radius: 10, fill: PALETTE.cardAlt });
+  text(ctx, "Cancel", 95, 632, { size: 15, color: PALETTE.soft, align: "center" });
+  card(ctx, W - 320, 620, 244, 40, { radius: 10, fill: "rgba(46,204,113,0.2)" });
+  text(ctx, "✓  Submit Service Order", W - 198, 632, {
     size: 15,
     weight: "bold",
     color: "#1e7a45",
     align: "center",
   });
-
-  text(
-    ctx,
-    `${(view.communityName || "CLAN").toUpperCase()} · Press Place Service Order below to start`,
-    52,
-    H - 36,
-    { size: 12, color: PALETTE.muted }
-  );
 
   return toPng(rc.canvas);
 }
