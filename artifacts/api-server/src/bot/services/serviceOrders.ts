@@ -990,6 +990,7 @@ export async function buildOrderPayload(
       vehicleText: parsed.vehicleText || null,
       currentLevel: parsed.currentLevel,
       targetLevel: parsed.targetLevel,
+      targetMaxed: parsed.targetMaxed,
       tags: parsed.tags,
       photoUrls,
       orderedAt: order.createdAt.toLocaleString("en-US", {
@@ -1042,7 +1043,11 @@ export async function buildOrderPayload(
       },
       {
         name: "Target level",
-        value: parsed.targetLevel != null ? String(parsed.targetLevel) : "—",
+        value: parsed.targetMaxed
+          ? "maxed"
+          : parsed.targetLevel != null
+            ? String(parsed.targetLevel)
+            : "—",
         inline: true,
       },
       {

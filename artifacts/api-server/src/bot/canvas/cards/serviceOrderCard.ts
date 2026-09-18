@@ -37,6 +37,7 @@ export interface ServiceOrderCardView {
   vehicleText?: string | null;
   currentLevel?: number | null;
   targetLevel?: number | null;
+  targetMaxed?: boolean;
   tags?: string[] | null;
   /** Order photos shown as a visible strip on the card. */
   photoUrls?: string[] | null;
@@ -180,7 +181,11 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
   });
   text(
     ctx,
-    view.targetLevel != null ? String(view.targetLevel) : "—",
+    view.targetMaxed
+      ? "maxed"
+      : view.targetLevel != null
+        ? String(view.targetLevel)
+        : "—",
     320,
     infoY + 102,
     { size: 22, weight: "bold", color: PALETTE.text }

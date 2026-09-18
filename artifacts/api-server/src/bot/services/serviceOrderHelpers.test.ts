@@ -19,6 +19,8 @@ import {
   parseServiceOrderDetails,
   queuePlaceMessage,
   parseTagsField,
+  parseLevelInput,
+  parseCurrentAndTargetLevels,
 } from "./serviceOrderHelpers.js";
 
 describe("serviceOrderHelpers", () => {
@@ -181,7 +183,44 @@ describe("serviceOrderHelpers", () => {
     assert.equal(parsed.vehicleCount, 2);
     assert.equal(parsed.currentLevel, 1);
     assert.equal(parsed.targetLevel, 50);
+    assert.equal(parsed.targetMaxed, false);
     assert.deepEqual(parsed.tags, ["Vehicle", "Urgent"]);
+  });
+
+  it("parses maxed target levels", () => {
+    const raw = formatServiceOrderDetails({
+      serviceLabel: "Vehicle Leveling",
+      vehicleText: "Tank",
+      currentLevel: 12,
+      targetMaxed: true,
+    });
+    assert.match(raw, /12 → maxed/);
+    const parsed = parseServiceOrderDetails(raw);
+    assert.equal(parsed.currentLevel, 12);
+    assert.equal(parsed.targetLevel, null);
+    assert.equal(parsed.targetMaxed, true);
+  });
+
+  it("parses simple level inputs safely", () => {
+    assert.equal(parseLevelInput("12"), 12);
+    assert.equal(parseLevelInput("1"), 1);
+    assert.equal(parseLevelInput("maxed", { allowMaxed: true }), "maxed");
+    assert.equal(parseLevelInput("00001"), null);
+    assert.equal(parseLevelInput("0"), null);
+    assert.equal(parseLevelInput("12.5"), null);
+    assert.equal(parseLevelInput("1-100"), null);
+    assert.equal(parseLevelInput(""), null);
+    assert.deepEqual(parseCurrentAndTargetLevels("12", "80"), {
+      current: 12,
+      target: 80,
+      targetMaxed: false,
+    });
+    assert.deepEqual(parseCurrentAndTargetLevels("12", "maxed"), {
+      current: 12,
+      target: null,
+      targetMaxed: true,
+    });
+    assert.equal(parseCurrentAndTargetLevels("80", "12"), null);
   });
 
   it("builds a queue place message", () => {

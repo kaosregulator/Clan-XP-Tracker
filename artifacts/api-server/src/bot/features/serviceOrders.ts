@@ -52,6 +52,7 @@ import {
   isImageAttachment,
   SERVICE_ORDER_MAX_PHOTOS,
   SERVICE_ORDER_MIN_PHOTOS,
+  parseCurrentAndTargetLevels,
 } from "../services/serviceOrderHelpers";
 import {
   postOrderTracker,
@@ -424,27 +425,28 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
           .setPlaceholder("Enter vehicle, item, or anything…")
       ),
     new LabelBuilder()
-      .setLabel("3. Current → Target level (required)")
-      .setDescription("Type any levels — not limited to 1–50. Example format only: 12 → 80")
+      .setLabel("3. Current level (required)")
+      .setDescription("Just a number — e.g. 1, 12, 80. No ranges.")
       .setTextInputComponent(
         new TextInputBuilder()
-          .setCustomId("levels")
+          .setCustomId("currentLevel")
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
-          .setMinLength(3)
-          .setMaxLength(40)
-          .setPlaceholder("e.g. 12 → 80")
+          .setMinLength(1)
+          .setMaxLength(7)
+          .setPlaceholder("e.g. 12")
       ),
     new LabelBuilder()
-      .setLabel("4. Tags (optional)")
-      .setDescription("Any labels you want — comma separated. Example: Vehicle, XP, Urgent")
+      .setLabel("4. Target level (required)")
+      .setDescription('Number you want, or type "maxed". Must be ≥ current.')
       .setTextInputComponent(
         new TextInputBuilder()
-          .setCustomId("tags")
+          .setCustomId("targetLevel")
           .setStyle(TextInputStyle.Short)
-          .setRequired(false)
-          .setMaxLength(120)
-          .setPlaceholder("e.g. Vehicle, XP, Urgent — or leave blank")
+          .setRequired(true)
+          .setMinLength(1)
+          .setMaxLength(7)
+          .setPlaceholder('e.g. 80 or maxed')
       ),
     new LabelBuilder()
       .setLabel("5. Add photos (required, max 5)")
@@ -503,12 +505,13 @@ async function openDetailsModal(interaction: StringSelectMenuInteraction) {
 }
 
 function parseLevelsField(raw: string): { current: number; target: number } | null {
+  // Legacy single-box "12 → 80" / "1-100" support for older clients.
   const m = raw.trim().match(/(\d+)\s*(?:→|->|to|-|–)\s*(\d+)/i);
   if (!m) return null;
   const current = Number(m[1]);
   const target = Number(m[2]);
   if (!Number.isFinite(current) || !Number.isFinite(target)) return null;
-  if (current < 0 || target < 0 || target < current) return null;
+  if (current < 1 || target < current) return null;
   return { current, target };
 }
 
@@ -526,17 +529,48 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
   const serviceKey = resolveServiceKey(serviceValues[0] ?? "other");
   const catalog = SERVICE_CATALOG[serviceKey];
   const vehicle = interaction.fields.getTextInputValue("vehicle").trim();
-  const levelsRaw = interaction.fields.getTextInputValue("levels").trim();
-  const levels = parseLevelsField(levelsRaw);
   if (!vehicle) {
     await interaction.editReply({ content: "Please enter what you want leveled." });
     return;
   }
-  if (!levels) {
-    await interaction.editReply({
-      content: "Levels must look like **12 → 80** (current → target). Any numbers work.",
-    });
-    return;
+
+  // Prefer the new separate current/target boxes; fall back to legacy combined field.
+  let currentLevel: number;
+  let targetLevel: number | null;
+  let targetMaxed = false;
+  try {
+    const currentRaw = interaction.fields.getTextInputValue("currentLevel");
+    const targetRaw = interaction.fields.getTextInputValue("targetLevel");
+    const parsed = parseCurrentAndTargetLevels(currentRaw, targetRaw);
+    if (!parsed) {
+      await interaction.editReply({
+        content:
+          "Enter **simple numbers** only (e.g. current `12`, target `80`). " +
+          'Target can also be **maxed**. No leading zeros, max 7 digits. Target must be ≥ current.',
+      });
+      return;
+    }
+    currentLevel = parsed.current;
+    targetLevel = parsed.target;
+    targetMaxed = parsed.targetMaxed;
+  } catch {
+    // Older modal still posting a combined "levels" field.
+    let levelsRaw = "";
+    try {
+      levelsRaw = interaction.fields.getTextInputValue("levels").trim();
+    } catch {
+      levelsRaw = "";
+    }
+    const legacy = parseLevelsField(levelsRaw);
+    if (!legacy) {
+      await interaction.editReply({
+        content:
+          "Enter **current level** and **target level** as simple numbers (or target **maxed**).",
+      });
+      return;
+    }
+    currentLevel = legacy.current;
+    targetLevel = legacy.target;
   }
 
   let tags: string[] = [];
@@ -549,8 +583,9 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
   const details = formatServiceOrderDetails({
     serviceLabel: catalog.label,
     vehicleText: vehicle,
-    currentLevel: levels.current,
-    targetLevel: levels.target,
+    currentLevel,
+    targetLevel,
+    targetMaxed,
     tags,
   });
 
