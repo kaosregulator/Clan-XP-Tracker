@@ -36,6 +36,7 @@ import {
   SERVICE_ORDER_ACCESS_DENIED,
   deleteServiceOrderChannel,
   captureServiceOrderTranscript,
+  parseAttachmentsJson,
   type ServiceOrderAction,
 } from "../services/serviceOrders";
 import {
@@ -52,7 +53,6 @@ import {
   isImageAttachment,
   SERVICE_ORDER_MAX_PHOTOS,
   SERVICE_ORDER_MIN_PHOTOS,
-  parseCurrentAndTargetLevels,
   parseLevelInput,
 } from "../services/serviceOrderHelpers";
 import {
@@ -575,8 +575,8 @@ async function handleWizardContinue(interaction: ButtonInteraction) {
   if (usesLevels) {
     labels.push(
       new LabelBuilder()
-        .setLabel("2. Current level (required)")
-        .setDescription("Just a number — e.g. 1, 12, 80.")
+        .setLabel("2. Current level right now (required)")
+        .setDescription(`Where is this ${noun} today? Just a number — e.g. 1, 12, 80.`)
         .setTextInputComponent(
           new TextInputBuilder()
             .setCustomId("currentLevel")
@@ -588,25 +588,13 @@ async function handleWizardContinue(interaction: ButtonInteraction) {
         )
     );
     if (draft.customTarget) {
+      // Destination was chosen on the wizard — only ask the stop level here.
       labels.push(
         new LabelBuilder()
-          .setLabel("3. Target level (required)")
-          .setDescription(`Custom target (not max ${catalog.maxLevel}). Must be ≥ current.`)
-          .setTextInputComponent(
-            new TextInputBuilder()
-              .setCustomId("targetLevel")
-              .setStyle(TextInputStyle.Short)
-              .setRequired(true)
-              .setMinLength(1)
-              .setMaxLength(7)
-              .setPlaceholder("e.g. 80")
+          .setLabel("3. Stop at level (required)")
+          .setDescription(
+            `Destination — not your current level. Where should we stop? (below max ${catalog.maxLevel})`
           )
-      );
-    } else {
-      labels.push(
-        new LabelBuilder()
-          .setLabel(`3. Target (max ${catalog.maxLevel} or number)`)
-          .setDescription(`Type "maxed" for max ${catalog.maxLevel}, or a number ≥ current.`)
           .setTextInputComponent(
             new TextInputBuilder()
               .setCustomId("targetLevel")
@@ -614,11 +602,11 @@ async function handleWizardContinue(interaction: ButtonInteraction) {
               .setRequired(true)
               .setMinLength(1)
               .setMaxLength(7)
-              .setPlaceholder("maxed")
-              .setValue("maxed")
+              .setPlaceholder("e.g. 50")
           )
       );
     }
+    // Max destination: no target field — already decided on the wizard.
   } else {
     labels.push(
       new LabelBuilder()
@@ -635,9 +623,10 @@ async function handleWizardContinue(interaction: ButtonInteraction) {
     );
   }
 
+  const photoStep = usesLevels ? (draft.customTarget ? "4" : "3") : "3";
   labels.push(
     new LabelBuilder()
-      .setLabel(`${usesLevels ? "4" : "3"}. Add photos (required, max 5)`)
+      .setLabel(`${photoStep}. Add photos (required, max 5)`)
       .setDescription("Upload 1–5 screenshots from your device. Required.")
       .setFileUploadComponent(
         new FileUploadBuilder()
@@ -764,14 +753,20 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
   if (usesLevels) {
     try {
       const currentRaw = interaction.fields.getTextInputValue("currentLevel");
-      const targetRaw = interaction.fields.getTextInputValue("targetLevel");
       if (preferCustom) {
+        let targetRaw = "";
+        try {
+          targetRaw = interaction.fields.getTextInputValue("targetLevel");
+        } catch {
+          targetRaw = "";
+        }
         const cur = parseLevelInput(currentRaw);
         const tgt = parseLevelInput(targetRaw);
         if (typeof cur !== "number" || typeof tgt !== "number" || tgt < cur) {
           await interaction.editReply({
             content:
-              "Enter **simple numbers** for current and custom target (target ≥ current). No leading zeros.",
+              "Enter **current level** and **stop-at level** as simple numbers (stop ≥ current). " +
+              "Stop-at is where you want leveling to end — not the same as current.",
           });
           return;
         }
@@ -783,18 +778,18 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
           targetLevel = null;
         }
       } else {
-        const parsed = parseCurrentAndTargetLevels(currentRaw, targetRaw);
-        if (!parsed) {
+        // Wizard already chose Max destination — only current level on the form.
+        const cur = parseLevelInput(currentRaw);
+        if (typeof cur !== "number") {
           await interaction.editReply({
             content:
-              "Enter **simple numbers** only (e.g. current `12`, target `80`). " +
-              'Target can also be **maxed**. No leading zeros. Target must be ≥ current.',
+              "Enter your **current level** as a simple number (e.g. `12`). No leading zeros.",
           });
           return;
         }
-        currentLevel = parsed.current;
-        targetLevel = parsed.target;
-        targetMaxed = parsed.targetMaxed;
+        currentLevel = cur;
+        targetLevel = null;
+        targetMaxed = true;
       }
     } catch {
       // Older modal still posting a combined "levels" field.
@@ -808,7 +803,8 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
       if (!legacy) {
         await interaction.editReply({
           content:
-            "Enter **current level** and **target level** as simple numbers (or target **maxed**).",
+            "Enter **current level** as a simple number" +
+            (preferCustom ? " and your **stop-at** level." : "."),
         });
         return;
       }
@@ -1140,6 +1136,58 @@ async function runQuickReply(interaction: StringSelectMenuInteraction, orderId: 
 
 const customerQuickReplyCooldown = new Map<string, number>();
 
+async function runViewPics(interaction: ButtonInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+
+  const order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+
+  const isCustomer = order.customerId === interaction.user.id;
+  const isStaff = canManageServiceOrders(interaction.member, clan);
+  if (!isCustomer && !isStaff) {
+    await interaction.editReply({ content: "Only the customer or staff can view order photos." });
+    return;
+  }
+
+  const photos = parseAttachmentsJson(order.attachmentsJson)
+    .filter((a) => isImageAttachment(a))
+    .slice(0, SERVICE_ORDER_MAX_PHOTOS);
+
+  if (!photos.length) {
+    await interaction.editReply({
+      content:
+        "📷 No photos on this order yet. Upload images in the ticket, then staff can use **Sync Files**.",
+    });
+    return;
+  }
+
+  try {
+    await interaction.editReply({
+      content: `📷 **${photos.length}** photo(s) for **${order.publicId}** (ephemeral — only you see this):`,
+      files: photos.map((a) => ({
+        attachment: a.url,
+        name: a.name || "order-photo.png",
+      })),
+    });
+  } catch (err) {
+    logger.warn({ err, orderId }, "view pics failed");
+    await interaction.editReply({
+      content:
+        "⚠️ Couldn't attach the photos here (CDN may have expired). Scroll the ticket for the photo message, or ask staff to **Sync Files**.",
+    });
+  }
+}
+
 async function runRequestDelete(interaction: ButtonInteraction, orderId: number) {
   if (!interaction.inCachedGuild()) return;
   await interaction.deferReply({ flags: 64 });
@@ -1436,6 +1484,11 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
 
   if (action === "syncFiles") {
     await runSyncFiles(interaction, orderId);
+    return;
+  }
+
+  if (action === "viewPics") {
+    await runViewPics(interaction, orderId);
     return;
   }
 
