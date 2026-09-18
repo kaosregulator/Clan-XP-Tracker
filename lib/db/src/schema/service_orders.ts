@@ -27,9 +27,21 @@ export const SERVICE_ORDER_STATUSES = [
 ] as const;
 export type ServiceOrderStatus = (typeof SERVICE_ORDER_STATUSES)[number];
 
-/** Statuses that still occupy a slot in the live FIFO queue. */
+/**
+ * Statuses that still occupy a slot in the live FIFO queue.
+ * `received` = awaiting required photos — counts toward "open order" lock
+ * but is not yet on the public board / live tracker queue.
+ */
 export const SERVICE_ORDER_QUEUE_STATUSES = [
   "received",
+  "queued",
+  "claimed",
+  "in_progress",
+  "on_hold",
+] as const;
+
+/** Statuses shown on the live FIFO board / tracker (photos already submitted). */
+export const SERVICE_ORDER_BOARD_STATUSES = [
   "queued",
   "claimed",
   "in_progress",
@@ -93,6 +105,11 @@ export const serviceOrdersTable = pgTable(
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+
+    /** When the customer was offered the post-completion review form. */
+    reviewPromptedAt: timestamp("review_prompted_at", { withTimezone: true }),
+    /** Set once a review is submitted (prevents duplicate prompts). */
+    reviewSubmittedAt: timestamp("review_submitted_at", { withTimezone: true }),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })

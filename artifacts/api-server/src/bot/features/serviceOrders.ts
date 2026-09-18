@@ -35,8 +35,13 @@ import {
   ordersAhead,
   SERVICE_ORDER_ACCESS_DENIED,
   deleteServiceOrderChannel,
+  captureServiceOrderTranscript,
   type ServiceOrderAction,
 } from "../services/serviceOrders";
+import {
+  handleServiceOrderReviewButton,
+  handleServiceOrderReviewModal,
+} from "../services/serviceOrderReviews";
 import {
   resolveServiceKey,
   staffQuickReplyByKey,
@@ -44,6 +49,9 @@ import {
   CUSTOMER_QUICK_REPLY_COOLDOWN_MS,
   formatServiceOrderDetails,
   parseTagsField,
+  isImageAttachment,
+  SERVICE_ORDER_MAX_PHOTOS,
+  SERVICE_ORDER_MIN_PHOTOS,
 } from "../services/serviceOrderHelpers";
 import {
   postOrderTracker,
@@ -439,13 +447,13 @@ async function beginPlaceOrder(interaction: ButtonInteraction) {
           .setPlaceholder("e.g. Vehicle, XP, Urgent — or leave blank")
       ),
     new LabelBuilder()
-      .setLabel("5. Add Image (screenshot)")
-      .setDescription("Upload a screenshot of your vehicle, current level, or anything helpful.")
+      .setLabel("5. Add photos (required, max 5)")
+      .setDescription("Upload 1–5 screenshots from your device (before/current state). Required.")
       .setFileUploadComponent(
         new FileUploadBuilder()
           .setCustomId("image")
-          .setRequired(false)
-          .setMinValues(0)
+          .setRequired(true)
+          .setMinValues(1)
           .setMaxValues(5)
       )
   );
@@ -548,20 +556,30 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
 
   let attachments: { url: string; name: string; contentType: string | null; size: number }[] = [];
   try {
-    const uploaded = interaction.fields.getUploadedFiles("image", false);
+    const uploaded = interaction.fields.getUploadedFiles("image", true);
     if (uploaded) {
       const list: Attachment[] = Array.isArray(uploaded)
         ? uploaded
         : [...uploaded.values()];
-      attachments = list.map((a) => ({
-        url: a.url,
-        name: a.name || "upload.png",
-        contentType: a.contentType ?? null,
-        size: a.size ?? 0,
-      }));
+      attachments = list
+        .map((a) => ({
+          url: a.url,
+          name: a.name || "upload.png",
+          contentType: a.contentType ?? null,
+          size: a.size ?? 0,
+        }))
+        .filter((a) => isImageAttachment(a))
+        .slice(0, SERVICE_ORDER_MAX_PHOTOS);
     }
   } catch {
     attachments = [];
+  }
+
+  if (attachments.length < SERVICE_ORDER_MIN_PHOTOS) {
+    await interaction.editReply({
+      content: `📷 **At least ${SERVICE_ORDER_MIN_PHOTOS} photo** is required (max ${SERVICE_ORDER_MAX_PHOTOS}). Upload screenshots from your device and try again.`,
+    });
+    return;
   }
 
   const res = await placeServiceOrder({
@@ -589,10 +607,10 @@ async function submitPlaceOrderForm(interaction: ModalSubmitInteraction) {
   const ahead = ordersAhead(pos);
   await interaction.editReply({
     content:
-      `✅ Order **${res.order.publicId}** placed.\n` +
+      `✅ Order **${res.order.publicId}** placed with **${attachments.length}** photo(s).\n` +
       `Queue position **#${pos}**` +
       (ahead === 0 ? " — you're next." : ` (${ahead} ahead).`) +
-      `\nPrivate ticket: <#${res.channelId}> — your order card is ready there.`,
+      `\nPrivate ticket: <#${res.channelId}> — photos are on your order card.`,
   });
 }
 
@@ -811,7 +829,7 @@ async function runRequestDelete(interaction: ButtonInteraction, orderId: number)
         await ch.send({
           content:
             `${staffPing} 🗑️ <@${order.customerId}> requested to **delete** order **${order.publicId}**.\n` +
-            `Staff: use **Delete** on the orders board to remove this ticket.`,
+            `Staff: use **Delete Order** / **Transcript** on the orders board.`,
           allowedMentions: {
             users: [order.customerId],
             roles: clan.serviceOrderTeamRoleId ? [clan.serviceOrderTeamRoleId] : [],
@@ -971,8 +989,49 @@ async function runDeleteChannel(interaction: ButtonInteraction, orderId: number)
   }
   await interaction.editReply({
     content: res.deleted
-      ? "✅ Order channel deleted."
-      : "✅ Order closed — channel was already gone.",
+      ? "✅ **Delete Order** — ticket channel removed. Order history + transcript were kept."
+      : "✅ Order closed — channel was already gone. History kept.",
+  });
+}
+
+async function runTranscript(interaction: ButtonInteraction, orderId: number) {
+  if (!interaction.inCachedGuild()) return;
+  await interaction.deferReply({ flags: 64 });
+
+  const clan = await getClan(interaction.guildId);
+  if (!clan) {
+    await interaction.editReply(notConfiguredMessage(isOfficer(interaction.member, null)));
+    return;
+  }
+  if (!canManageServiceOrders(interaction.member, clan)) {
+    await interaction.editReply({
+      content: "Only leveling staff / officers can save transcripts.",
+    });
+    return;
+  }
+
+  const order = await getServiceOrder(clan.guildId, orderId);
+  if (!order) {
+    await interaction.editReply({ content: "Order not found." });
+    return;
+  }
+
+  const res = await captureServiceOrderTranscript({
+    client: interaction.client,
+    guild: interaction.guild,
+    clan,
+    order,
+    actorId: interaction.user.id,
+    actorUsername: interaction.user.username,
+  });
+  if (!res.ok) {
+    await interaction.editReply({ content: `⚠️ ${res.error}` });
+    return;
+  }
+  await interaction.editReply({
+    content:
+      `📜 Transcript saved (**${res.messageCount}** messages)` +
+      (clan.logChannelId ? ` → <#${clan.logChannelId}>.` : "."),
   });
 }
 
@@ -985,10 +1044,18 @@ async function runTrackerRefresh(interaction: ButtonInteraction) {
 }
 
 export async function handleServiceOrderButton(interaction: ButtonInteraction) {
-  if (!interaction.inCachedGuild()) return;
-  if (parseId(interaction.customId).ns !== NS.svc) return;
+  const parsed = parseId(interaction.customId);
+  if (parsed.ns !== NS.svc) return;
 
-  const { action, arg } = parseId(interaction.customId);
+  // Review buttons work in guild tickets and DMs (fallback after channel delete).
+  if (parsed.action.startsWith("review")) {
+    const handled = await handleServiceOrderReviewButton(interaction);
+    if (handled) return;
+  }
+
+  if (!interaction.inCachedGuild()) return;
+
+  const { action, arg } = parsed;
 
   if (action === "place" || interaction.customId === SVC_PLACE) {
     await beginPlaceOrder(interaction);
@@ -1000,7 +1067,7 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
     return;
   }
 
-  const orderId = Number(arg);
+  const orderId = Number(String(arg ?? "").split("-")[0]);
   if (!orderId) {
     await interaction.reply({ content: "Invalid order reference.", flags: 64 });
     return;
@@ -1018,6 +1085,11 @@ export async function handleServiceOrderButton(interaction: ButtonInteraction) {
 
   if (action === "customerCancel") {
     await runCustomerCancel(interaction, orderId);
+    return;
+  }
+
+  if (action === "transcript") {
+    await runTranscript(interaction, orderId);
     return;
   }
 
@@ -1068,9 +1140,15 @@ export async function handleServiceOrderSelect(interaction: StringSelectMenuInte
 }
 
 export async function handleServiceOrderModal(interaction: ModalSubmitInteraction) {
-  if (!interaction.inCachedGuild()) return;
   const { ns, action } = parseId(interaction.customId);
   if (ns !== NS.svc) return;
+
+  if (action === "reviewComment") {
+    const handled = await handleServiceOrderReviewModal(interaction);
+    if (handled) return;
+  }
+
+  if (!interaction.inCachedGuild()) return;
 
   if (action === "placeForm" || interaction.customId === SVC_PLACE_FORM) {
     await submitPlaceOrderForm(interaction);

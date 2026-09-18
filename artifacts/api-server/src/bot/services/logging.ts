@@ -1,7 +1,12 @@
 import { db, auditLogsTable } from "@workspace/db";
 import type { AuditLog, Clan } from "@workspace/db";
 import { and, eq, desc, sql } from "drizzle-orm";
-import type { Client, EmbedBuilder, AttachmentBuilder } from "discord.js";
+import {
+  EmbedBuilder,
+  type Client,
+  type AttachmentBuilder,
+  type ColorResolvable,
+} from "discord.js";
 import { logger } from "../../lib/logger";
 
 export interface AuditInput {
@@ -66,4 +71,86 @@ export async function sendLog(
     logger.error({ err, channel: clan.logChannelId }, "Failed to send log message");
   }
   return null;
+}
+
+export interface StaffLogOpts {
+  client: Client;
+  clan: Clan;
+  /** Short machine action key, also written to audit_logs when audit=true. */
+  action: string;
+  /** Embed title (emoji + human label). */
+  title: string;
+  description: string;
+  color?: ColorResolvable;
+  actorId?: string | null;
+  actorUsername?: string | null;
+  targetUserId?: string | null;
+  targetUsername?: string | null;
+  fields?: { name: string; value: string; inline?: boolean }[];
+  files?: AttachmentBuilder[];
+  /** Also write an audit_logs row (default true). */
+  audit?: boolean;
+  auditDetails?: Record<string, unknown>;
+}
+
+/**
+ * Full staff log: Discord log-channel embed + durable audit row.
+ * Use for staff commands, order lifecycle, warn/role changes, deletes, etc.
+ */
+export async function staffLog(opts: StaffLogOpts): Promise<{
+  channelId: string;
+  messageId: string;
+} | null> {
+  const {
+    client,
+    clan,
+    action,
+    title,
+    description,
+    color = 0x5865f2,
+    actorId,
+    actorUsername,
+    targetUserId,
+    targetUsername,
+    fields = [],
+    files,
+    audit = true,
+    auditDetails,
+  } = opts;
+
+  if (audit) {
+    await logAction(clan.guildId, {
+      action,
+      targetUserId,
+      targetUsername,
+      moderatorId: actorId,
+      moderatorUsername: actorUsername,
+      details: auditDetails ?? {},
+    });
+  }
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title.slice(0, 256))
+    .setDescription(description.slice(0, 4096))
+    .setTimestamp();
+
+  if (fields.length) {
+    embed.addFields(
+      ...fields.slice(0, 25).map((f) => ({
+        name: f.name.slice(0, 256),
+        value: f.value.slice(0, 1024),
+        inline: f.inline,
+      }))
+    );
+  }
+
+  const footerParts: string[] = [];
+  if (actorUsername || actorId) {
+    footerParts.push(`Staff: ${actorUsername ?? "unknown"}${actorId ? ` · ${actorId}` : ""}`);
+  }
+  footerParts.push(action);
+  embed.setFooter({ text: footerParts.join(" · ").slice(0, 2048) });
+
+  return sendLog(client, clan, embed, files);
 }

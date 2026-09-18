@@ -68,6 +68,7 @@ import {
 import { renderServiceOrderCard } from "./cards/serviceOrderCard";
 import { renderPlaceOrderFormCard } from "./cards/placeOrderFormCard";
 import { renderOrderTrackerCard } from "./cards/orderTrackerCard";
+import { renderServiceOrderReviewCard } from "./cards/serviceOrderReviewCard";
 
 if (!parentPort) throw new Error("render-worker must be spawned as a Worker thread");
 
@@ -185,6 +186,8 @@ async function dispatch(fn: string, p: Record<string, unknown>): Promise<Buffer>
       return renderPlaceOrderFormCard(p as any);
     case "orderTrackerCard":
       return renderOrderTrackerCard(p as any);
+    case "serviceOrderReviewCard":
+      return renderServiceOrderReviewCard(p as any);
     default:
       throw new Error(`Unknown render function: "${fn}"`);
   }

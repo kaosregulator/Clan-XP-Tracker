@@ -2,6 +2,7 @@
  * Service-order card — live tracking snapshot for ticket + orders board.
  * Clear labeled fields: vehicle name, current level, target level, tags, queue.
  */
+import type { SKRSContext2D } from "@napi-rs/canvas";
 import {
   createSurface,
   paintBackground,
@@ -37,6 +38,8 @@ export interface ServiceOrderCardView {
   currentLevel?: number | null;
   targetLevel?: number | null;
   tags?: string[] | null;
+  /** Order photos shown as a visible strip on the card. */
+  photoUrls?: string[] | null;
 }
 
 const TONE: Record<ServiceOrderCardView["statusTone"], { bg: string; fg: string }> = {
@@ -49,7 +52,8 @@ const TONE: Record<ServiceOrderCardView["statusTone"], { bg: string; fg: string 
 
 export async function renderServiceOrderCard(view: ServiceOrderCardView): Promise<Buffer> {
   const W = 980;
-  const H = 700;
+  const photoCount = (view.photoUrls ?? []).length;
+  const H = photoCount ? 820 : 700;
   const rc = createSurface(W, H);
   const { ctx } = rc;
   paintBackground(rc);
@@ -208,6 +212,47 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
 
   infoY += 170;
 
+  // Photo strip — small but clearly part of the ticket
+  const photos = (view.photoUrls ?? []).slice(0, 5);
+  if (photos.length) {
+    text(ctx, "ORDER PHOTOS", 56, infoY, {
+      size: 12,
+      weight: "bold",
+      color: PALETTE.muted,
+    });
+    infoY += 18;
+    const thumbW = 140;
+    const thumbH = 96;
+    let pxPhoto = 56;
+    for (const url of photos) {
+      const img = await fetchAvatar(url, 6000);
+      ctx.save();
+      roundThumb(ctx, pxPhoto, infoY, thumbW, thumbH, 10);
+      ctx.clip();
+      ctx.fillStyle = PALETTE.bg1;
+      ctx.fillRect(pxPhoto, infoY, thumbW, thumbH);
+      if (img) {
+        const scale = Math.max(thumbW / img.width, thumbH / img.height);
+        const dw = img.width * scale;
+        const dh = img.height * scale;
+        ctx.drawImage(
+          img,
+          pxPhoto + (thumbW - dw) / 2,
+          infoY + (thumbH - dh) / 2,
+          dw,
+          dh
+        );
+      }
+      ctx.restore();
+      ctx.strokeStyle = "rgba(63,81,224,0.35)";
+      ctx.lineWidth = 2;
+      roundThumb(ctx, pxPhoto, infoY, thumbW, thumbH, 10);
+      ctx.stroke();
+      pxPhoto += thumbW + 12;
+    }
+    infoY += thumbH + 18;
+  }
+
   text(ctx, "IMPORTANT INFORMATION", 56, infoY, {
     size: 12,
     weight: "bold",
@@ -216,7 +261,7 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
   ctx.font = "17px sans-serif";
   // Prefer notes-only body when structured fields already shown above
   const detailBody = stripStructuredDetailLines(view.details);
-  const lines = wrapText(ctx, detailBody || "—", W - 140, 4);
+  const lines = wrapText(ctx, detailBody || "—", W - 140, photos.length ? 2 : 4);
   let ly = infoY + 28;
   for (const line of lines) {
     text(ctx, line, 56, ly, { size: 17, color: PALETTE.soft, maxWidth: W - 140 });
@@ -229,12 +274,35 @@ export async function renderServiceOrderCard(view: ServiceOrderCardView): Promis
     color: PALETTE.muted,
     maxWidth: W - 280,
   });
-  text(ctx, "Live service tracking", W - 250, H - 64, {
-    size: 14,
-    color: PALETTE.muted,
-  });
+  text(
+    ctx,
+    photos.length ? `${photos.length} photo(s) on ticket` : "Live service tracking",
+    W - 250,
+    H - 64,
+    {
+      size: 14,
+      color: photos.length ? PALETTE.blurple : PALETTE.muted,
+    }
+  );
 
   return toPng(rc.canvas);
+}
+
+function roundThumb(
+  ctx: SKRSContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
 function stripStructuredDetailLines(details: string): string {

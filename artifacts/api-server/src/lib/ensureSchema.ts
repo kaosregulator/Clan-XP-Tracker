@@ -84,6 +84,7 @@ const STATEMENTS = [
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_whitelist_role_ids text[] NOT NULL DEFAULT '{}'`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_blacklist_user_ids text[] NOT NULL DEFAULT '{}'`,
   `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_blacklist_role_ids text[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE clans ADD COLUMN IF NOT EXISTS service_order_review_channel_id text`,
   `CREATE TABLE IF NOT EXISTS service_orders (
       id serial PRIMARY KEY,
       guild_id text NOT NULL,
@@ -108,13 +109,45 @@ const STATEMENTS = [
       claimed_at timestamptz,
       started_at timestamptz,
       completed_at timestamptz,
+      review_prompted_at timestamptz,
+      review_submitted_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now()
     )`,
+  `ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS review_prompted_at timestamptz`,
+  `ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS review_submitted_at timestamptz`,
   `CREATE UNIQUE INDEX IF NOT EXISTS service_orders_guild_public_uidx
      ON service_orders (guild_id, public_id)`,
   `CREATE INDEX IF NOT EXISTS service_orders_guild_status_idx
      ON service_orders (guild_id, status)`,
+  `CREATE TABLE IF NOT EXISTS service_order_reviews (
+      id serial PRIMARY KEY,
+      guild_id text NOT NULL,
+      order_id integer NOT NULL,
+      public_id text NOT NULL,
+      customer_id text NOT NULL,
+      customer_username text NOT NULL,
+      customer_display_name text NOT NULL,
+      staff_id text,
+      staff_username text,
+      service_key text NOT NULL,
+      service_label text NOT NULL,
+      speed_rating integer NOT NULL,
+      quality_rating integer NOT NULL,
+      would_recommend boolean NOT NULL,
+      comment text,
+      photos_json text,
+      photo_count integer NOT NULL DEFAULT 0,
+      review_channel_id text,
+      review_message_id text,
+      order_created_at timestamptz,
+      order_completed_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS service_order_reviews_order_uidx
+     ON service_order_reviews (order_id)`,
+  `CREATE INDEX IF NOT EXISTS service_order_reviews_guild_idx
+     ON service_order_reviews (guild_id)`,
 ] as const;
 
 export async function ensureSchema(): Promise<void> {

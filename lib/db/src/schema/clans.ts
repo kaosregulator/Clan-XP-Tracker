@@ -209,6 +209,8 @@ export const clansTable = pgTable("clans", {
   serviceOrderCategoryId: text("service_order_category_id"),
   /** Role that can claim/manage leveling orders (falls back to officers). */
   serviceOrderTeamRoleId: text("service_order_team_role_id"),
+  /** Public channel where completed-order review cards are posted. */
+  serviceOrderReviewChannelId: text("service_order_review_channel_id"),
   /** DM the customer on material status / queue changes. */
   serviceOrderDmCustomer: boolean("service_order_dm_customer").notNull().default(true),
   /** Notify the customer when only their queue position changes. */
