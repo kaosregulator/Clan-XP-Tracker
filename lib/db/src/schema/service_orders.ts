@@ -100,6 +100,12 @@ export const serviceOrdersTable = pgTable(
     attachmentsJson: text("attachments_json"),
     attachmentCount: integer("attachment_count").notNull().default(0),
 
+    /**
+     * Structured order meta (priority, quote, item name, tags) as JSON.
+     * Complements free-text `details` for canvas / tracker / staff tags.
+     */
+    orderMetaJson: text("order_meta_json"),
+
     statusNote: text("status_note"),
 
     claimedAt: timestamp("claimed_at", { withTimezone: true }),

@@ -62,6 +62,13 @@ import {
   SERVICE_ORDER_MAX_PHOTOS,
 } from "./serviceOrderHelpers";
 import {
+  findCatalogService,
+  getServiceCatalog,
+  parseOrderMeta,
+  serializeOrderMeta,
+  type ServiceOrderMeta,
+} from "./serviceCatalog";
+import {
   svcClaim,
   svcStart,
   svcHold,
@@ -226,10 +233,13 @@ export interface PlaceServiceOrderInput {
   clan: Clan;
   customer: User;
   customerDisplayName: string;
-  serviceKey: ServiceKey;
+  /** Catalog service key (MT defaults or clan override). */
+  serviceKey: string;
   details: string;
   /** Screenshots from the place-order modal file upload. */
   attachments?: ServiceOrderAttachment[];
+  /** Structured meta for canvas / tracker tags (priority, quote, …). */
+  orderMeta?: ServiceOrderMeta | null;
 }
 
 export async function placeServiceOrder(
@@ -273,7 +283,16 @@ export async function placeServiceOrder(
   const botId = input.client.user?.id;
   if (!botId) return { ok: false, error: "Bot is not ready — try again in a moment." };
 
-  const catalog = SERVICE_CATALOG[input.serviceKey];
+  const serviceCatalog = getServiceCatalog(input.clan);
+  const catalogService =
+    findCatalogService(serviceCatalog, input.serviceKey) ??
+    SERVICE_CATALOG[input.serviceKey as ServiceKey] ??
+    ({
+      key: input.serviceKey,
+      label: input.serviceKey,
+      emoji: "📋",
+      blurb: "",
+    } as const);
   const seq = input.clan.serviceOrderNextNumber ?? 1;
   await updateClan(input.clan.guildId, { serviceOrderNextNumber: seq + 1 });
   const publicId = formatPublicId(seq);
@@ -281,16 +300,21 @@ export async function placeServiceOrder(
   const active = await listActiveServiceOrders(input.clan.guildId);
   const queuePosition = active.length + 1;
 
+  const orderMetaJson = input.orderMeta
+    ? serializeOrderMeta(input.orderMeta)
+    : null;
+
   const [created] = await db
     .insert(serviceOrdersTable)
     .values({
       guildId: input.clan.guildId,
       publicId,
       serviceKey: input.serviceKey,
-      serviceLabel: catalog.label,
+      serviceLabel: catalogService.label,
       details,
       attachmentsJson: serializeAttachments(photos),
       attachmentCount: photos.length,
+      orderMetaJson,
       status: "queued",
       queuePosition,
       customerId: input.customer.id,
@@ -326,7 +350,7 @@ export async function placeServiceOrder(
         username: input.customer.username,
         displayName: input.customerDisplayName,
         sequence: seq,
-      })} · ${catalog.label} · ${publicId}`,
+      })} · ${catalogService.label} · ${publicId}`,
       permissionOverwrites: buildDisputeOverwrites({
         guildId: input.guild.id,
         memberId: input.customer.id,
@@ -406,7 +430,7 @@ export async function placeServiceOrder(
       .catch(() => null);
     if (board?.isTextBased()) {
       const boardMsg = await board.send({
-        content: `🆕 **${row.publicId}** · ${catalog.label} · <@${input.customer.id}> · Queue #${row.queuePosition ?? "?"}`,
+        content: `🆕 **${row.publicId}** · ${catalogService.label} · <@${input.customer.id}> · Queue #${row.queuePosition ?? "?"}`,
         embeds: boardCard.embeds,
         files: boardCard.files,
         components: boardCard.components,
@@ -423,7 +447,7 @@ export async function placeServiceOrder(
   await createNotification({
     guildId: input.clan.guildId,
     type: "service_order",
-    title: `${row.publicId} — new ${catalog.label} order`,
+    title: `${row.publicId} — new ${catalogService.label} order`,
     body: `${input.customerDisplayName}: ${details.slice(0, 240)}`,
     targetUserId: input.customer.id,
     targetUsername: input.customer.username,
@@ -437,7 +461,7 @@ export async function placeServiceOrder(
     clan: input.clan,
     action: "service_order_placed",
     title: `🛠️ Service order · ${row.publicId}`,
-    description: `<@${input.customer.id}> placed a **${catalog.label}** order.`,
+    description: `<@${input.customer.id}> placed a **${catalogService.label}** order.`,
     color: STATUS_COLOR.queued,
     actorId: input.customer.id,
     actorUsername: input.customer.username,
@@ -447,6 +471,20 @@ export async function placeServiceOrder(
       { name: "Channel", value: `<#${channel.id}>`, inline: true },
       { name: "Queue", value: `#${row.queuePosition ?? 1}`, inline: true },
       { name: "Photos", value: String(photos.length), inline: true },
+      ...(input.orderMeta?.speedLabel
+        ? [{ name: "Priority", value: input.orderMeta.speedLabel, inline: true }]
+        : []),
+      ...(input.orderMeta?.quoteTotal != null
+        ? [
+            {
+              name: "Quote",
+              value: `${input.orderMeta.quoteCurrencyEmoji ?? "💎"} ~${Number(
+                input.orderMeta.quoteTotal
+              ).toLocaleString("en-US")}`,
+              inline: true,
+            },
+          ]
+        : []),
       { name: "Details", value: details.slice(0, 1024) },
     ],
     auditDetails: {
@@ -455,6 +493,7 @@ export async function placeServiceOrder(
       serviceKey: input.serviceKey,
       channelId: channel.id,
       photoCount: photos.length,
+      orderMeta: input.orderMeta ?? null,
     },
   });
 
@@ -962,8 +1001,30 @@ export async function buildOrderPayload(
   const avatarUrl = member?.robloxAvatarUrl || discordAvatar;
 
   const status = order.status as ServiceOrderStatus;
-  
+
   const parsed = parseServiceOrderDetails(order.details);
+  const meta = parseOrderMeta(order.orderMetaJson);
+  const catalog = getServiceCatalog(clan);
+  const itemNoun = meta?.itemNoun ?? catalog.itemNoun;
+  const displayTags = [
+    ...(meta?.tags ?? []),
+    ...parsed.tags.filter((t) => !(meta?.tags ?? []).includes(t)),
+  ].slice(0, 8);
+  const speedLabel = meta?.speedLabel ?? parsed.speedLabel;
+  const quoteLine =
+    meta?.quoteTotal != null
+      ? `${meta.quoteCurrencyEmoji ?? catalog.currencyEmoji} ~${Number(
+          meta.quoteTotal
+        ).toLocaleString("en-US")} ${meta.quoteCurrency ?? catalog.currencyLabel}`
+      : parsed.quoteLine;
+  const vehicleText = meta?.itemName ?? parsed.vehicleText;
+  const currentLevel =
+    meta?.currentLevel !== undefined ? meta.currentLevel : parsed.currentLevel;
+  const targetLevel =
+    meta?.targetLevel !== undefined ? meta.targetLevel : parsed.targetLevel;
+  const targetMaxed =
+    meta?.targetMaxed !== undefined ? meta.targetMaxed : parsed.targetMaxed;
+
   const placeMessage = queuePlaceMessage(order.queuePosition, parsed.vehicleCount);
   const photoUrls = parseAttachmentsJson(order.attachmentsJson)
     .filter((a) => isImageAttachment(a))
@@ -987,11 +1048,14 @@ export async function buildOrderPayload(
       staffName: order.staffUsername,
       placeMessage,
       vehicleCount: parsed.vehicleCount,
-      vehicleText: parsed.vehicleText || null,
-      currentLevel: parsed.currentLevel,
-      targetLevel: parsed.targetLevel,
-      targetMaxed: parsed.targetMaxed,
-      tags: parsed.tags,
+      vehicleText: vehicleText || null,
+      itemNoun,
+      currentLevel,
+      targetLevel,
+      targetMaxed,
+      speedLabel,
+      quoteLine,
+      tags: displayTags,
       photoUrls,
       orderedAt: order.createdAt.toLocaleString("en-US", {
         month: "short",
@@ -1030,30 +1094,38 @@ export async function buildOrderPayload(
         inline: false,
       },
       {
-        name: "Vehicle name",
-        value: parsed.vehicleText
-          ? parsed.vehicleText.slice(0, 200)
-          : "_none listed_",
+        name: `${itemNoun.charAt(0).toUpperCase()}${itemNoun.slice(1)} name`,
+        value: vehicleText ? vehicleText.slice(0, 200) : "_none listed_",
         inline: false,
       },
       {
         name: "Current level",
-        value: parsed.currentLevel != null ? String(parsed.currentLevel) : "—",
+        value: currentLevel != null ? String(currentLevel) : "—",
         inline: true,
       },
       {
         name: "Target level",
-        value: parsed.targetMaxed
+        value: targetMaxed
           ? "maxed"
-          : parsed.targetLevel != null
-            ? String(parsed.targetLevel)
+          : targetLevel != null
+            ? String(targetLevel)
             : "—",
         inline: true,
       },
       {
-        name: "Tags",
-        value: parsed.tags.length ? parsed.tags.join(", ") : "_none_",
+        name: "⚡ Priority",
+        value: speedLabel ?? "_standard_",
         inline: true,
+      },
+      {
+        name: "💎 Quote",
+        value: quoteLine ?? "_staff will confirm_",
+        inline: true,
+      },
+      {
+        name: "🏷️ Tags",
+        value: displayTags.length ? displayTags.join(" · ") : "_none_",
+        inline: false,
       },
       {
         name: "Important information",
@@ -1368,20 +1440,37 @@ export async function ensureServiceOrderCategory(
 }
 
 /** Public panel payload — Place Service Order button. */
-export function serviceOrderPanelPayload(): MessageCreateOptions {
+export function serviceOrderPanelPayload(clan?: Clan | null): MessageCreateOptions {
+  const catalog = getServiceCatalog(clan ?? null);
+  const serviceLines = catalog.services
+    .slice(0, 6)
+    .map((s) => `${s.emoji} **${s.label}** — ${s.blurb}`)
+    .join("\n");
   return {
     embeds: [
       new EmbedBuilder()
         .setColor(0x3f51e0)
-        .setTitle("🛠️ Leveling Service")
+        .setTitle(`🛠️ ${catalog.brandName}`)
         .setDescription(
-          "Need a **Military Tycoon** vehicle leveled or traded?\n\n" +
-            "1. Press **Place Service Order**\n" +
-            "2. Pick service, vehicle, levels, tags, and attach **1–5 photos** (required)\n" +
-            "3. Get a private ticket with your queue card + photos\n" +
-            "4. Use **Cancel Order** / **Request to Delete** / quick messages in your ticket\n\n" +
-            `${SERVICE_ORDER_PATIENCE_NOTICE}\n\n` +
-            "_No external websites — everything stays in Discord._"
+          [
+            catalog.tagline ? `*${catalog.tagline}*` : null,
+            "",
+            "Need something leveled or traded? Open a ticket in a few taps:",
+            "",
+            "1. Press **Place Service Order**",
+            "2. Pick **service** + **priority** (buttons & dropdown)",
+            `3. Enter your **${catalog.itemNoun}**, levels, and **1–5 photos**`,
+            "4. Get a private ticket with queue card, tags, and quote",
+            "",
+            "**What we offer**",
+            serviceLines,
+            "",
+            SERVICE_ORDER_PATIENCE_NOTICE,
+            "",
+            "_Catalog is configurable per server — not hard-coded to one game._",
+          ]
+            .filter((l) => l !== null)
+            .join("\n")
         ),
     ],
     components: [
@@ -1389,7 +1478,7 @@ export function serviceOrderPanelPayload(): MessageCreateOptions {
         new ButtonBuilder()
           .setCustomId(SVC_PLACE)
           .setLabel("Place Service Order")
-          .setEmoji("🛠️")
+          .setEmoji("🎫")
           .setStyle(ButtonStyle.Primary)
       ),
     ],

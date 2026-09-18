@@ -294,8 +294,14 @@ export const LNK_HOME = id(NS.link, "home");
 export const SVC_PLACE = id(NS.svc, "place");
 export const SVC_SERVICE_PICK = id(NS.svc, "servicePick");
 export const svcDetailsModal = (serviceKey: string) => id(NS.svc, "details", serviceKey);
-/** Full Place Service Order modal (service / vehicle / levels / tags / image). */
+/** Full Place Service Order modal (item / levels / photos) after wizard. */
 export const SVC_PLACE_FORM = id(NS.svc, "placeForm");
+/** Multi-step place wizard — service pick. */
+export const SVC_WIZ_SERVICE = id(NS.svc, "wizService");
+export const svcWizSpeed = (speed: string) => id(NS.svc, "wizSpeed", speed);
+export const svcWizCustom = (on: 0 | 1) => id(NS.svc, "wizCustom", on);
+export const SVC_WIZ_CONTINUE = id(NS.svc, "wizContinue");
+export const SVC_WIZ_CANCEL = id(NS.svc, "wizCancel");
 export const svcClaim = (orderId: number) => id(NS.svc, "claim", orderId);
 export const svcStart = (orderId: number) => id(NS.svc, "start", orderId);
 export const svcHold = (orderId: number) => id(NS.svc, "hold", orderId);
