@@ -293,6 +293,8 @@ export const LNK_HOME = id(NS.link, "home");
 export const SVC_PLACE = id(NS.svc, "place");
 export const SVC_SERVICE_PICK = id(NS.svc, "servicePick");
 export const svcDetailsModal = (serviceKey: string) => id(NS.svc, "details", serviceKey);
+/** Full Place Service Order modal (service / vehicle / levels / tags / image). */
+export const SVC_PLACE_FORM = id(NS.svc, "placeForm");
 export const svcClaim = (orderId: number) => id(NS.svc, "claim", orderId);
 export const svcStart = (orderId: number) => id(NS.svc, "start", orderId);
 export const svcHold = (orderId: number) => id(NS.svc, "hold", orderId);
@@ -304,6 +306,11 @@ export const svcUp = (orderId: number) => id(NS.svc, "up", orderId);
 export const svcDown = (orderId: number) => id(NS.svc, "down", orderId);
 export const svcSyncFiles = (orderId: number) => id(NS.svc, "syncFiles", orderId);
 export const svcQuickReply = (orderId: number) => id(NS.svc, "quickReply", orderId);
+/** Customer ticket: cancel their own order. */
+export const svcCustomerCancel = (orderId: number) => id(NS.svc, "customerCancel", orderId);
+/** Customer ticket: request staff to delete the channel. */
+export const svcRequestDelete = (orderId: number) => id(NS.svc, "requestDelete", orderId);
+/** Legacy: older tickets used requestClose — still routed. */
 /** Customer ticket: request close / cancel (staff still confirms). */
 export const svcRequestClose = (orderId: number) => id(NS.svc, "requestClose", orderId);
 /** Customer ticket: canned check-in replies (cooldown). */
