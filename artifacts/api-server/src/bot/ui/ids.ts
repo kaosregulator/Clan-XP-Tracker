@@ -328,6 +328,8 @@ export const svcDelete = (orderId: number) => id(NS.svc, "delete", orderId);
 export const svcTranscript = (orderId: number) => id(NS.svc, "transcript", orderId);
 /** Live order tracker panel refresh. */
 export const SVC_TRACKER_REFRESH = id(NS.svc, "trackerRefresh");
+/** Ticket: view order photos as an ephemeral reply (full-size). */
+export const svcViewPics = (orderId: number) => id(NS.svc, "viewPics", orderId);
 
 /* Post-completion leveling review (customer-facing). Arg = order id. */
 export const svcReviewStart = (orderId: number) => id(NS.svc, "reviewStart", orderId);
