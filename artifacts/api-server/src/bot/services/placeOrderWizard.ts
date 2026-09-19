@@ -1,6 +1,10 @@
 /**
  * Multi-step Place Service Order wizard — ephemeral Discord UI.
  * Catalog-driven (MT vehicle defaults; other servers override via JSON).
+ *
+ * Target choice (Max vs Custom) is the *destination* — where leveling stops.
+ * Current level is always asked on the next screen (where you are now).
+ * Those are two different questions, never the same field twice.
  */
 import {
   ActionRowBuilder,
@@ -36,7 +40,7 @@ export interface PlaceOrderDraft {
   userId: string;
   serviceKey: string;
   speedKey: SpeedAddonKey;
-  /** Customer wants a non-max target level (+ custom addon when priced). */
+  /** Customer wants a non-max destination level (+ custom addon when priced). */
   customTarget: boolean;
   updatedAt: number;
 }
@@ -106,22 +110,6 @@ function pricingBlurb(catalog: ServiceCatalog): string {
   );
 }
 
-function addonBlurb(catalog: ServiceCatalog): string {
-  const speed = catalog.addons.filter((a) => a.group === "speed");
-  const custom = catalog.addons.find((a) => a.autoWhenCustomTarget);
-  const parts = speed.map(
-    (a) =>
-      `${a.emoji} **${a.label}**` +
-      (a.price > 0 ? ` (+${formatMoney(a.price)})` : " (+0)")
-  );
-  if (custom) {
-    parts.push(
-      `${custom.emoji} **${custom.label}** (+${formatMoney(custom.price)})`
-    );
-  }
-  return parts.join("\n");
-}
-
 export function buildWizardPayload(
   clan: Clan,
   draft: PlaceOrderDraft
@@ -134,6 +122,15 @@ export function buildWizardPayload(
     findCatalogService(catalog, draft.serviceKey) ?? catalog.services[0]!;
   const usesPricing = service.usesPricing !== false;
   const usesLevels = service.usesLevels !== false;
+  const customAddon = catalog.addons.find((a) => a.autoWhenCustomTarget);
+  const customFee = customAddon?.price ?? 0;
+  const noun = catalog.itemNoun;
+
+  const destLine = draft.customTarget
+    ? `🎯 **Stop at a level you choose** (+${formatMoney(customFee)} ${catalog.currencyLabel})\n` +
+      `_Next screen: current level + the level you want to stop at._`
+    : `🏁 **Level all the way to max ${catalog.maxLevel}**\n` +
+      `_Next screen: only your current level — target is already max._`;
 
   const embed = new EmbedBuilder()
     .setColor(0x3f51e0)
@@ -142,46 +139,36 @@ export function buildWizardPayload(
       [
         catalog.tagline ? `*${catalog.tagline}*` : null,
         "",
-        "Pick your **service**, **priority**, then continue to details + photos.",
+        "Build your order below — each row is one choice.",
         "",
         pricingBlurb(catalog),
         "",
-        "**⚡ Priority add-ons** (stack with custom target)",
-        addonBlurb(catalog),
-        "",
         SERVICE_ORDER_PATIENCE_NOTICE,
-        ...(catalog.notes?.length
-          ? ["", ...catalog.notes.map((n) => `• ${n}`)]
-          : []),
       ]
         .filter((l) => l !== null)
         .join("\n")
     )
     .addFields(
       {
-        name: "🛠️ Selected service",
+        name: "① Service",
         value: `${service.emoji} **${service.label}**\n${service.blurb}`,
         inline: false,
       },
       {
-        name: "⚡ Priority",
-        value: speedAddonLabel(catalog, draft.speedKey),
+        name: "② Speed / priority",
+        value: `${speedAddonLabel(catalog, draft.speedKey)}\n_How fast we work the queue._`,
         inline: true,
       },
       {
-        name: "🎯 Target",
-        value: draft.customTarget
-          ? `Custom level (+${formatMoney(
-              catalog.addons.find((a) => a.autoWhenCustomTarget)?.price ?? 0
-            )} ${catalog.currencyLabel})`
-          : `🏁 Max ${catalog.maxLevel}`,
-        inline: true,
+        name: "③ Destination (where leveling stops)",
+        value: destLine,
+        inline: false,
       }
     )
     .setFooter({
       text: usesPricing
-        ? `Quote uses ${catalog.currencyEmoji} ${catalog.currencyLabel} · staff confirms final price`
-        : "This service has no auto-quote — staff will price in ticket",
+        ? `Quote uses ${catalog.currencyEmoji} ${catalog.currencyLabel} · staff confirms final · ${noun} current level asked next`
+        : "Staff will price this service in your ticket",
     });
 
   const serviceOptions = catalog.services.slice(0, 25).map((s) => ({
@@ -199,8 +186,8 @@ export function buildWizardPayload(
         .setCustomId(svcWizSpeed(a.key))
         .setLabel(
           (a.price > 0
-            ? `${a.label} +${formatMoney(a.price)}`
-            : a.label
+            ? `${a.label.replace(/\s+Service$/i, "")} +${formatMoney(a.price)}`
+            : a.label.replace(/\s+Service$/i, "") || a.label
           ).slice(0, 80)
         )
         .setEmoji(a.emoji)
@@ -214,7 +201,7 @@ export function buildWizardPayload(
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(SVC_WIZ_SERVICE)
-        .setPlaceholder("📋 Choose a service…")
+        .setPlaceholder("① Choose a service…")
         .addOptions(serviceOptions)
     ),
     speedRow,
@@ -230,7 +217,11 @@ export function buildWizardPayload(
           .setStyle(!draft.customTarget ? ButtonStyle.Success : ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(svcWizCustom(1))
-          .setLabel("Custom target")
+          .setLabel(
+            customFee > 0
+              ? `Custom stop +${formatMoney(customFee)}`
+              : "Custom stop level"
+          )
           .setEmoji("🎯")
           .setStyle(draft.customTarget ? ButtonStyle.Success : ButtonStyle.Secondary)
       )
@@ -241,7 +232,11 @@ export function buildWizardPayload(
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(SVC_WIZ_CONTINUE)
-        .setLabel("Continue to details")
+        .setLabel(
+          draft.customTarget
+            ? "Next: name, levels & photos"
+            : "Next: name, current level & photos"
+        )
         .setEmoji("➡️")
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
@@ -252,7 +247,6 @@ export function buildWizardPayload(
     )
   );
 
-  // Discord max 5 action rows
   return { embeds: [embed], components: rows.slice(0, 5) };
 }
 

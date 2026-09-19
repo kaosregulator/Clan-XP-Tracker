@@ -86,6 +86,7 @@ import {
   svcCustomerQuickReply,
   svcDelete,
   svcTranscript,
+  svcViewPics,
   SVC_PLACE,
 } from "../ui/ids";
 import { scheduleOrderTrackerRefresh } from "./orderTracker";
@@ -377,7 +378,6 @@ export async function placeServiceOrder(
   const row = order ?? { ...created, channelId: channel.id };
 
   const ticketCard = await buildOrderPayload(input.client, input.clan, row, "ticket");
-  const boardCard = await buildOrderPayload(input.client, input.clan, row, "board");
   const staffPing = serviceTeamRoleIds(input.clan)
     .map((r) => `<@&${r}>`)
     .join(" ");
@@ -387,9 +387,10 @@ export async function placeServiceOrder(
       content: [
         staffPing,
         `<@${input.customer.id}>`,
-        "",
-        `**Order ${row.publicId} received.** Drop screenshots or files **in this channel** (Discord upload — no image URLs).`,
-        `Queue: **#${row.queuePosition ?? 1}** · ${ordersAhead(row.queuePosition)} ahead of you.`,
+        `**${row.publicId}** placed · Queue **#${row.queuePosition ?? 1}**` +
+          (ordersAhead(row.queuePosition) === 0
+            ? " — you're next"
+            : ` · ${ordersAhead(row.queuePosition)} ahead`),
       ]
         .filter(Boolean)
         .join("\n"),
@@ -401,6 +402,7 @@ export async function placeServiceOrder(
         roles: serviceTeamRoleIds(input.clan),
       },
     });
+    row.ticketMessageId = ticketMsg.id;
     await db
       .update(serviceOrdersTable)
       .set({ ticketMessageId: ticketMsg.id })
@@ -410,16 +412,51 @@ export async function placeServiceOrder(
   }
 
   try {
-    // Re-post modal uploads into the ticket so staff can see them immediately.
+    // Re-post modal uploads into the ticket and persist the *channel* CDN URLs
+    // (modal upload URLs expire quickly and break the canvas photo strip).
     if (photos.length) {
       try {
-        await channel.send({
-          content: `📎 **${photos.length}** photo(s) attached with this order (part of the ticket):`,
+        const photoMsg = await channel.send({
+          content: `📷 **${photos.length}** order photo(s) — also on the card above, or tap **View Pics**.`,
           files: photos.slice(0, SERVICE_ORDER_MAX_PHOTOS).map((a) => ({
             attachment: a.url,
             name: a.name || "upload.png",
           })),
         });
+        const stable: ServiceOrderAttachment[] = [...photoMsg.attachments.values()]
+          .filter((a) => isImageAttachment({ contentType: a.contentType, name: a.name }))
+          .map((a) => ({
+            url: a.url,
+            name: a.name || "upload.png",
+            contentType: a.contentType ?? null,
+            size: a.size ?? 0,
+          }));
+        if (stable.length) {
+          await db
+            .update(serviceOrdersTable)
+            .set({
+              attachmentsJson: serializeAttachments(stable),
+              attachmentCount: stable.length,
+            })
+            .where(eq(serviceOrdersTable.id, row.id));
+          row.attachmentsJson = serializeAttachments(stable);
+          row.attachmentCount = stable.length;
+          // Refresh the ticket canvas now that photos have durable URLs.
+          const refreshed = await buildOrderPayload(input.client, input.clan, row, "ticket");
+          if (row.ticketMessageId) {
+            try {
+              const tmsg = await channel.messages.fetch(row.ticketMessageId);
+              await tmsg.edit({
+                embeds: refreshed.embeds,
+                files: refreshed.files,
+                components: refreshed.components,
+                attachments: [],
+              });
+            } catch (err) {
+              logger.warn({ err, orderId: row.id }, "ticket photo canvas refresh failed");
+            }
+          }
+        }
       } catch (err) {
         logger.warn({ err, channelId: channel.id }, "Service order attachment repost failed");
       }
@@ -429,11 +466,12 @@ export async function placeServiceOrder(
       .fetch(input.clan.serviceOrderChannelId!)
       .catch(() => null);
     if (board?.isTextBased()) {
+      const boardCardFresh = await buildOrderPayload(input.client, input.clan, row, "board");
       const boardMsg = await board.send({
         content: `🆕 **${row.publicId}** · ${catalogService.label} · <@${input.customer.id}> · Queue #${row.queuePosition ?? "?"}`,
-        embeds: boardCard.embeds,
-        files: boardCard.files,
-        components: boardCard.components,
+        embeds: boardCardFresh.embeds,
+        files: boardCardFresh.files,
+        components: boardCardFresh.components,
       });
       await db
         .update(serviceOrdersTable)
@@ -840,21 +878,6 @@ async function notifyCustomer(
     })
     .setTitle(opts.title.slice(0, 256))
     .setDescription(opts.body.slice(0, 2000))
-    .addFields(
-      {
-        name: "Queue",
-        value:
-          order.queuePosition != null
-            ? `#${order.queuePosition}`
-            : "—",
-        inline: true,
-      },
-      {
-        name: "Order",
-        value: order.publicId,
-        inline: true,
-      }
-    )
     .setFooter({ text: "Leveling service" })
     .setTimestamp();
 
@@ -862,6 +885,8 @@ async function notifyCustomer(
     embed.addFields({ name: "Ticket", value: `<#${order.channelId}>`, inline: true });
   }
 
+  // DM keeps a short receipt. Ticket already has the live canvas — only a
+  // lightweight @ping there (no second fat status embed under the card).
   try {
     const user = await client.users.fetch(order.customerId);
     await user.send({ embeds: [embed] });
@@ -874,8 +899,8 @@ async function notifyCustomer(
       const ch = await client.channels.fetch(order.channelId);
       if (ch?.isTextBased() && ch.isSendable()) {
         await ch.send({
-          content: `<@${order.customerId}>`,
-          embeds: [embed],
+          content:
+            `<@${order.customerId}> · **${opts.title}**\n` + opts.body.slice(0, 400),
           allowedMentions: { users: [order.customerId] },
         });
       }
@@ -943,7 +968,7 @@ function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowC
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(svcCustomerQuickReply(orderId))
-        .setPlaceholder("Quick message to staff…")
+        .setPlaceholder("💬 Quick message to staff…")
         .addOptions(
           CUSTOMER_QUICK_REPLIES.map((r) => ({
             label: r.label.slice(0, 100),
@@ -954,15 +979,20 @@ function ticketCustomerRows(orderId: number): ActionRowBuilder<MessageActionRowC
     ),
     new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
       new ButtonBuilder()
+        .setCustomId(svcViewPics(orderId))
+        .setLabel("View Pics")
+        .setEmoji("📷")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(svcRequestDelete(orderId))
+        .setLabel("Request Close")
+        .setEmoji("🗑️")
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
         .setCustomId(svcCustomerCancel(orderId))
         .setLabel("Cancel Order")
         .setEmoji("🚫")
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId(svcRequestDelete(orderId))
-        .setLabel("Request to Delete")
-        .setEmoji("🗑️")
-        .setStyle(ButtonStyle.Secondary)
+        .setStyle(ButtonStyle.Danger)
     ),
   ];
 }
@@ -1069,77 +1099,56 @@ export async function buildOrderPayload(
     logger.warn({ err, orderId: order.id }, "serviceOrderCard render failed");
   }
 
+  // Canvas carries status / quote / levels — keep the Discord embed thin so
+  // the ticket isn't a second copy of the same info under the image.
   const embed = new EmbedBuilder()
     .setColor(STATUS_COLOR[status] ?? 0x5865f2)
-    .setTitle(`${STATUS_EMOJI[status] ?? "🛠️"} ${order.publicId} · ${order.serviceLabel}`)
-    .setDescription(queueHeadline(order))
-    .addFields(
-      { name: "Customer", value: `<@${order.customerId}>`, inline: true },
-      {
-        name: "Queue",
-        value:
-          order.queuePosition != null
-            ? `#${order.queuePosition} (${ordersAhead(order.queuePosition)} ahead)`
-            : "—",
-        inline: true,
-      },
-      {
-        name: "Staff",
-        value: order.staffId ? `<@${order.staffId}>` : "_unclaimed_",
-        inline: true,
-      },
-      {
-        name: "Your place",
-        value: placeMessage,
-        inline: false,
-      },
-      {
-        name: `${itemNoun.charAt(0).toUpperCase()}${itemNoun.slice(1)} name`,
-        value: vehicleText ? vehicleText.slice(0, 200) : "_none listed_",
-        inline: false,
-      },
-      {
-        name: "Current level",
-        value: currentLevel != null ? String(currentLevel) : "—",
-        inline: true,
-      },
-      {
-        name: "Target level",
-        value: targetMaxed
-          ? "maxed"
-          : targetLevel != null
-            ? String(targetLevel)
-            : "—",
-        inline: true,
-      },
-      {
-        name: "⚡ Priority",
-        value: speedLabel ?? "_standard_",
-        inline: true,
-      },
-      {
-        name: "💎 Quote",
-        value: quoteLine ?? "_staff will confirm_",
-        inline: true,
-      },
-      {
-        name: "🏷️ Tags",
-        value: displayTags.length ? displayTags.join(" · ") : "_none_",
-        inline: false,
-      },
-      {
-        name: "Important information",
-        value: order.details.slice(0, 1024),
-      },
-      {
-        name: "Attachments",
-        value: order.attachmentCount
-          ? `📷 **${order.attachmentCount}** photo(s) on this ticket`
-          : "_No photos yet_",
-        inline: true,
-      }
-    )
     .setTimestamp(order.createdAt);
+
+  if (audience === "ticket") {
+    embed
+      .setTitle(`${STATUS_EMOJI[status] ?? "🛠️"} ${order.publicId}`)
+      .setDescription(
+        [
+          placeMessage,
+          speedLabel ? `⚡ ${speedLabel}` : null,
+          quoteLine ? `💎 ${quoteLine}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || queueHeadline(order)
+      );
+  } else {
+    embed
+      .setTitle(`${STATUS_EMOJI[status] ?? "🛠️"} ${order.publicId} · ${order.serviceLabel}`)
+      .setDescription(queueHeadline(order))
+      .addFields(
+        { name: "Customer", value: `<@${order.customerId}>`, inline: true },
+        {
+          name: "Queue",
+          value:
+            order.queuePosition != null
+              ? `#${order.queuePosition} (${ordersAhead(order.queuePosition)} ahead)`
+              : "—",
+          inline: true,
+        },
+        {
+          name: "Staff",
+          value: order.staffId ? `<@${order.staffId}>` : "_unclaimed_",
+          inline: true,
+        },
+        ...(quoteLine
+          ? [{ name: "💎 Quote", value: quoteLine, inline: true }]
+          : []),
+        ...(speedLabel
+          ? [{ name: "⚡ Priority", value: speedLabel, inline: true }]
+          : []),
+        {
+          name: `${itemNoun.charAt(0).toUpperCase()}${itemNoun.slice(1)}`,
+          value: vehicleText ? vehicleText.slice(0, 200) : "_none_",
+          inline: false,
+        }
+      );
+  }
 
   if (files?.length) {
     embed.setImage(`attachment://order-${order.publicId}.png`);
@@ -1157,7 +1166,10 @@ export async function refreshOrderMessages(
   clan: Clan,
   order: ServiceOrder
 ): Promise<void> {
-  const content = `${STATUS_EMOJI[order.status as ServiceOrderStatus] ?? ""} **${order.publicId}** · ${queueHeadline(order)}`;
+  const status = order.status as ServiceOrderStatus;
+  const content =
+    audiencePingContent(order) ??
+    `${STATUS_EMOJI[status] ?? ""} **${order.publicId}** · ${queueHeadline(order)}`;
 
   const edit = async (
     channelId: string | null,
@@ -1172,7 +1184,7 @@ export async function refreshOrderMessages(
       if (!msg) return;
       const payload = await buildOrderPayload(client, clan, order, audience);
       const editPayload: MessageEditOptions = {
-        content,
+        content: audience === "ticket" ? content : `**${order.publicId}** · ${queueHeadline(order)}`,
         embeds: payload.embeds,
         components: payload.components,
         files: payload.files,
@@ -1185,6 +1197,21 @@ export async function refreshOrderMessages(
 
   await edit(order.channelId, order.ticketMessageId, "ticket");
   await edit(order.boardChannelId, order.boardMessageId, "board");
+}
+
+function audiencePingContent(order: ServiceOrder): string {
+  const status = order.status as ServiceOrderStatus;
+  const pos =
+    order.queuePosition != null
+      ? `Queue **#${order.queuePosition}**` +
+        (ordersAhead(order.queuePosition) === 0
+          ? " — you're next"
+          : ` · ${ordersAhead(order.queuePosition)} ahead`)
+      : STATUS_LABEL[status] ?? status;
+  return (
+    `<@${order.customerId}> · **${order.publicId}** · ` +
+    `${STATUS_EMOJI[status] ?? ""} ${STATUS_LABEL[status] ?? status} · ${pos}`
+  );
 }
 
 /** Staff: cancel if still open, then delete the private ticket channel (order history kept). */
